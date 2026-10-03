@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
-"""VaultContext file client. Private keys exist only in the unlocked process memory."""
+"""Store, version, restore and explicitly share encrypted files.
+
+Private keys are stored encrypted on the server and decrypted only in memory.
+"""
 import argparse
 import base64
 import getpass
@@ -14,6 +17,7 @@ import stat
 import struct
 import sys
 import time
+import textwrap
 import urllib.parse
 import urllib.request
 
@@ -365,29 +369,206 @@ def unlock(cfg, timeout):
         os._exit(0)
 
 def parser():
-    p = argparse.ArgumentParser(description=__doc__)
-    commands = p.add_subparsers(dest='command', required=True)
-    def add(name, *positionals):
-        q = commands.add_parser(name)
+    p = argparse.ArgumentParser(
+        description=__doc__, usage='%(prog)s [-h] COMMAND ...',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""First use (replace the example URL and email):
+  export VAULTCONTEXT_URL=https://vault.example.com
+  export VAULTCONTEXT_USER_EMAIL=you@example.com
+  vc login --google
+  vc init                         # once per account; prompts for a passphrase
+  vc unlock                       # prompts; session lasts 15 minutes
+  vc create 'Personal'            # returns the VAULT_ID for save
+  vc save VAULT_ID /path/to/file
+  vc lock
+
+Google login authenticates your account; unlock decrypts your keys.
+Passphrases require an interactive terminal. There are no recovery keys.
+Commands return JSON. Run vc COMMAND --help for arguments and examples.
+Manual: https://github.com/pocketcontext/vaultcontext/blob/main/skills/vaultcontext/references/workflows.md""")
+    commands = p.add_subparsers(prog=p.prog, dest='command', required=True, metavar='COMMAND',
+                               help=argparse.SUPPRESS)
+    summaries = {}
+    positional_help = {
+        'vault': ('VAULT_ID', 'vault ID from vc vaults or vc create'),
+        'document': ('DOCUMENT_ID', 'document ID from vc list or vc search'),
+        'account': ('ACCOUNT_ID', 'account ID from vc directory or vc members'),
+        'invitation': ('INVITATION_ID', 'invitation ID from vc invitations'),
+        'path': ('PATH', 'source file path; at most 8 MiB; symlinks rejected'),
+        'name': ('NAME', 'display name for the new vault (encrypted on the server)'),
+        'text': ('TEXT', 'case-insensitive fragment of the decrypted display name'),
+        'archive': ('ARCHIVE', 'local encrypted archive created by vc export'),
+    }
+
+    def add(name, summary, description, example, *positionals):
+        summaries[name] = summary
+        q = commands.add_parser(
+            name, description='\n\n'.join(textwrap.fill(part, width=76) for part in description.split('\n\n')),
+            epilog='Example:\n  vc ' + example,
+            formatter_class=argparse.RawDescriptionHelpFormatter)
         for arg in positionals:
-            q.add_argument(arg)
+            metavar, help_text = positional_help[arg]
+            q.add_argument(arg, metavar=metavar, help=help_text)
         return q
-    q = add('login'); q.add_argument('--google', action='store_true'); q.add_argument('--port', type=int, default=8765); q.add_argument('--timeout', type=int, default=180)
-    for name in ('whoami', 'logout', 'check', 'init', 'lock', 'vaults', 'invitations', 'change-passphrase'):
-        add(name)
-    q = add('unlock'); q.add_argument('--timeout', type=int, default=900)
-    add('create', 'name')
-    q = add('save', 'vault', 'path'); q.add_argument('--document'); q.add_argument('--name')
-    add('list', 'vault'); add('search', 'vault', 'text'); add('history', 'document'); add('members', 'vault')
-    q = add('restore', 'document'); q.add_argument('--version'); q.add_argument('--to', required=True); q.add_argument('--overwrite', action='store_true')
-    q = add('share', 'vault', 'account'); q.add_argument('--role', choices=['reader', 'editor'], default='reader'); q.add_argument('--fingerprint', required=True)
-    q = add('accept', 'invitation'); q.add_argument('--fingerprint', required=True)
-    add('revoke', 'vault', 'account'); add('rotate', 'vault')
-    q = add('verify-user', 'account'); q.add_argument('--fingerprint', required=True)
-    add('directory')
-    q = add('export', 'vault'); q.add_argument('--to', required=True); q.add_argument('--overwrite', action='store_true')
-    add('inspect-export', 'archive')
-    q = add('restore-export', 'archive'); q.add_argument('--document', required=True); q.add_argument('--version', required=True); q.add_argument('--to', required=True); q.add_argument('--overwrite', action='store_true')
+
+    def destination(q):
+        q.add_argument('--to', required=True, metavar='PATH',
+                       help='destination file; parent directory must exist; symlinks rejected; mode 0600')
+        q.add_argument('--overwrite', action='store_true',
+                       help='replace an existing destination (default: refuse overwrite)')
+
+    def fingerprint(q, person):
+        q.add_argument('--fingerprint', required=True, metavar='FINGERPRINT',
+                       help=f'{person} public-key fingerprint, verified through an independent trusted channel')
+
+    unlocked = 'Requires login and an unlocked session (vc unlock). '
+    q = add('login', 'Sign in to your account',
+            'Sign in and cache an application token. Set VAULTCONTEXT_URL and '
+            'VAULTCONTEXT_USER_EMAIL first. Use --google for browser sign-in, or '
+            'VAULTCONTEXT_USER_PASSWORD for a provisioned password account. '
+            'The account password is separate from the vault passphrase.\n\n'
+            'Over SSH, forward the callback port: ssh -L 8765:127.0.0.1:8765 user@host. '
+            'Open the printed URL on your browser machine; decryption stays on the CLI host.',
+            'login --google')
+    q.add_argument('--google', action='store_true', help='sign in with Google in a browser')
+    q.add_argument('--port', type=int, default=8765,
+                   help='Google callback port, 1–65535; with --google (default: %(default)s)')
+    q.add_argument('--timeout', type=int, default=180,
+                   help='Google sign-in wait in seconds, 1–600; with --google (default: %(default)s)')
+    add('whoami', 'Show your authenticated account ID',
+        'Refresh the application token and return your account ID. Requires login; no unlock needed.', 'whoami')
+    add('logout', 'Lock and remove the local sign-in token',
+        'Close the local unlock session and delete the cached application token for the configured '
+        'server and email. Copied tokens are not revoked.', 'logout')
+    add('check', 'Check server schema compatibility',
+        'Compare the authenticated server SQL schema with this client\'s bundled snapshot. '
+        'Requires login; no unlock needed. Exits with code 3 for schema differences.', 'check')
+    add('init', 'Initialize your encryption identity once',
+        'Requires login. Create your encryption/signing identity once per account. '
+        'Prompts twice for a passphrase of at least 12 characters in an interactive terminal; '
+        'stores the encrypted private-key bundle on the server and returns your public fingerprint. '
+        'There are no recovery keys. Run vc unlock afterward.', 'init')
+    q = add('unlock', 'Start a temporary session with keys in memory',
+            'Requires login and an initialized identity (vc init). Prompts for your vault '
+            'passphrase in an interactive terminal and starts a same-OS-user memory session. '
+            'The execution host and agents using the session are trusted. Expiration rejects '
+            'new requests; an operation already running may finish. Close early with vc lock.',
+            'unlock --timeout 900')
+    q.add_argument('--timeout', type=int, default=900,
+                   help='session lifetime in seconds, 30–3600 (default: %(default)s)')
+    add('lock', 'Close the local memory session',
+        'End the unlocked session for the configured server and email. Keeps the application '
+        'token; use vc logout to remove it too. Requires an existing unlock session.', 'lock')
+    add('change-passphrase', 'Change your identity passphrase',
+        unlocked + 'Prompt twice for a new passphrase (at least 12 characters) in an interactive '
+        'terminal and re-encrypt the server identity bundle. This does not replace identity keys. '
+        'An existing unlocked session can change a forgotten passphrase; there are no recovery keys.',
+        'change-passphrase')
+    add('vaults', 'List accessible vault names, IDs and roles',
+        unlocked + 'Decrypt vault names and list your active vault memberships.', 'vaults')
+    add('create', 'Create a private vault',
+        unlocked + 'Create a vault you own and return its ID. Use vc share to invite members.',
+        "create 'Personal'", 'name')
+    q = add('save', 'Save a file or add an immutable version',
+            unlocked + 'Owners and editors can save exact file bytes, up to 8 MiB. By default '
+            'creates a new document; --document adds an immutable version to an existing document '
+            'in the same vault. Names are encrypted. Symlink sources and ancestors are rejected.',
+            'save VAULT_ID /path/to/file --document DOCUMENT_ID', 'vault', 'path')
+    q.add_argument('--document', metavar='DOCUMENT_ID',
+                   help='existing document ID from vc list; omit to create a new document')
+    q.add_argument('--name', metavar='NAME',
+                   help='encrypted display name for this version (default: source filename)')
+    add('list', 'List files and document IDs in a vault',
+        unlocked + 'Authenticate current versions and show decrypted names, sizes and revisions. '
+        'Does not print file contents. Verify other writers with vc verify-user first.', 'list VAULT_ID', 'vault')
+    add('search', 'Search decrypted file names',
+        unlocked + 'Search current display names locally, ignoring case. Does not search file '
+        'contents. Verify other writers with vc verify-user first.', 'search VAULT_ID invoice', 'vault', 'text')
+    add('history', 'List a document\'s retained versions',
+        unlocked + 'Authenticate retained versions and show version IDs, revisions, authors, '
+        'names and sizes. Verify other writers with vc verify-user first.', 'history DOCUMENT_ID', 'document')
+    q = add('restore', 'Restore a file version to a local path',
+            unlocked + 'Restore exact bytes, defaulting to the current version. Verify the '
+            'writer with vc verify-user first. Existing destinations require --overwrite. '
+            'Parents must exist; symlink destinations and ancestors are rejected. Writes mode '
+            '0600; original permissions and executable bits are not restored. Never executes the file.',
+            'restore DOCUMENT_ID --to /path/to/destination', 'document')
+    q.add_argument('--version', metavar='VERSION_ID',
+                   help='version ID from vc history (default: current version)')
+    destination(q)
+    add('directory', 'List registered accounts and public keys',
+        'Requires login; no unlock needed. List user names, emails, account IDs and public keys. '
+        'Directory values are not independent proof of identity; verify fingerprints through a trusted channel.',
+        'directory')
+    q = add('verify-user', 'Pin an independently verified fingerprint',
+            'Requires login; no unlock needed. Compare the supplied fingerprint with the account\'s '
+            'public keys and pin it locally for this server and user. Verify owners and writers '
+            'before reading their signed data; verify recipients before sharing.',
+            'verify-user ACCOUNT_ID --fingerprint VERIFIED_FINGERPRINT', 'account')
+    fingerprint(q, 'account')
+    add('members', 'List active vault members and roles',
+        unlocked + 'List active owner, editor and reader memberships with account IDs.', 'members VAULT_ID', 'vault')
+    q = add('share', 'Invite a reader or editor to the whole vault',
+            unlocked + 'Owner only. Verify the recipient fingerprint independently. Acceptance '
+            'grants the whole vault and all retained history. Use a dedicated vault for a single-file '
+            'share. To change an active member\'s role, revoke/rotate and then invite again.',
+            'share VAULT_ID ACCOUNT_ID --role reader --fingerprint VERIFIED_RECIPIENT_FINGERPRINT',
+            'vault', 'account')
+    q.add_argument('--role', choices=['reader', 'editor'], default='reader',
+                   help='reader can restore; editor can also save (default: %(default)s)')
+    fingerprint(q, 'recipient')
+    add('invitations', 'List accessible pending invitations',
+        unlocked + 'List pending invitations and their IDs. Use vc accept for an invitation addressed to you.',
+        'invitations')
+    q = add('accept', 'Accept a vault invitation',
+            unlocked + 'Verify the owner\'s fingerprint independently, authenticate the offered '
+            'key history, then accept your invitation.',
+            'accept INVITATION_ID --fingerprint VERIFIED_OWNER_FINGERPRINT', 'invitation')
+    fingerprint(q, 'owner')
+    add('revoke', 'Remove a member and rotate future-write keys',
+        unlocked + 'Owner only; owners cannot remove themselves. Revoke the member, cancel pending '
+        'invitations and freeze writes before rotating keys for remaining members. Previously '
+        'downloaded plaintext and keys cannot be recalled; rotation protects future versions. '
+        'If rotation fails, verify remaining members and run vc rotate. Reissue canceled invitations afterward.',
+        'revoke VAULT_ID ACCOUNT_ID', 'vault', 'account')
+    add('rotate', 'Rotate vault keys or finish a failed revocation',
+        unlocked + 'Owner only. Independently verify and pin all remaining member fingerprints '
+        'with vc verify-user first. Publish keys for a new generation and unfreeze writes after '
+        'revocation. Existing versions keep their original keys; reissue canceled invitations afterward.',
+        'rotate VAULT_ID', 'vault')
+    q = add('export', 'Export retained files to an encrypted archive',
+            unlocked + 'Export all accessible retained file versions. Prompts twice for a separate '
+            'archive passphrase in an interactive terminal. Contains no identity private keys or '
+            'live vault-key envelopes and cannot recover your live-vault passphrase. The plaintext '
+            'archive limit is 64 MiB, including base64 and metadata. Restore without a server using '
+            'vc restore-export. Parent directory must exist; output mode is 0600.',
+            'export VAULT_ID --to /path/to/files.vault-export', 'vault')
+    destination(q)
+    add('inspect-export', 'List document and version IDs in an archive',
+        'Works offline without server configuration, login or unlock. Prompts for the archive '
+        'passphrase in an interactive terminal and decrypts in memory. Lists metadata without '
+        'file contents; use its document/version IDs with vc restore-export.',
+        'inspect-export /path/to/files.vault-export', 'archive')
+    q = add('restore-export', 'Restore one file from an encrypted archive',
+            'Works offline without server configuration, login or unlock. Prompts for the archive '
+            'passphrase in an interactive terminal. Decrypts in memory and writes only the selected '
+            'file, with mode 0600. Parent directory must exist; symlink destinations and ancestors '
+            'are rejected. Refuses existing destinations unless --overwrite is supplied. Never executes the file.',
+            'restore-export /path/to/files.vault-export --document DOCUMENT_ID --version VERSION_ID --to /path/to/file',
+            'archive')
+    q.add_argument('--document', required=True, metavar='DOCUMENT_ID', help='document ID from vc inspect-export')
+    q.add_argument('--version', required=True, metavar='VERSION_ID', help='version ID from vc inspect-export')
+    destination(q)
+
+    groups = [
+        ('Account and keys', ('login', 'whoami', 'logout', 'check', 'init', 'unlock', 'lock', 'change-passphrase')),
+        ('Vaults and files', ('vaults', 'create', 'save', 'list', 'search', 'history', 'restore')),
+        ('Sharing', ('directory', 'verify-user', 'members', 'share', 'invitations', 'accept', 'revoke', 'rotate')),
+        ('Encrypted archives', ('export', 'inspect-export', 'restore-export')),
+    ]
+    p.epilog = '\n\n'.join(
+        title + ':\n' + '\n'.join(f'  {name:19} {summaries[name]}' for name in names)
+        for title, names in groups) + '\n\n' + p.epilog
     return p
 
 def run(args):

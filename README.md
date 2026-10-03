@@ -49,6 +49,10 @@ python3 -m venv ~/.local/share/vaultcontext-venv
 ~/.local/share/vaultcontext-venv/bin/vc login --google
 ```
 
+Run `vc --help` for grouped commands and a first-use example, or `vc COMMAND --help`
+for arguments, prerequisites and examples. Commands return JSON; help does not
+require configuration or sign-in.
+
 Use the chosen `vc` command for `whoami`, `check`, `init`, `unlock`, and subsequent operations. `init` and `unlock` prompt in an interactive terminal. Never pass unlock secrets through chat, arguments, environment variables or pipes. Over SSH, forward Google callback port 8765 as described in the [skill workflows](skills/vaultcontext/references/workflows.md); decryption still occurs on the machine running the CLI. Configuration must be available wherever the command runs; a workspace `.envrc` may not be loaded outside that workspace.
 
 The [skill](skills/vaultcontext/SKILL.md) includes the launcher and operation references. It supports vault creation, arbitrary-file saves, local name search, version history, exact restores, invitations, memberships, revocation/rotation, encrypted export and independent archive restore. Saving again with `--document` creates a new immutable version. No format-specific parsing, automatic synchronization or shell activation occurs.
