@@ -1,0 +1,9 @@
+pb_data/
+.env*
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+*.log
+dist/
+.local/

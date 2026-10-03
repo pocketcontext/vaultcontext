@@ -1,0 +1,48 @@
+name: Vault application validation
+on:
+  push:
+  pull_request:
+  workflow_call:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: vaultcontext
+          persist-credentials: false
+      - name: Install client crypto dependency
+        run: python3 -m pip install --requirement vaultcontext/skills/vaultcontext/scripts/requirements.txt
+      - name: Read pinned server revision
+        id: server
+        shell: bash
+        run: |
+          revision=$(cat vaultcontext/POCKETCONTEXT_VERSION)
+          [[ "$revision" =~ ^[0-9a-f]{40}$ ]]
+          echo "revision=$revision" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: pocketcontext/pocketcontext
+          ref: ${{ steps.server.outputs.revision }}
+          path: pocketcontext
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: pocketcontext/go.mod
+          cache-dependency-path: pocketcontext/go.sum
+      - name: Build pinned server
+        working-directory: pocketcontext
+        run: CGO_ENABLED=1 go build -tags sqlite_math_functions -o bin/pocketcontext ./cmd/pocketcontext
+      - name: Crypto, client, packaging and deployment unit checks
+        run: |
+          python3 -m unittest discover -s vaultcontext/tests -p 'test_*.py'
+          python3 vaultcontext/tests/deploy_workflow.py
+          python3 vaultcontext/tests/oauth.py
+      - name: Isolated application, identity, OAuth, portable skill and deployment checks
+        run: |
+          for check in integration auth oauth_integration realtime skill cli_forward deploy backup_integration limits; do
+            python3 "vaultcontext/tests/$check.py" --binary "$PWD/pocketcontext/bin/pocketcontext"
+          done

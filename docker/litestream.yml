@@ -1,0 +1,14 @@
+# Litestream 0.5.x configuration (single `replica:` key; 0.3.x used a `replicas:` list).
+# The entrypoint validates the variables and sets the optional ones before Litestream reads
+# this file. The credentials are not written here: Litestream reads LITESTREAM_ACCESS_KEY_ID
+# and LITESTREAM_SECRET_ACCESS_KEY from the environment itself.
+# A custom endpoint (R2, MinIO) selects path-style addressing automatically.
+dbs:
+  - path: /storage/pb_data/data.db
+    replica:
+      type: s3
+      bucket: "${LITESTREAM_BUCKET}"
+      path: "${LITESTREAM_PATH}"
+      region: "${LITESTREAM_REGION}"
+      endpoint: "${LITESTREAM_ENDPOINT}"
+      sync-interval: "${LITESTREAM_SYNC_INTERVAL}"

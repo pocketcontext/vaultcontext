@@ -1,0 +1,119 @@
+{
+  "authCollection": "users",
+  "tables": {
+    "user_directory": [
+      "id",
+      "name",
+      "email",
+      "created"
+    ],
+    "identities": [
+      "id",
+      "account",
+      "public_key",
+      "signing_key",
+      "fingerprint",
+      "created"
+    ],
+    "identity_secrets": [
+      "id",
+      "account",
+      "key_bundle",
+      "revision",
+      "created"
+    ],
+    "vaults": [
+      "id",
+      "owner",
+      "metadata",
+      "epoch",
+      "revision",
+      "frozen",
+      "created"
+    ],
+    "memberships": [
+      "id",
+      "vault",
+      "account",
+      "role",
+      "active",
+      "created"
+    ],
+    "key_envelopes": [
+      "id",
+      "vault",
+      "account",
+      "epoch",
+      "envelope",
+      "created"
+    ],
+    "documents": [
+      "id",
+      "vault",
+      "metadata",
+      "revision",
+      "current_version",
+      "created"
+    ],
+    "versions": [
+      "id",
+      "vault",
+      "document",
+      "epoch",
+      "revision",
+      "manifest",
+      "signature",
+      "author",
+      "chunk_count",
+      "created"
+    ],
+    "version_chunks": [
+      "id",
+      "vault",
+      "version",
+      "position",
+      "ciphertext",
+      "created",
+      "sha256"
+    ],
+    "invitations": [
+      "id",
+      "vault",
+      "account",
+      "role",
+      "status",
+      "invited_by",
+      "created"
+    ],
+    "audit_log": [
+      "id",
+      "vault",
+      "actor",
+      "action",
+      "target",
+      "created"
+    ]
+  },
+  "timeoutMs": 5000,
+  "maxRows": 500,
+  "maxBytes": 1048576,
+  "snapshot": {
+    "filters": {
+      "user_directory": "1 = 1",
+      "identities": "1 = 1",
+      "identity_secrets": "account = :requester",
+      "vaults": "EXISTS (SELECT 1 FROM memberships m WHERE m.vault = vaults.id AND m.account = :requester AND m.active = 1)",
+      "memberships": "EXISTS (SELECT 1 FROM memberships m WHERE m.vault = memberships.vault AND m.account = :requester AND m.active = 1)",
+      "key_envelopes": "account = :requester AND (EXISTS (SELECT 1 FROM memberships m WHERE m.vault = key_envelopes.vault AND m.account = :requester AND m.active = 1) OR EXISTS (SELECT 1 FROM invitations i WHERE i.vault = key_envelopes.vault AND i.account = :requester AND i.status = 'pending'))",
+      "documents": "EXISTS (SELECT 1 FROM memberships m WHERE m.vault = documents.vault AND m.account = :requester AND m.active = 1)",
+      "versions": "EXISTS (SELECT 1 FROM memberships m WHERE m.vault = versions.vault AND m.account = :requester AND m.active = 1)",
+      "version_chunks": "EXISTS (SELECT 1 FROM memberships m WHERE m.vault = version_chunks.vault AND m.account = :requester AND m.active = 1)",
+      "invitations": "account = :requester OR EXISTS (SELECT 1 FROM vaults v WHERE v.id = invitations.vault AND v.owner = :requester)",
+      "audit_log": "EXISTS (SELECT 1 FROM memberships m WHERE m.vault = audit_log.vault AND m.account = :requester AND m.active = 1)"
+    },
+    "timeoutMs": 5000,
+    "maxRows": 100000,
+    "maxBytes": 33554432,
+    "maxConcurrent": 2
+  }
+}

@@ -1,0 +1,11 @@
+# Deny everything, then allow only what the Dockerfile copies. .envrc, .env*, pb_data/, .git/,
+# tests/, skills/, and any new file stay out of the build context unless they are listed here.
+*
+!POCKETCONTEXT_VERSION
+!pocketcontext.json
+!pb_migrations/*.js
+!pb_hooks/*.js
+!docker/entrypoint.sh
+!docker/litestream.yml
+
+!docker/backup.py

@@ -1,0 +1,94 @@
+{
+  "user_directory": [
+    "created",
+    "email",
+    "id",
+    "name"
+  ],
+  "identities": [
+    "account",
+    "created",
+    "fingerprint",
+    "id",
+    "public_key",
+    "signing_key"
+  ],
+  "identity_secrets": [
+    "account",
+    "created",
+    "id",
+    "key_bundle",
+    "revision"
+  ],
+  "vaults": [
+    "created",
+    "epoch",
+    "frozen",
+    "id",
+    "metadata",
+    "owner",
+    "revision"
+  ],
+  "memberships": [
+    "account",
+    "active",
+    "created",
+    "id",
+    "role",
+    "vault"
+  ],
+  "key_envelopes": [
+    "account",
+    "created",
+    "envelope",
+    "epoch",
+    "id",
+    "vault"
+  ],
+  "documents": [
+    "created",
+    "current_version",
+    "id",
+    "metadata",
+    "revision",
+    "vault"
+  ],
+  "versions": [
+    "author",
+    "chunk_count",
+    "created",
+    "document",
+    "epoch",
+    "id",
+    "manifest",
+    "revision",
+    "signature",
+    "vault"
+  ],
+  "version_chunks": [
+    "ciphertext",
+    "created",
+    "id",
+    "position",
+    "sha256",
+    "vault",
+    "version"
+  ],
+  "invitations": [
+    "account",
+    "created",
+    "id",
+    "invited_by",
+    "role",
+    "status",
+    "vault"
+  ],
+  "audit_log": [
+    "action",
+    "actor",
+    "created",
+    "id",
+    "target",
+    "vault"
+  ]
+}
