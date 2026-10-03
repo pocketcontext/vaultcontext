@@ -133,3 +133,21 @@ client pin `5e2562624d9302d77eb2d9a01b8c7cf462fefb19`. Release `33b9324` passed
 application CI and container configuration, smoke and populated restore gates
 before image publication and verified production deployment. See
 [release evidence](../DEPLOYMENT.md#management-only-agent-skill-release).
+
+
+## Confidential-dotfile onboarding release — 2026-10-03
+
+All 41 unit tests and all twelve README application validation scripts passed
+against isolated fixtures using pinned server `a92b0de`. Copied standalone skill
+and terminal/session tests passed with the launcher pinned to `8f09fd8`. Final
+ARM64 container build, configuration, smoke and populated complete restore checks
+passed. Release `ceba562` passed both GitHub workflows, including AMD64/ARM64
+publication; links and the exact deployed manifest are in `DEPLOYMENT.md`.
+
+Static routing checks verified exact assets, CSP, nosniff, no-referrer, source-file
+denial, missing-path 404s and unaffected API health. Local and live Chromium checks
+covered desktop, 390/320-pixel layouts, keyboard navigation, installation method
+switching, clipboard success/fallback and native disclosures without JavaScript.
+Public asset verification accounted only for Cloudflare's Rocket Loader HTML
+transformation; all three origin asset hashes matched the checked-in source.
+The production schema endpoint continued to reject anonymous requests.

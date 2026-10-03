@@ -1,8 +1,39 @@
 # VaultContext deployment — 3 October 2026
 
+## Confidential-dotfile onboarding release
+
+Production at https://vault.pocketcontext.com runs
+`ceba5620da95bfaaf74f32e25790576374496b07`, manifest
+`sha256:f45fdf47d6a670763ea100f82b7863334301714deaab298c6d889cf5c8a33291`.
+The standalone launcher pins `8f09fd8b75ad29e1663ab98533a7a971b386fd95`.
+The public page introduces confidential dotfiles, encrypted path labels and a
+synthetic `.env` save/restore walkthrough. Both setup paths install the skill with
+`npx skills` and copy its launcher onto PATH. Vault operations remain in the CLI.
+
+[Application validation](https://github.com/pocketcontext/vaultcontext/actions/runs/37140997192)
+and [container recovery gates and publication](https://github.com/pocketcontext/vaultcontext/actions/runs/37140997509)
+passed, including AMD64/ARM64 publication. Local pinned-server validation,
+copied-launcher tests and final ARM64 container config/smoke/populated restore
+checks also passed.
+
+The installed wrapper hash matched reviewed source. The local dedicated deployment
+key was rejected; existing operator SSH access invoked the same locked graceful-stop
+wrapper successfully. No deployment keys were changed. Production matched the
+exact revision, manifest and all three source asset hashes, with one running writer,
+one CPU, 512 MiB, the unchanged server pin and automatic updates disabled.
+All fourteen sibling container IDs and running states were unchanged.
+
+Public health, CSP/security headers, anonymous schema rejection and private source
+path denial passed. CSS/JS matched exactly; HTML matched after accounting for
+Cloudflare's existing Rocket Loader transformation. Live desktop/mobile, 320-pixel
+layout, keyboard navigation, method switching, clipboard success/fallback and
+no-JavaScript disclosures passed. No application data, schema or cloud resources
+changed. Real Google browser login and independent security review remain separate
+outstanding checks.
+
 ## Management-only agent skill release
 
-Production runs `33b9324296230b922631d6d4cb1835c682bf8414`, manifest
+This earlier release ran `33b9324296230b922631d6d4cb1835c682bf8414`, manifest
 `sha256:1c0951fc739ee31942c3629d5a9787e61bf85e305e6dc69b4cf92d913dfbc28f`.
 The launcher pins `5e2562624d9302d77eb2d9a01b8c7cf462fefb19`. The skill now
 permits file management and metadata inspection only; agents must not inspect
@@ -25,7 +56,7 @@ access returned 401. No cloud resources, schema or runtime behavior changed.
 
 ## Path labels and document archive release
 
-Production runs `6a9fa4b614102189391b79a58a75ec372ff117ad`, manifest
+This earlier release ran `6a9fa4b614102189391b79a58a75ec372ff117ad`, manifest
 `sha256:65daf0042393c7c1263c08ab16db312c82a9fd70288a852553a019e2dbb778bb`.
 The launcher pins application/client `7619d0c`, preserving literal supplied path
 labels and adding archive/unarchive with a separate archive-state revision.
