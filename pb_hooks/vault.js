@@ -63,6 +63,18 @@ function execute(app,actor,op,p) {
   return {id:v.id,revision:v.getInt('revision')};
  }
  const [v,m]=vault();
+ if(op==='archive'||op==='unarchive') {
+  if(!['owner','editor'].includes(m.getString('role')))denied();
+  if(v.getBool('frozen'))conflict();
+  const doc=get('documents',id('document'));
+  if(doc.getString('vault')!==v.id)denied();
+  if(p.expected_revision!==doc.getInt('revision')||p.expected_archive_revision!==doc.getInt('archive_revision'))conflict();
+  const archived=op==='archive';
+  if(doc.getBool('archived')!==archived) {
+   doc.set('archived',archived);doc.set('archive_revision',doc.getInt('archive_revision')+1);app.save(doc);audit(v.id,doc.id);
+  }
+  return {id:doc.id,revision:doc.getInt('revision'),archived:doc.getBool('archived'),archive_revision:doc.getInt('archive_revision')};
+ }
  if(op==='save') {
   if(m.getString('role')==='reader')denied();
   if(v.getBool('frozen')||p.epoch!==v.getInt('epoch'))conflict();
@@ -71,6 +83,10 @@ function execute(app,actor,op,p) {
   if(doc&&doc.getString('vault')!==v.id)denied();
   const revision=doc?doc.getInt('revision'):0;
   if(p.expected_revision!==revision)conflict();
+  // Legacy clients may save never-archived documents; stale state after any archive transition conflicts.
+  const archiveRevision=doc?doc.getInt('archive_revision'):0;
+  if((p.expected_archive_revision===undefined?0:p.expected_archive_revision)!==archiveRevision)conflict();
+  if(doc&&doc.getBool('archived'))throw new ApiError(409,'Document archived; unarchive before saving.',{});
   if(!Array.isArray(p.chunks)||p.chunks.length<1||p.chunks.length>64)bad('Invalid chunks');
   let total=0;p.chunks.forEach(c=>{if(typeof c!=='string'||!c.length||c.length>262144)bad('Invalid chunk');total+=c.length;});
   if(total>12000000)bad('File exceeds encoded size limit');

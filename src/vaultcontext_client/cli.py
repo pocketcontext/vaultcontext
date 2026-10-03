@@ -186,23 +186,34 @@ def execute(cfg, identity, account, args):
         current = one(cfg, 'documents', 'id=' + quote(document)) if args.get('document') else None
         if current and current['vault'] != vault['id']:
             raise auth.Fail(1, 'Document belongs to another vault.')
+        if current and current['archived']:
+            raise auth.Fail(1, 'Document is archived; unarchive it before saving a new version.')
         revision = int(current['revision']) if current else 0
+        archive_revision = int(current['archive_revision']) if current else 0
         epoch = int(vault['epoch'])
         key = vault_key(cfg, identity, account, vault['id'], epoch)
         data = crypto.read_file(args['path'])
         context = document_context(vault['id'], document, version, epoch)
-        info = {'name': args.get('name') or Path(args['path']).name, 'size': len(data)}
+        info = {'name': args['name'] if args.get('name') is not None else args['path'], 'size': len(data)}
         encrypted_info = metadata(key, info, dict(context, kind='file-metadata'))
         ciphertext = encode(crypto.encrypt_bytes(key, data, context))
         manifest = {'context': context, 'author': account, 'revision': revision + 1, 'metadata': encrypted_info, 'sha256': hashlib.sha256(ciphertext.encode()).hexdigest()}
         chunks = [ciphertext[i:i + 192 * 1024] for i in range(0, len(ciphertext), 192 * 1024)]
-        return action(cfg, 'save', {'vault': vault['id'], 'document': document, 'version': version, 'expected_revision': revision, 'epoch': epoch, 'metadata': encrypted_info, 'manifest': encode(manifest), 'signature': crypto.sign_manifest(identity, manifest), 'chunks': chunks})
+        return action(cfg, 'save', {'vault': vault['id'], 'document': document, 'version': version, 'expected_revision': revision, 'expected_archive_revision': archive_revision, 'epoch': epoch, 'metadata': encrypted_info, 'manifest': encode(manifest), 'signature': crypto.sign_manifest(identity, manifest), 'chunks': chunks})
+    if command in ('archive', 'unarchive'):
+        doc = one(cfg, 'documents', 'id=' + quote(args['document']))
+        return action(cfg, command, {'vault': doc['vault'], 'document': doc['id'],
+                                    'expected_revision': doc['revision'],
+                                    'expected_archive_revision': doc['archive_revision']})
     if command in ('list', 'search'):
         result = []
-        for doc in rows(cfg, 'documents', 'vault=' + quote(args['vault'])):
+        where = 'vault=' + quote(args['vault'])
+        if not args.get('all'):
+            where += ' AND archived=' + ('1' if args.get('archived') else '0')
+        for doc in rows(cfg, 'documents', where):
             _, info, ver = get_version(cfg, identity, account, doc['id'], content=False)
             if command != 'search' or args['text'].casefold() in info['name'].casefold():
-                result.append(dict(id=doc['id'], revision=ver['revision'], **info))
+                result.append(dict(id=doc['id'], revision=ver['revision'], archived=bool(doc['archived']), **info))
         return result
     if command == 'history':
         result = []
@@ -253,8 +264,8 @@ def execute(cfg, identity, account, args):
                 estimated_size += ((len(data) + 2) // 3) * 4 + len(info['name'].encode('utf-8')) * 6 + 512
                 if estimated_size > crypto.MAX_EXPORT_SIZE:
                     raise auth.Fail(1, 'Vault exceeds the 64 MiB plaintext archive limit.')
-                files.append({'document': doc['id'], 'version': ver['id'], 'revision': ver['revision'], 'name': info['name'], 'data': base64.b64encode(data).decode()})
-        encrypted = crypto.encrypt_export(encode({'format': 'vaultcontext-export-v1', 'files': files}).encode(), args['export_passphrase'])
+                files.append({'document': doc['id'], 'version': ver['id'], 'revision': ver['revision'], 'name': info['name'], 'archived': bool(doc['archived']), 'data': base64.b64encode(data).decode()})
+        encrypted = crypto.encrypt_export(encode({'format': 'vaultcontext-export-v2', 'files': files}).encode(), args['export_passphrase'])
         crypto.restore_file(args['to'], encode(encrypted).encode(), overwrite=args.get('overwrite', False))
         return {'exported_versions': len(files)}
     raise auth.Fail(2, 'Unknown vault operation.')
@@ -416,6 +427,11 @@ Manual: https://github.com/pocketcontext/vaultcontext/blob/main/skills/vaultcont
             q.add_argument(arg, metavar=metavar, help=help_text)
         return q
 
+    def archive_filters(q):
+        group = q.add_mutually_exclusive_group()
+        group.add_argument('--archived', action='store_true', help='include only archived documents')
+        group.add_argument('--all', action='store_true', help='include active and archived documents')
+
     def destination(q):
         q.add_argument('--to', required=True, metavar='PATH',
                        help='destination file; parent directory must exist; symlinks rejected; mode 0600')
@@ -477,18 +493,34 @@ Manual: https://github.com/pocketcontext/vaultcontext/blob/main/skills/vaultcont
     q = add('save', 'Save a file or add an immutable version',
             unlocked + 'Owners and editors can save exact file bytes, up to 8 MiB. By default '
             'creates a new document; --document adds an immutable version to an existing document '
-            'in the same vault. Names are encrypted. Symlink sources and ancestors are rejected.',
+            'in the same vault. Archived documents must be unarchived first. Names are encrypted; '
+            'the default preserves the exact source path argument as a label, without normalization. '
+            'Names are not unique and never select restore destinations. Symlink sources and ancestors are rejected.',
             'save VAULT_ID /path/to/file --document DOCUMENT_ID', 'vault', 'path')
     q.add_argument('--document', metavar='DOCUMENT_ID',
                    help='existing document ID from vc list; omit to create a new document')
     q.add_argument('--name', metavar='NAME',
-                   help='encrypted display name for this version (default: source filename)')
-    add('list', 'List files and document IDs in a vault',
-        unlocked + 'Authenticate current versions and show decrypted names, sizes and revisions. '
-        'Does not print file contents. Verify other writers with vc verify-user first.', 'list VAULT_ID', 'vault')
-    add('search', 'Search decrypted file names',
-        unlocked + 'Search current display names locally, ignoring case. Does not search file '
-        'contents. Verify other writers with vc verify-user first.', 'search VAULT_ID invoice', 'vault', 'text')
+                   help='encrypted display name for this version (default: exact source path argument)')
+    q = add('list', 'List files and document IDs in a vault',
+        unlocked + 'Authenticate current versions and show decrypted names, sizes, revisions and '
+        'archive status. Lists active documents by default. Does not print file contents. '
+        'Verify other writers with vc verify-user first.', 'list VAULT_ID --all', 'vault')
+    archive_filters(q)
+    q = add('search', 'Search decrypted file names',
+        unlocked + 'Search current display names locally, ignoring case. Searches active documents '
+        'by default. Does not search file contents. Verify other writers with vc verify-user first.',
+        'search VAULT_ID project --archived', 'vault', 'text')
+    archive_filters(q)
+    add('archive', 'Hide a document from active file listings',
+        unlocked + 'Owners and editors can archive an entire document and all its versions. '
+        'Repeated requests are harmless. Blocks new versions until unarchived; history, cat and '
+        'restore remain available by ID. Does not delete data, reclaim storage or revoke access. '
+        'Exports and whole-vault sharing still include archived documents.',
+        'archive DOCUMENT_ID', 'document')
+    add('unarchive', 'Return an archived document to active listings',
+        unlocked + 'Owners and editors can unarchive a document, allowing new versions again. '
+        'Repeated requests are harmless. Preserves all retained versions.',
+        'unarchive DOCUMENT_ID', 'document')
     add('history', 'List a document\'s retained versions',
         unlocked + 'Authenticate retained versions and show version IDs, revisions, authors, '
         'names and sizes. Verify other writers with vc verify-user first.', 'history DOCUMENT_ID', 'document')
@@ -553,7 +585,8 @@ Manual: https://github.com/pocketcontext/vaultcontext/blob/main/skills/vaultcont
         'rotate VAULT_ID', 'vault')
     q = add('export', 'Export retained files to an encrypted archive',
             unlocked + 'Export all accessible retained file versions. Prompts twice for a separate '
-            'archive passphrase in an interactive terminal. Contains no identity private keys or '
+            'archive passphrase in an interactive terminal. Includes archived documents and their status. '
+            'Contains no identity private keys or '
             'live vault-key envelopes and cannot recover your live-vault passphrase. The plaintext '
             'archive limit is 64 MiB, including base64 and metadata. Restore without a server using '
             'vc restore-export. Parent directory must exist; output mode is 0600.',
@@ -577,7 +610,7 @@ Manual: https://github.com/pocketcontext/vaultcontext/blob/main/skills/vaultcont
 
     groups = [
         ('Account and keys', ('login', 'whoami', 'logout', 'check', 'init', 'unlock', 'lock', 'change-passphrase')),
-        ('Vaults and files', ('vaults', 'create', 'save', 'list', 'search', 'history', 'cat', 'restore')),
+        ('Vaults and files', ('vaults', 'create', 'save', 'list', 'search', 'history', 'cat', 'restore', 'archive', 'unarchive')),
         ('Sharing', ('directory', 'verify-user', 'members', 'share', 'invitations', 'accept', 'revoke', 'rotate')),
         ('Encrypted archives', ('export', 'inspect-export', 'restore-export')),
     ]
@@ -635,6 +668,8 @@ def run(args):
     if args.command == 'unlock':
         return unlock(cfg, args.timeout)
     payload = vars(args).copy()
+    if args.command == 'save' and payload.get('name') is None:
+        payload['name'] = payload['path']
     for key in ('path', 'to'):
         if payload.get(key):
             payload[key] = os.path.abspath(payload[key])

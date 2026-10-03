@@ -2,12 +2,17 @@
 """Recover a live synthetic database and original into a separate isolated server."""
 import argparse
 import importlib.util
+import base64
+import json
+import os
 from pathlib import Path
 import socket
 import subprocess
 import tempfile
 import time
 import urllib.request
+from unittest.mock import patch
+from vaultcontext_client import cli as vc
 
 from integration import ROOT, server
 
@@ -27,14 +32,39 @@ def main():
     backup = load('complete_backup', ROOT / 'docker/backup.py')
     smoke = load('container_smoke', ROOT / 'docker/smoke.py')
     started = time.monotonic()
-    with tempfile.TemporaryDirectory(prefix='vaultcontext-recovery-') as tmp, server(binary) as request:
+    with tempfile.TemporaryDirectory(prefix='vaultcontext-recovery-') as tmp, server(binary) as request, patch.dict(os.environ):
         root = Path(tmp)
+        os.environ['XDG_CACHE_HOME'] = str(root / 'cache')
         admin = smoke.superuser_token(request.base_url, 'admin@example.com', 'SyntheticAdminPassword123!')
         password = 'SyntheticRestorePassword123!'
         owner = smoke.provision_user(request.base_url, admin, 'owner@example.test', password)
         foreign = smoke.provision_user(request.base_url, admin, 'foreign@example.test', password)
         client = smoke.Client(request.base_url, 'owner@example.test', password, None)
         doc, meta = smoke.write_record(client, owner)
+        # Populate an ordinary client vault with active and archived documents,
+        # authentic version history, and transitions independent of signed revisions.
+        cfg = {'url': request.base_url, 'email': 'owner@example.test', 'password': password}
+        vc.auth.login(cfg)
+        bundle = vc.one(cfg, 'identity_secrets', 'account=' + vc.quote(owner))['key_bundle']
+        identity = vc.crypto.unwrap_identity(json.loads(bundle), 'SyntheticVaultUnlockPassphrase123!', owner)
+        vc.verify_user(cfg, owner, meta['fingerprint'])
+        def run(command, **values):
+            return vc.execute(cfg, identity, owner, dict(command=command, **values))
+        vault = run('create', name='Recovery client fixture')['id']
+        original = b'synthetic original\x00\xff'
+        current = b'synthetic replacement without newline'
+        source = root / 'source.binary'
+        source.write_bytes(original)
+        first = run('save', vault=vault, path=str(source))
+        source.write_bytes(current)
+        second = run('save', vault=vault, path=str(source), document=first['id'])
+        run('archive', document=first['id'])
+        run('unarchive', document=first['id'])
+        archived = run('archive', document=first['id'])
+        active = run('save', vault=vault, path=str(source), name='Active recovery document')
+        history = run('history', document=first['id'])
+        before = vc.query(cfg, 'SELECT * FROM documents WHERE vault=' + vc.quote(vault) + ' ORDER BY id')
+        audit_before = vc.query(cfg, 'SELECT * FROM audit_log WHERE vault=' + vc.quote(vault) + ' ORDER BY id')
         backup.snapshot(request.data_dir, root / 'restored')
         backup.verify(root / 'restored')
         with socket.socket() as sock:
@@ -58,6 +88,28 @@ def main():
                     raise AssertionError('restored server startup timeout')
                 restored = smoke.Client(base, 'owner@example.test', password, None)
                 smoke.check_records(restored, doc, meta)
+                cfg = dict(cfg, url=base)
+                vc.auth.login(cfg)
+                vc.verify_user(cfg, owner, meta['fingerprint'])
+                assert vc.query(cfg, 'SELECT * FROM documents WHERE vault=' + vc.quote(vault) + ' ORDER BY id') == before
+                assert vc.query(cfg, 'SELECT * FROM audit_log WHERE vault=' + vc.quote(vault) + ' ORDER BY id') == audit_before
+                assert archived['archive_revision'] == 3 and archived['revision'] == 2
+                assert run('list', vault=vault)[0]['id'] == active['id']
+                assert run('list', vault=vault, archived=True)[0]['id'] == first['id']
+                assert len(run('list', vault=vault, all=True)) == 2
+                assert run('history', document=first['id']) == history
+                assert base64.b64decode(run('cat', document=first['id'])['data']) == current
+                assert base64.b64decode(run('cat', document=first['id'], version=first['version'])['data']) == original
+                destination = root / 'recovered-history'
+                run('restore', document=first['id'], version=first['version'], to=str(destination))
+                assert destination.read_bytes() == original
+                archive = root / 'recovered-export'
+                run('export', vault=vault, to=str(archive), export_passphrase='Synthetic archive passphrase')
+                exported = vc.crypto.parse_export(vc.crypto.decrypt_export(json.loads(archive.read_text()), 'Synthetic archive passphrase'))
+                entries = [entry for entry in exported['files'] if entry['document'] == first['id']]
+                assert len(entries) == 2 and all(entry['archived'] for entry in entries)
+                assert {base64.b64decode(entry['data']) for entry in entries} == {original, current}
+                assert sum(not entry['archived'] for entry in exported['files']) == 1
                 other = smoke.Client(base, 'foreign@example.test', password, None)
                 assert other.sql('SELECT id FROM documents') == []
                 status, _, token = smoke.http('POST', base + '/api/files/token', {}, token=other.token)
@@ -75,7 +127,7 @@ def main():
             pass
         else:
             raise AssertionError('missing original did not fail verification')
-    print(f'PASS: live DB/original snapshot, separate server recovery, ownership and checksums ({time.monotonic()-started:.1f}s)')
+    print(f'PASS: live DB/original snapshot, separate server recovery, archive state/history/export, ownership and checksums ({time.monotonic()-started:.1f}s)')
 
 
 if __name__ == '__main__':

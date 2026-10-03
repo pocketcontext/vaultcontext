@@ -16,13 +16,13 @@ import urllib.request
 ROOT = Path(__file__).resolve().parents[1]
 
 @contextlib.contextmanager
-def server(binary):
+def server(binary, *, migrations=None, data_dir=None, cwd=ROOT):
     with tempfile.TemporaryDirectory(prefix='vaultcontext-test-') as tmp:
         hooks=Path(tmp)/'pb_hooks'
         shutil.copytree(ROOT/'pb_hooks',hooks)
         (hooks/'failure_fixture.pb.js').write_text('''
 onRecordCreateExecute((e) => {
-  if(e.record.getString('target') === 'auditfailure001') throw new Error('Synthetic audit failure');
+  if(e.record.getString('target') === 'auditfailure001' || (e.record.getString('target') === 'auditfailure002' && e.record.getString('action') === 'archive')) throw new Error('Synthetic audit failure');
   e.next();
 }, 'audit_log');
 onRecordCreateExecute((e) => {
@@ -30,13 +30,13 @@ onRecordCreateExecute((e) => {
   e.next();
 }, 'user_directory');
 ''')
-        common = [str(Path(binary).resolve()), '--dir', str(Path(tmp)/'pb_data'), '--migrationsDir', str(ROOT/'pb_migrations'), '--hooksDir', str(hooks)]
-        result = subprocess.run(common+['superuser','upsert','admin@example.com','SyntheticAdminPassword123!'],cwd=ROOT,capture_output=True,text=True)
+        common = [str(Path(binary).resolve()), '--dir', str(data_dir or Path(tmp)/'pb_data'), '--migrationsDir', str(migrations or ROOT/'pb_migrations'), '--hooksDir', str(hooks)]
+        result = subprocess.run(common+['superuser','upsert','admin@example.com','SyntheticAdminPassword123!'],cwd=cwd,capture_output=True,text=True)
         assert result.returncode == 0, result.stdout+result.stderr
         with socket.socket() as sock:
             sock.bind(('127.0.0.1',0)); port=sock.getsockname()[1]
         with open(Path(tmp)/'server.log','w+') as log:
-            proc=subprocess.Popen(common+['serve','--http',f'127.0.0.1:{port}'],cwd=ROOT,stdout=log,stderr=log)
+            proc=subprocess.Popen(common+['serve','--http',f'127.0.0.1:{port}'],cwd=cwd,stdout=log,stderr=log)
             def request(method,path,body=None,token=None,expected=200):
                 headers={'Content-Type':'application/json'}
                 if token: headers['Authorization']=token
@@ -53,7 +53,7 @@ onRecordCreateExecute((e) => {
                         if proc.poll() is not None: log.seek(0); raise AssertionError(log.read())
                         time.sleep(.1)
                 else: raise AssertionError('Server startup timed out')
-                request.data_dir=Path(tmp)/'pb_data'
+                request.data_dir=Path(data_dir or Path(tmp)/'pb_data')
                 request.base_url = f'http://127.0.0.1:{port}'
                 yield request
             finally:
@@ -107,11 +107,15 @@ def main():
         assert len(query(bt,'SELECT * FROM versions'))==1
         assert request('GET',file_path+'?token='+bft)==b'encrypted-binary-chunk'
         act(bt,'save',dict(save,version='b'*15,expected_revision=1),403)
+        for op in ['archive','unarchive']:
+            act(bt,op,{'vault':v,'document':d,'expected_revision':1,'expected_archive_revision':0},403)
+            act(et,op,{'vault':v,'document':d,'expected_revision':1,'expected_archive_revision':0},403)
         revoked=act(at,'revoke',{'vault':v,'account':bob,'expected_revision':accepted['revision']})
         assert query(bt,'SELECT * FROM versions')==[]
         assert query(bt,'SELECT * FROM key_envelopes')==[]
         request('GET',file_path+'?token='+bft,expected=(401,403,404))
         act(at,'save',dict(save,version='b'*15,expected_revision=1),409)
+        act(at,'archive',{'vault':v,'document':d,'expected_revision':1,'expected_archive_revision':0},409)
         act(at,'rotate',{'vault':v,'expected_revision':revoked['revision'],'epoch':2,'envelopes':[{'account':bob,'envelope':'bad'}]},400)
         rotated=act(at,'rotate',{'vault':v,'expected_revision':revoked['revision'],'epoch':2,'envelopes':[{'account':alice,'envelope':'new-alice'}]})
         act(at,'save',dict(save,version='b'*15,expected_revision=1,epoch=2))
@@ -134,6 +138,49 @@ def main():
         assert sum('version' in r for r in results)==1
         assert len(query(at,'SELECT * FROM versions'))==3
         assert len(query(bt,'SELECT * FROM versions'))==3
+        # Archive state has its own concurrency marker; signed content revisions stay stable.
+        before=query(at,f"SELECT * FROM documents WHERE id='{d}'")[0]
+        assert before['archived']==0 and before['archive_revision']==0
+        state={'vault':v,'document':d,'expected_revision':3,'expected_archive_revision':0}
+        act(bt,'archive',dict(state,expected_revision=2),409)
+        archived=act(bt,'archive',state)
+        assert archived=={'id':d,'revision':3,'archived':True,'archive_revision':1}
+        count=len(query(at,'SELECT * FROM audit_log'))
+        assert act(at,'archive',dict(state,expected_archive_revision=1))==archived
+        assert len(query(at,'SELECT * FROM audit_log'))==count
+        act(at,'unarchive',state,409)
+        act(bt,'save',dict(save,version='g'*15,expected_revision=3,expected_archive_revision=1,epoch=2),409)
+        assert len(query(bt,'SELECT * FROM versions'))==3
+        assert request('GET',file_path+'?token='+bft)==b'encrypted-binary-chunk'
+        after=query(at,f"SELECT * FROM documents WHERE id='{d}'")[0]
+        assert all(after[k]==before[k] for k in ['metadata','revision','current_version'])
+        assert not query(at,'SELECT * FROM documents WHERE archived=0')
+        assert len(query(at,'SELECT * FROM documents WHERE archived=1'))==1
+        active=act(at,'unarchive',dict(state,expected_archive_revision=1))
+        assert active['archive_revision']==2 and not active['archived']
+        count=len(query(at,'SELECT * FROM audit_log'))
+        assert act(bt,'unarchive',dict(state,expected_archive_revision=2))==active
+        assert len(query(at,'SELECT * FROM audit_log'))==count
+        # Even a complete archive/unarchive cycle invalidates a stale save.
+        act(bt,'save',dict(save,version='g'*15,expected_revision=3,epoch=2),409)
+        def archive_save_race(op):
+            if op=='archive':
+                return act(bt,op,dict(state,expected_archive_revision=2),(200,409))
+            return act(at,'save',dict(save,version='g'*15,expected_revision=3,expected_archive_revision=2,epoch=2),(200,409))
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+            results=list(pool.map(archive_save_race,['archive','save']))
+        assert sum('id' in r for r in results)==1,results
+        # Both archive and content state roll back when the required audit fails.
+        rollback='auditfailure002'
+        act(at,'save',dict(save,document=rollback,version='h'*15,epoch=2))
+        before=query(at,f"SELECT * FROM documents WHERE id='{rollback}'")[0]
+        count=len(query(at,'SELECT * FROM audit_log'))
+        act(at,'archive',{'vault':v,'document':rollback,'expected_revision':1,'expected_archive_revision':0},400)
+        assert query(at,f"SELECT * FROM documents WHERE id='{rollback}'")[0]==before
+        assert len(query(at,'SELECT * FROM audit_log'))==count
+        other='o'*15
+        act(at,'vault_create',{'id':other,'metadata':'encrypted-other','envelope':'alice-other'})
+        act(at,'archive',dict(state,vault=other,expected_archive_revision=2),403)
         # Pending invites see their envelope, not file data; revoke cancels all offers.
         inv=act(at,'share',{'vault':v,'account':eve,'role':'reader','expected_revision':accepted['revision'],'envelopes':[{'epoch':1,'envelope':'eve-old'},{'epoch':2,'envelope':'eve-new'}]})
         assert len(query(et,'SELECT * FROM key_envelopes'))==2

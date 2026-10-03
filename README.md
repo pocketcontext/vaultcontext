@@ -55,7 +55,9 @@ which writes exact file bytes to stdout. Help does not require configuration or 
 
 Use the chosen `vc` command for `whoami`, `check`, `init`, `unlock`, and subsequent operations. `init` and `unlock` prompt in an interactive terminal. Never pass unlock secrets through chat, arguments, environment variables or pipes. Over SSH, forward Google callback port 8765 as described in the [skill workflows](skills/vaultcontext/references/workflows.md); decryption still occurs on the machine running the CLI. Configuration must be available wherever the command runs; a workspace `.envrc` may not be loaded outside that workspace.
 
-The [skill](skills/vaultcontext/SKILL.md) includes the launcher and operation references. It supports vault creation, arbitrary-file saves, local name search, version history, exact stdout output with `cat`, exact restores, invitations, memberships, revocation/rotation, encrypted export and independent archive restore. Saving again with `--document` creates a new immutable version. No format-specific parsing, automatic synchronization or shell activation occurs.
+The [skill](skills/vaultcontext/SKILL.md) includes the launcher and operation references. It supports vault creation, arbitrary-file saves, local name search, version history, exact stdout output with `cat`, exact restores, invitations, memberships, revocation/rotation, encrypted export and independent archive restore. Saving again with `--document` creates a new immutable version. The default encrypted display name preserves the exact source-path argument (after shell expansion), including relative or absolute directories; `--name` overrides it. Names are labels, not unique identifiers or restore destinations. Existing versions keep their names. No format-specific parsing, automatic synchronization or shell activation occurs.
+
+`vc archive DOCUMENT_ID` hides a document and all its versions from default `list` and `search`; `--archived` selects archived documents and `--all` selects both. Owners and editors can archive or `unarchive`; readers cannot. Repeating either action is harmless. Archived documents retain `history`, `cat` and `restore` access by ID, but reject new versions until unarchived. Archiving changes neither access nor retention: exports, complete backups and whole-vault sharing include archived documents. Archive state is document metadata, distinct from an encrypted export archive.
 
 `vc cat DOCUMENT_ID` outputs the current file; add `--version VERSION_ID` for a historical version. It verifies the entire file before output, creates no plaintext temporary files, and adds no formatting or newline. Binary data and terminal control characters pass through unchanged. Output can expose secrets to the terminal, pipes or captured logs. Shell redirection uses ordinary shell permissions and overwrite behavior; use `restore` for protected disk writes. Neither command executes file contents.
 
@@ -65,7 +67,7 @@ Restores require explicit paths and existing parent directories, reject symlinks
 
 Metadata reads use authenticated requester-filtered SQL. Writes use the standard REST `vault_actions` collection and transactional hooks; action payloads are not persisted. Encrypted file chunks use protected file storage and authenticated downloads so file bytes do not exhaust SQL snapshot budgets. Independent rules cover file downloads, REST and realtime. There is no implicit operator decryption access.
 
-Complete deployment backups cover the database and every referenced ciphertext file with checksums. A database-only backup is insufficient. Startup must refuse missing/corrupt originals. An ordinary data export instead decrypts accessible file versions in memory and encrypts an archive under a separately entered archive passphrase; it includes no identity private keys or live vault-key envelopes. Exports restore without the server, but cannot recover a forgotten live-vault passphrase. Export plaintext is capped at 64 MiB including base64 overhead and metadata.
+Complete deployment backups cover the database and every referenced ciphertext file with checksums. A database-only backup is insufficient. Startup must refuse missing/corrupt originals. An ordinary data export instead decrypts accessible file versions in memory and encrypts an archive under a separately entered archive passphrase; it includes no identity private keys or live vault-key envelopes. Exports restore without the server, but cannot recover a forgotten live-vault passphrase. Export plaintext is capped at 64 MiB including base64 overhead and metadata. New exports use format v2 to retain document archive status and require an updated CLI to inspect or restore. The updated CLI also reads existing v1 exports.
 
 ## Validation
 
@@ -75,6 +77,7 @@ Use synthetic fixtures and isolated temporary databases only. From this reposito
 uv sync --locked
 uv run --locked python -m unittest discover -s tests -p 'test_*.py'
 uv run --locked python tests/integration.py --binary /absolute/path/to/pinned/pocketcontext
+uv run --locked python tests/archive_migration.py --binary /absolute/path/to/pinned/pocketcontext
 uv run --locked python tests/realtime.py --binary /absolute/path/to/pinned/pocketcontext
 uv run --locked python tests/limits.py --binary /absolute/path/to/pinned/pocketcontext
 uv run --locked python tests/backup_integration.py --binary /absolute/path/to/pinned/pocketcontext

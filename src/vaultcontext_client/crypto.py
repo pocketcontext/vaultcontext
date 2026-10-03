@@ -274,11 +274,16 @@ def parse_export(data):
         raise ValueError('invalid archive size')
     archive = json.loads(data)
     _fields(archive, ('format', 'files'))
-    if archive['format'] != 'vaultcontext-export-v1' or not isinstance(archive['files'], list) or len(archive['files']) > 10000:
+    if archive['format'] not in ('vaultcontext-export-v1', 'vaultcontext-export-v2') or not isinstance(archive['files'], list) or len(archive['files']) > 10000:
         raise ValueError('unsupported archive format')
     seen = set()
     for entry in archive['files']:
-        _fields(entry, ('document', 'version', 'revision', 'name', 'data'))
+        fields = ('document', 'version', 'revision', 'name', 'data')
+        if archive['format'] == 'vaultcontext-export-v2':
+            fields += ('archived',)
+        _fields(entry, fields)
+        if archive['format'] == 'vaultcontext-export-v2' and type(entry['archived']) is not bool:
+            raise ValueError('invalid archive document state')
         for field in ('document', 'version'):
             if not isinstance(entry[field], str) or not re.fullmatch(r'[a-z0-9]{15}', entry[field]):
                 raise ValueError('invalid archive record identity')

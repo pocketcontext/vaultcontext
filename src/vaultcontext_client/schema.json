@@ -46,6 +46,8 @@
     "vault"
   ],
   "documents": [
+    "archive_revision",
+    "archived",
     "created",
     "current_version",
     "id",

@@ -16,6 +16,46 @@ class ClientTests(unittest.TestCase):
         with patch.object(vc,'request',return_value={'columns':['id'],'rows':[{'id':'x'}],'truncated':True}):
             with self.assertRaises(vc.auth.Fail):vc.query({},'SELECT id')
 
+    def test_archive_filters_retain_pagination(self):
+        for command in ('list', 'search'):
+            for flag, clause, archived in ((None, ' AND archived=0', False),
+                                           ('archived', ' AND archived=1', True),
+                                           ('all', '', False)):
+                with self.subTest(command=command, flag=flag):
+                    documents = [{'id': str(index), 'archived': archived} for index in range(51)]
+                    queries = []
+                    def query(cfg, sql):
+                        queries.append(sql)
+                        expected = "SELECT * FROM documents WHERE vault='vault'" + clause + ' ORDER BY id LIMIT 50 OFFSET '
+                        self.assertTrue(sql.startswith(expected), sql)
+                        offset = int(sql[len(expected):])
+                        return documents[offset:offset + 50]
+                    def version(cfg, identity, account, document, content):
+                        self.assertFalse(content)
+                        return None, {'name': 'MATCH-' + document, 'size': 1}, {'revision': 1}
+                    values = dict(command=command, vault='vault', text='match')
+                    if flag:
+                        values[flag] = True
+                    with patch.object(vc, 'query', side_effect=query), patch.object(vc, 'get_version', side_effect=version):
+                        result = vc.execute({}, {}, 'owner', values)
+                    self.assertEqual([row['id'] for row in result], [str(index) for index in range(51)])
+                    self.assertTrue(all(row['archived'] is archived for row in result))
+                    self.assertEqual(len(queries), 2)
+
+    def test_archive_export_versions_are_explicit(self):
+        entry = dict(document='d' * 15, version='v' * 15, revision=1, name='./synthetic/file', data='')
+        def parse(version, record):
+            return vc.crypto.parse_export(vc.encode({'format': version, 'files': [record]}).encode())
+        self.assertEqual(parse('vaultcontext-export-v1', entry)['files'], [entry])
+        for archived in (False, True):
+            current = dict(entry, archived=archived)
+            self.assertEqual(parse('vaultcontext-export-v2', current)['files'], [current])
+            with self.assertRaises(ValueError):
+                parse('vaultcontext-export-v1', current)
+        for record in (entry, dict(entry, archived=1), dict(entry, archived='false')):
+            with self.assertRaises(ValueError):
+                parse('vaultcontext-export-v2', record)
+
     def test_noninteractive_passphrase_rejected(self):
         with patch.object(sys.stdin,'isatty',return_value=False):
             with self.assertRaises(vc.auth.Fail):vc.prompt_passphrase()

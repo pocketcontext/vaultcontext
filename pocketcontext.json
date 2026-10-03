@@ -53,7 +53,9 @@
       "metadata",
       "revision",
       "current_version",
-      "created"
+      "created",
+      "archived",
+      "archive_revision"
     ],
     "versions": [
       "id",

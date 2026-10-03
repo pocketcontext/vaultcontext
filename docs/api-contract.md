@@ -23,7 +23,8 @@ letters/digits. Encrypted structures are JSON serialized into opaque strings.
 | `identity_init` | `public_key`, `signing_key`, `fingerprint`, `key_bundle` |
 | `identity_rewrap` | `key_bundle`, `expected_revision` |
 | `vault_create` | `id`, encrypted `metadata`, own `envelope` |
-| `save` | `vault`, `document`, `version`, `expected_revision`, `epoch`, encrypted `metadata`, `manifest`, `signature`, `chunks` |
+| `save` | `vault`, `document`, `version`, `expected_revision`, `expected_archive_revision`, `epoch`, encrypted `metadata`, `manifest`, `signature`, `chunks` |
+| `archive`, `unarchive` | `vault`, `document`, `expected_revision`, `expected_archive_revision` |
 | `share` | `vault`, `account`, `role` (`reader` or `editor`), `expected_revision`, `envelopes:[{epoch,envelope}]` |
 | `accept` | `invitation` |
 | `revoke` | `vault`, `account`, `expected_revision` |
@@ -39,6 +40,22 @@ the current vault epoch, and creates an immutable version and chunks. Result has
 `id`, `version`, `revision`. A reader cannot save. Chunk strings are at most 262144
 characters; at most 64 chunks and 12000000 encoded characters per save. The client
 limits plaintext to 8 MiB. Empty files still have nonempty authenticated ciphertext.
+
+Documents start active (`archived=false`, `archive_revision=0`), including existing
+records upgraded by migration. Owners and editors can archive/unarchive a whole
+document in an unfrozen vault. Both expected revisions must match. A transition
+increments only `archive_revision` and writes an audit event; a repeated request
+for the current state returns success without another event or increment. Results
+contain `id`, `revision`, `archived`, `archive_revision`. Content `revision`, signed
+manifests, versions and chunks remain unchanged. Save rejects archived documents
+and stale archive revisions, including an archive/unarchive cycle. For legacy
+clients only, omitted save `expected_archive_revision` means 0.
+
+Archiving affects organization, not authorization or retention. Direct ID reads,
+protected downloads, history, whole-vault sharing, exports and complete backups
+retain archived documents. Default client list/search filters exclude them; SQL
+snapshots expose both states under the same membership rules. Archive state is
+operational metadata visible to the server, not encrypted file metadata.
 
 Sharing is owner-only and supplies exactly one envelope for every epoch. A pending
 recipient can inspect the invitation and their own envelopes, but cannot read vault

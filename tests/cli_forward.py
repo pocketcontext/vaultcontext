@@ -78,16 +78,26 @@ def main():
             vault=a('create','Synthetic isolated shared project')['id']
             source=Path(tmp)/'arbitrary.binary';content=b'\x00\xff\r\n'+os.urandom(8192);source.write_bytes(content)
             saved=a('save',vault,str(source))
+            assert a('list',vault)[0]['name']==str(source)
+            relative='./arbitrary.binary'
+            renamed=a('save',vault,relative,'--document',saved['id'])
+            assert a('list',vault)[0]['name']==relative
+            a('save',vault,relative,'--document',saved['id'],'--name','Explicit display name')
+            assert a('list',vault)[0]['name']=='Explicit display name'
             assert b('vaults')==[]
+            a('archive',saved['id'])
             # Fingerprints originate from each user's own init output and are explicitly exchanged.
             invitation=a('share',vault,colleague,'--role','reader','--fingerprint',colleague_fp)['id']
             b('accept',invitation,'--fingerprint',owner_fp)
+            assert b('list',vault)==[]
+            assert b('list',vault,'--archived')[0]['id']==saved['id']
+            a('unarchive',saved['id'])
             listing=b('list',vault);assert listing[0]['id']==saved['id']
             destination=Path(tmp)/'restored.binary'
             b('restore',saved['id'],'--to',str(destination))
             assert destination.read_bytes()==content
             assert destination.stat().st_mode&0o777==0o600
-            assert len(b('history',saved['id']))==1
+            assert [entry['name'] for entry in b('history',saved['id'])]==[str(source),relative,'Explicit display name']
             if cat_available:
                 def cat(*words):
                     return subprocess.run(command+['cat',saved['id'],*words],env=colleague_env,
@@ -98,6 +108,30 @@ def main():
                 a('save',vault,str(source),'--document',saved['id'])
                 assert cat().stdout==source.read_bytes()
                 assert cat('--version',saved['version']).stdout==content
+                archived=a('archive',saved['id'])
+                assert archived['archived'] is True
+                assert a('archive',saved['id'])==archived
+                assert a('list',vault)==[] and b('list',vault)==[]
+                assert a('search',vault,'arbitrary')==[]
+                for flags in (['--archived'],['--all']):
+                    listing=b('list',vault,*flags)
+                    assert len(listing)==1 and listing[0]['archived'] is True
+                    assert b('search',vault,'arbitrary',*flags)[0]['id']==saved['id']
+                assert cat().stdout==source.read_bytes()
+                assert cat('--version',saved['version']).stdout==content
+                b('restore',saved['id'],'--version',saved['version'],'--to',str(Path(tmp)/'archived-restored'))
+                assert (Path(tmp)/'archived-restored').read_bytes()==content
+                for words,environment in ((['save',vault,str(source),'--document',saved['id']],owner_env),
+                                          (['unarchive',saved['id']],colleague_env),
+                                          (['list',vault,'--archived','--all'],owner_env)):
+                    denied=subprocess.run(command+words,env=environment,cwd=tmp,capture_output=True)
+                    assert denied.returncode!=0 and denied.stdout==b''
+                assert len(b('history',saved['id']))==4
+                assert a('unarchive',saved['id'])['archived'] is False
+                assert a('list',vault)[0]['archived'] is False
+                a('save',vault,relative,'--document',saved['id'])
+                assert a('list',vault)[0]['name']==relative
+                print('VaultContext literal path names and archive CLI: PASS')
                 a('revoke',vault,colleague)
                 denied=cat()
                 assert denied.returncode!=0 and denied.stdout==b''

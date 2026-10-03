@@ -151,12 +151,19 @@ def main():
         source.write_bytes(b'new bytes')
         run(a,ai,aid,'save',vault=vault,path=str(source),document=doc)
         assert len(run(a,ai,aid,'history',document=doc))==2
+        archived=run(a,ai,aid,'archive',document=doc)
+        assert archived['archived'] is True
+        assert run(a,ai,aid,'list',vault=vault)==[]
+        assert run(a,ai,aid,'list',vault=vault,archived=True)[0]['id']==doc
         archive=Path(tmp)/'export';run(a,ai,aid,'export',vault=vault,to=str(archive),export_passphrase='separate archive passphrase')
         exported=json.loads(crypto.decrypt_export(json.loads(archive.read_text()),'separate archive passphrase'));assert len(exported['files'])==2
+        assert exported['format']=='vaultcontext-export-v2'
+        assert all(entry['archived'] is True for entry in exported['files'])
         restored_export=Path(tmp)/'archive-output'
         parsed=vc.parser().parse_args(['restore-export',str(archive),'--document',doc,'--version',ver,'--to',str(restored_export)])
         with patch.object(vc,'prompt_passphrase',return_value='separate archive passphrase'):vc.run(parsed)
         assert restored_export.read_bytes()==content
+        run(a,ai,aid,'unarchive',document=doc)
         # Wrong public-key pins fail closed, even if the directory itself is valid.
         try:vc.verify_user(a,bid,'0'*64)
         except vc.auth.Fail:pass

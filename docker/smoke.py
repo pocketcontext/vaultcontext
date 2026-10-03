@@ -252,6 +252,11 @@ def write_record(client, user_id):
 def check_records(client, document, expected):
     """Recover keys from server state and authenticate/decrypt recovered exact bytes."""
     user, vault, version = expected['user'], expected['vault'], expected['version']
+    if 'archived' in expected:
+        state = client.sql(f"SELECT archived, archive_revision, revision FROM documents WHERE id = '{document}'")
+        check(state == [[1, 1, 1]], 'archived document state survives complete restore without changing content revision')
+        audit = client.sql(f"SELECT action FROM audit_log WHERE target = '{document}' AND action = 'archive'")
+        check(audit == [['archive']], 'document archive audit survives complete restore')
     rows = client.sql(f"SELECT key_bundle FROM identity_secrets WHERE account = '{user}'")
     check(len(rows) == 1, 'encrypted identity bundle survives restore')
     identity = crypto.unwrap_identity(json.loads(rows[0][0]), 'SyntheticVaultUnlockPassphrase123!', user)
@@ -474,6 +479,10 @@ def restore(image, tmp, run_id):
     user_id = provision_user(base, token, user_email, user_password)
     client = Client(base, user_email, user_password, tmp / 'home-a')
     document, expected = write_record(client, user_id)
+    action(client, 'archive', {'vault': expected['vault'], 'document': document,
+           'expected_revision': 1, 'expected_archive_revision': 0})
+    expected['archived'] = True
+    check_records(client, document, expected)
     step('waiting 10 seconds for the sync, then listing the replica')
     docker('exec', first, 'python3', '/usr/local/bin/vaultcontext-backup.py', 'upload', timeout=120)
     time.sleep(10)
