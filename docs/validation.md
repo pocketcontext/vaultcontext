@@ -179,8 +179,9 @@ package, terminal CLI forward exercise, deployment and deployment workflow.
 New regression tests cover native peer credentials, Linux decoding, Darwin
 lookup failure, unsupported platforms and session survival after rejected peers.
 
-CI now runs source-package validation on Linux and macOS. The published launcher
-still pins the previous Linux-only package; copied remote-launcher checks remain
-Linux-only until a tested package revision is published and the launcher repinned.
+The launcher now pins `e51d92bee5c257acd43fdc7ddd5cd6b0f8fb9ce7`. Both copied
+remote-launcher checks passed locally on macOS. CI runs source-package and copied
+launcher validation on Linux and macOS, with uv installed in an isolated bootstrap
+venv to accommodate the macOS runner's managed Python installation.
 Container checks were not run locally: the configured Docker SSH host could not
 resolve. No package was published and no deployment changed.
