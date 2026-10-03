@@ -4,7 +4,7 @@
 # dependencies = ["vaultcontext-client"]
 #
 # [tool.uv.sources]
-# vaultcontext-client = { git = "https://github.com/pocketcontext/vaultcontext.git", rev = "b7845ac443f64a1e9b513a04e90545cc7fe3b06d" }
+# vaultcontext-client = { git = "https://github.com/pocketcontext/vaultcontext.git", rev = "81559e944ceb01896ca0fe76e311c33bcb5ff296" }
 # ///
 """Standalone launcher for the pinned VaultContext client."""
 from vaultcontext_client.cli import main

@@ -174,8 +174,19 @@ def main():
             vc.unlock(a,30)
         assert vc.session_call(a,{'command':'vaults'})[0]['id']==vault
         cache=Path(tmp)/'cache'
+        private_values=[identity[field].encode() for _,identity,_,_ in users for field in ('enc_private','sign_private')]
+        # uv also uses XDG_CACHE_HOME and may fetch public schema/config JSON
+        # containing the field name key_bundle. Actual private key values must
+        # remain absent throughout that cache, including dependency checkouts.
         for path in cache.rglob('*.json'):
-            value=path.read_text();assert ai['enc_private'] not in value and ai['sign_private'] not in value and 'key_bundle' not in value
+            value=path.read_bytes()
+            assert not any(secret in value for secret in private_values), str(path.relative_to(cache))
+        # Check all regular application cache files, regardless of extension:
+        # neither plaintext keys nor an encrypted bundle may persist here.
+        for path in vc.auth.cache_file(a).parent.rglob('*'):
+            if path.is_file():
+                value=path.read_bytes()
+                assert b'key_bundle' not in value and not any(secret in value for secret in private_values), path.name
         vc.session_call(a,{'command':'lock'})
         for _ in range(100):
             if not vc.socket_path(a).exists():break
