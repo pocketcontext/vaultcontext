@@ -1,5 +1,28 @@
 # VaultContext deployment — 3 October 2026
 
+## Management-only agent skill release
+
+Production runs `33b9324296230b922631d6d4cb1835c682bf8414`, manifest
+`sha256:1c0951fc739ee31942c3629d5a9787e61bf85e305e6dc69b4cf92d913dfbc28f`.
+The launcher pins `5e2562624d9302d77eb2d9a01b8c7cf462fefb19`. The skill now
+permits file management and metadata inspection only; agents must not inspect
+contents, including source/restored files or content-derived summaries. Private
+terminal viewing remains available to users. This is an instruction boundary;
+CLI decryption capabilities and the trusted-host model are unchanged.
+
+[Application validation](https://github.com/pocketcontext/vaultcontext/actions/runs/37136729795)
+and [container recovery gates and publication](https://github.com/pocketcontext/vaultcontext/actions/runs/37136729936)
+passed. Both copied-launcher release tests also passed locally. Installed skill
+instructions and the local PATH launcher were refreshed; authenticated `vc check`
+returned `compatible: true`. No unlock session was stopped.
+
+The installed wrapper hash matched the reviewed source. Existing operator SSH
+access invoked that locked graceful-stop wrapper. Post-update checks matched the
+exact revision and digest, one running writer, unchanged server pin, one CPU,
+512 MiB and automatic updates disabled. All sibling container IDs were unchanged;
+all public health endpoints returned HTTP 200, and anonymous VaultContext schema
+access returned 401. No cloud resources, schema or runtime behavior changed.
+
 ## Path labels and document archive release
 
 Production runs `6a9fa4b614102189391b79a58a75ec372ff117ad`, manifest

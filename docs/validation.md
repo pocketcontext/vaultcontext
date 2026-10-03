@@ -118,3 +118,18 @@ The local ARM64 image build, container configuration, smoke and populated restor
 drill passed. The container drill now archives its encrypted multi-chunk fixture
 and verifies archive state and audit recovery alongside exact-byte decryption
 after both disaster restoration and graceful-shutdown replication.
+
+## Management-only agent skill — 2026-10-03
+
+Skill instructions, workflows and README now prohibit agent inspection of vault
+file contents, including indirect reading, redaction and source/restored files.
+Metadata operations and opaque file management remain available. The CLI retains
+user-operated private viewing; this policy is not cryptographic isolation.
+
+Skill metadata validation, diff checks, all 41 unit tests and every README
+application validation command passed against the rebuilt pinned server using
+isolated synthetic fixtures. Both copied-launcher release suites passed with
+client pin `5e2562624d9302d77eb2d9a01b8c7cf462fefb19`. Release `33b9324` passed
+application CI and container configuration, smoke and populated restore gates
+before image publication and verified production deployment. See
+[release evidence](../DEPLOYMENT.md#management-only-agent-skill-release).
