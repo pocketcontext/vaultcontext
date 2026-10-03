@@ -1,8 +1,33 @@
 # VaultContext deployment — 3 October 2026
 
+## Open Graph social card release
+
+Production at https://vault.pocketcontext.com runs
+`0c07040e6c8c0101fc84df922a75e0c4f4af1c37`, manifest
+`sha256:d1db50cfa540f99a920020ee0f47119c9354d9c2359bf77e7f627d5dabc6a6f2`.
+The public `/og-card.png` is included in the image. Open Graph and Twitter
+large-image metadata include the image URL, title, description and alt text;
+Open Graph dimensions match the 1730 × 909 PNG, and the canonical URL is the
+production origin. The launcher and server pins are unchanged.
+
+[Application validation](https://github.com/pocketcontext/vaultcontext/actions/runs/37146303655)
+and [container checks, populated restore and publication](https://github.com/pocketcontext/vaultcontext/actions/runs/37146303948)
+passed. The reviewed installed wrapper was invoked through existing operator
+SSH access for the locked graceful-stop update. Exact revision and digest,
+one writer, one CPU, 512 MiB and disabled automatic updates were verified;
+all sibling container IDs and running states were unchanged.
+
+Live ordinary, Twitterbot and Facebook crawler user-agent requests returned
+matching metadata, canonical URL and exact image bytes with `image/png` and
+correct dimensions. These checks verify fetchability, not a platform's cached
+rendering. Public health/security headers, anonymous schema rejection, source
+isolation, desktop/mobile/320-pixel layouts, keyboard navigation and clipboard
+success/fallback passed. Cloudflare's existing Rocket Loader HTML transformation
+remains present. No application data, schema or cloud resources changed.
+
 ## Bare-command help release
 
-Production runs `4f1881a14b45c350c23ad42ce0efc28fae75f1ce`, manifest
+This earlier release ran `4f1881a14b45c350c23ad42ce0efc28fae75f1ce`, manifest
 `sha256:ec0ca2967565eb0b81b0b8d060812bb354f5e16f6ba20684e157eec3ad66c9e9`.
 The portable launcher pins `cd7020f72c7240845b2716405eb9e10d15c238f9`.
 Bare `vc` now displays full help and exits 0 without configuration or sign-in;
