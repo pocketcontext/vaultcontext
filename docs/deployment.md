@@ -44,7 +44,9 @@ Keep all app-specific credentials in the deployment scaffold's ignored
 The local `once-pocketcontext` scaffold was prepared on 3 October 2026 with one
 VaultContext entry (one CPU, 512 MiB RAM), all 13 environment mappings and private
 configuration placeholders. Proposed bucket name: `vaultcontext-backup`.
-Google credentials and the verified R2 endpoint/object credentials remain blank.
+Google credentials and R2 object credentials remain blank. At the user's request,
+the endpoint uses the scaffold's existing EU R2 S3 endpoint; dedicated bucket
+jurisdiction and authenticated access remain to be verified.
 At the user's request, operator credentials reference the existing shared
 DealContext superuser settings. Existing private values were preserved and the file
 restricted to mode 0600. Sequential scaffold build and create dry-run passed;
