@@ -39,8 +39,17 @@ after startup, every `VAULTCONTEXT_BACKUP_INTERVAL` seconds (default 3600, maxim
 the recovery point is the latest successfully uploaded complete snapshot, even
 if a newer database-only replica exists. This is not a zero-data-loss guarantee. `LITESTREAM_DISABLED=true` is for disposable tests only.
 Keep all app-specific credentials in the deployment scaffold's ignored
-`.envrc.private` under `COLORS_PAR_APP_VAULTCONTEXT_*`; no scaffold changes or
-credentials were created by this implementation.
+`.envrc.private` under `COLORS_PAR_APP_VAULTCONTEXT_*`.
+
+The local `once-pocketcontext` scaffold was prepared on 3 October 2026 with one
+VaultContext entry (one CPU, 512 MiB RAM), all 13 environment mappings and private
+configuration placeholders. Proposed bucket name: `vaultcontext-backup`.
+Google credentials, operator credentials and the verified R2 endpoint/object
+credentials remain blank. Existing private values were preserved and the file
+restricted to mode 0600. Sequential scaffold build and create dry-run passed;
+sibling configuration and compute guards are unchanged. This does not establish
+provider access or deployability. See the scaffold's README for the remaining
+targeted rollout steps. No cloud mutation or publication was performed.
 
 ## Validation and publication gates
 
