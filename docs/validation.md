@@ -215,3 +215,18 @@ The subsequent client release pins the portable launcher to implementation
 publishing the launcher update. These changes do not enter the server image;
 production deployment is unnecessary. The native helper still requires separate
 Apple signing/provisioning and on-device verification.
+
+## macOS and Keychain onboarding page (2026-10-03)
+
+The public manual now covers Linux and macOS, optional separately signed Keychain
+setup, and retained enrollment after lock/logout. Its sample resolves the
+temporary directory to a physical path before saving, avoiding macOS's `/var`
+symlink. A synthetic sample read and exact-byte restore passed.
+
+Local Chromium checks passed for desktop, 390- and 320-pixel layouts, keyboard
+disclosures, installation switches, and the new copy buttons. Command text keeps
+literal `&&` after HTML decoding; narrow layouts have no page overflow. The
+clipboard-denial fallback selected commands and announced manual copying in an
+isolated JavaScript check. Pinned-server checks with an isolated database verified
+exact public assets, CSP/security headers, private-source 404s and anonymous API
+rejection. The page does not install or authenticate the native helper.
