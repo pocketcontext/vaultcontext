@@ -27,7 +27,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / 'skills/vaultcontext/scripts'))
 import vault_crypto as crypto
 # Build the withdrawn community image from pinned upstream sources for CI only.
-MINIO_IMAGE = 'vaultcontext-minio-fixture:9e49d5e-7394ce0'
+MINIO_IMAGE = os.environ.get('VAULTCONTEXT_TEST_MINIO_IMAGE', 'vaultcontext-minio-fixture:9e49d5e-7394ce0')
 STOP_LIMIT = 60  # seconds. `docker stop` waits 10 seconds by default before it kills.
 JWT = re.compile(r'eyJ[A-Za-z0-9_-]{8,}\.eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}')
 
@@ -427,7 +427,12 @@ def restore(image, tmp, run_id):
     user_email, user_password = 'user@example.test', secret(secrets.token_urlsafe(24))
 
     step('starting MinIO as the S3 service on a private docker network')
-    docker('build', '--file', str(ROOT / 'docker/minio.Dockerfile'), '--tag', MINIO_IMAGE, str(ROOT / 'docker'), timeout=1200)
+    if os.environ.get('VAULTCONTEXT_TEST_MINIO_IMAGE'):
+        check(bool(re.fullmatch(r'sha256:[0-9a-f]{64}', MINIO_IMAGE)), 'prebuilt test fixture must be an explicit local image digest')
+        _, actual = docker('image', 'inspect', MINIO_IMAGE, '--format', '{{.Id}}')
+        check(actual.strip() == MINIO_IMAGE, 'prebuilt fixture matches the explicitly selected digest')
+    else:
+        docker('build', '--file', str(ROOT / 'docker/minio.Dockerfile'), '--tag', MINIO_IMAGE, str(ROOT / 'docker'), timeout=1200)
     docker('network', 'create', network)
     networks.append(network)
     containers.append(minio)

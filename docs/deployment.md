@@ -58,7 +58,9 @@ python3 docker/smoke.py restore --image vaultcontext:check
 ```
 
 The populated restore drill uses isolated volumes and a pinned-source MinIO
-fixture. It writes real encrypted multi-chunk binary files and encrypted identity
+fixture. To reuse an already built trusted local fixture, set
+`VAULTCONTEXT_TEST_MINIO_IMAGE` to its full `sha256:` image ID; the runner verifies
+that exact local digest. Without it, the runner builds the pinned fixture. It writes real encrypted multi-chunk binary files and encrypted identity
 keys, destroys the original volume, restores into an empty volume, logs in as the
 same ordinary user, decrypts and compares exact bytes. It also tests a late write
 replicated during graceful shutdown. An unreachable replica must prevent startup.
@@ -104,8 +106,8 @@ production is running. Measure actual recovery time and backup age in an isolate
 drill before release. Retention configuration is an operator decision, not implied
 by version retention inside the vault.
 
-Outstanding release checks include successful container execution,
-independent security review, R2 access/restore, DNS/TLS, registry visibility, real
+Local ARM64 container config/smoke/populated-restore checks passed; see [validation evidence](validation.md).
+Outstanding release checks include independent security review, R2 access/restore, DNS/TLS, registry visibility, real
 Google login, and verification of exactly one writer with automatic updates off.
 Record actual source/image digests and provider evidence in a sanitized release
 record when those checks have been performed.

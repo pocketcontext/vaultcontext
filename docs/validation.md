@@ -22,7 +22,15 @@ Server pin: `a92b0de5e1b66b6d3b6135b90092d2d6da5f7cc8`, built in a separate chec
 
 The local ARM64 image builds from the pinned server, Go/Debian digests and Litestream checksums. Container configuration and smoke tests passed, including missing configuration, unreachable replica refusal, restricted origins, paired provider settings, persistence across restart, no secrets in output and clean shutdown.
 
-The complete object-storage restore drill is recorded below when finished. No image has been published.
+The populated object-storage restore drill passed: upload a complete database/ciphertext snapshot to an isolated pinned-source MinIO fixture, destroy the original volume, restore into an empty volume, authenticate as the retained ordinary user and decrypt exact original bytes. A later write survived the final shutdown backup. Removing a referenced ciphertext file caused startup refusal. Configuration, smoke and restore checks also passed on the final revision-labelled image. All drill containers, volumes and networks were removed.
+
+- Implementation source: `c46121cf5ba1899ecd83d9cca4d2338606054e3f` (subsequent changes document verification and allow explicit reuse of the built test fixture).
+- Local ARM64 image: `vaultcontext:check`, image ID `sha256:d6aefa61967019f2381d642fc882579af7784e4e25d89fed77edf5c7140a0f2c`.
+- Image revision label: `c46121cf5ba1899ecd83d9cca4d2338606054e3f`; container application/configuration/backup source hashes match the committed runtime files.
+- Pinned-source test fixture image: `sha256:3292c5909c24410511302bb815fe741787bab6d45a13bbd7a4b9baa573a744d8`.
+- No image or VaultContext repository has been published.
+
+Go 1.27.1 was downloaded with the upstream SHA-256 verified. Docker was installed locally to execute container gates. The local portable skill is linked at `.agents/skills/vaultcontext`; its dependency environment is `~/.local/share/vaultcontext-venv`. Shared instructions were committed/pushed separately in `workspace` (`14aca44`); the pre-existing `skills-lock.json` changes were preserved.
 
 ## Scope and remaining verification
 
