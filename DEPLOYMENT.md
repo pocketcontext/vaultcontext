@@ -1,8 +1,31 @@
 # VaultContext deployment — 3 October 2026
 
+## Bare-command help release
+
+Production runs `4f1881a14b45c350c23ad42ce0efc28fae75f1ce`, manifest
+`sha256:ec0ca2967565eb0b81b0b8d060812bb354f5e16f6ba20684e157eec3ad66c9e9`.
+The portable launcher pins `cd7020f72c7240845b2716405eb9e10d15c238f9`.
+Bare `vc` now displays full help and exits 0 without configuration or sign-in;
+invalid and incomplete commands still fail. The local PATH launcher was updated
+and verified. Existing unlocked sessions were not stopped.
+
+[Application validation](https://github.com/pocketcontext/vaultcontext/actions/runs/37141566277)
+and [container checks, populated restore and publication](https://github.com/pocketcontext/vaultcontext/actions/runs/37141566457)
+passed. All README application checks and both copied-launcher release checks
+also passed locally; see [local validation](docs/validation.md#bare-command-help-release--2026-10-03).
+
+The installed deployment wrapper hash matched the reviewed source. The dedicated
+SSH key was rejected; existing operator access invoked the same locked,
+graceful-stop wrapper successfully. No deployment keys were changed. Verified
+the exact production revision and digest, one running writer, one CPU, 512 MiB,
+and automatic updates disabled. Sibling container IDs were unchanged and all
+remained running. Public health endpoints and the onboarding page returned 200;
+anonymous schema access returned 401. The updated local CLI's authenticated
+`vc check` returned `compatible: true`. No schema or cloud resources changed.
+
 ## Confidential-dotfile onboarding release
 
-Production at https://vault.pocketcontext.com runs
+This earlier release at https://vault.pocketcontext.com ran
 `ceba5620da95bfaaf74f32e25790576374496b07`, manifest
 `sha256:f45fdf47d6a670763ea100f82b7863334301714deaab298c6d889cf5c8a33291`.
 The standalone launcher pins `8f09fd8b75ad29e1663ab98533a7a971b386fd95`.
