@@ -4,7 +4,7 @@ Encrypted personal and shared file vaults for humans and coding agents, built on
 
 ## Access and keys
 
-Google Workspace login authenticates PocketBase's default `users` identity. It does not unlock encrypted data. Each account initializes an encryption/signing identity protected by a separate passphrase. The encrypted private-key bundle persists only on the server; unlocking downloads and decrypts it in process memory. Application tokens and verified public fingerprints may be cached locally, never the private-key bundle. There are no recovery keys. A lost passphrase without a usable unlocked session means lost access; Google account recovery cannot decrypt the vault.
+Google Workspace login authenticates PocketBase's default `users` identity. It does not unlock encrypted data. Each account initializes an encryption/signing identity protected by a separate passphrase. The encrypted private-key bundle persists only on the server; unlocking downloads and decrypts it in process memory. Application tokens and verified public fingerprints may be cached locally, never the private-key bundle. There are no recovery keys. A lost passphrase without a usable unlocked session or enrolled macOS Keychain credential means lost access; Google account recovery cannot decrypt the vault. Optional macOS Keychain enrollment stores the passphrase locally, never the private-key bundle.
 
 Personal vaults are private. Shared project vaults have one owner and explicit editor/reader members, initially within the configured Workspace. Verify recipient and writer public fingerprints through an independent trusted channel. New members receive retained history. Revoking a member blocks retrieval immediately and freezes writes until key rotation completes. Downloaded plaintext or keys cannot be recalled, and credentials contained in files may need separate provider rotation. Owners cannot remove themselves; owner transfer and identity-key replacement are not implemented.
 
@@ -61,7 +61,7 @@ Run `vc` or `vc --help` for grouped commands and a first-use example, or `vc COM
 for arguments, prerequisites and examples. Commands return JSON except `cat`,
 which writes exact file bytes to stdout. Help does not require configuration or sign-in.
 
-Use the chosen `vc` command for `whoami`, `check`, `init`, `unlock`, and subsequent operations. `init` and `unlock` prompt in an interactive terminal. Never pass unlock secrets through chat, arguments, environment variables or pipes. Over SSH, forward Google callback port 8765 as described in the [skill workflows](skills/vaultcontext/references/workflows.md); decryption still occurs on the machine running the CLI. Configuration must be available wherever the command runs; a workspace `.envrc` may not be loaded outside that workspace.
+Use the chosen `vc` command for `whoami`, `check`, `init`, `unlock`, and subsequent operations. `init` and ordinary `unlock` prompt in an interactive terminal. On macOS, opt in with `vc keychain-enroll`, then use `vc unlock --keychain` to retrieve the saved passphrase after Touch ID or macOS credential authentication. This requires the signed native helper; see [macOS Keychain setup and trust model](docs/macos-keychain.md). Never pass unlock secrets through chat, arguments, environment variables or pipes. Over SSH, forward Google callback port 8765 as described in the [skill workflows](skills/vaultcontext/references/workflows.md); decryption still occurs on the machine running the CLI. Configuration must be available wherever the command runs; a workspace `.envrc` may not be loaded outside that workspace.
 
 The [skill](skills/vaultcontext/SKILL.md) includes the launcher and operation references. It supports vault creation, arbitrary-file saves, local name search, version history, exact restores, invitations, memberships, revocation/rotation, encrypted export and independent archive restore. Agents manage files and metadata but never inspect file contents, including source or restored files. Content viewing with `cat` is for users in their own private terminals. This skill rule does not remove the CLI or unlocked session's decryption capability. Saving again with `--document` creates a new immutable version. The default encrypted display name preserves the exact source-path argument (after shell expansion), including relative or absolute directories; `--name` overrides it. Names are labels, not unique identifiers or restore destinations. Existing versions keep their names. No format-specific parsing, automatic synchronization or shell activation occurs.
 
@@ -83,7 +83,8 @@ Use synthetic fixtures and isolated temporary databases only. From this reposito
 
 On macOS, first run `export TMPDIR=/private/tmp` in the test shell. The default
 temporary path traverses the `/var` symlink, which the client's safe file handling
-intentionally rejects.
+intentionally rejects. The unit suite compiles the native Keychain helper with
+Apple's Swift command-line tools on macOS; its rejection tests never access Keychain.
 
 ```sh
 uv sync --locked

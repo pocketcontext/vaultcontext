@@ -37,6 +37,24 @@ vc create 'Personal'
 
 Application tokens and public fingerprint pins are local, privately permissioned, and scoped by server/user. Only encrypted private keys persist on the server. `change-passphrase` prompts for a new passphrase while unlocked and updates the server bundle. `lock` terminates the memory session; expiration rejects new requests, while an operation already running may finish. `logout` locks and deletes the local application token, but does not revoke copied tokens.
 
+## Optional macOS Keychain unlock
+
+Install the signed native helper using the repository's `docs/macos-keychain.md` instructions. Keychain enrollment is optional and specific to the Mac, server origin and immutable account ID. It stores a non-synchronizing copy of the vault passphrase, never the identity bundle. Have the user perform enrollment in their private interactive terminal:
+
+```sh
+vc keychain-enroll
+vc unlock --keychain --timeout 900
+vc lock
+# Remove this server/account's saved credential while logged in:
+vc keychain-forget
+```
+
+Enrollment checks the entered passphrase against the current server bundle before storing it. Retrieval uses Touch ID or macOS credential authentication, so macOS may still request a password. Once unlocked, the session trusts same-user agents as before; authentication does not approve individual reads. Never retrieve the credential using other tools or expose it in agent output.
+
+`unlock --keychain` does not silently fall back on cancellation or failure. Run ordinary `vc unlock` explicitly to use a terminal passphrase, including on Linux or remote hosts. Google callback forwarding does not forward Keychain or Touch ID to an SSH host.
+
+`lock`, expiration and `logout` retain the enrolled credential. `keychain-forget` deletes the credential for the logged-in account; separately run `lock` to end an active session. After `change-passphrase`, run `keychain-enroll` with the new passphrase or `keychain-forget` to remove the stale credential. Retaining enrollment can preserve access if the vault passphrase is forgotten; Google account recovery still cannot decrypt a vault.
+
 ## Save and restore without inspection
 
 ```sh

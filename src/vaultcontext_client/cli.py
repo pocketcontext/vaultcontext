@@ -24,6 +24,7 @@ import urllib.request
 
 from . import auth
 from . import crypto
+from . import keychain
 
 MAX_FRAME = 24 * 1024 * 1024
 
@@ -331,14 +332,39 @@ def prompt_passphrase(confirm=False):
         raise auth.Fail(2, 'Passphrases did not match.')
     return value
 
-def unlock(cfg, timeout):
-    if not 30 <= timeout <= 3600:
-        raise auth.Fail(2, 'Unlock lifetime must be 30–3600 seconds.')
-    peer_uid = peer_uid_reader()
+def keychain_enroll(cfg):
+    keychain.require_helper()
     resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
     account = whoami(cfg)
     secret = one(cfg, 'identity_secrets', 'account=' + quote(account))
-    identity = crypto.unwrap_identity(json.loads(secret['key_bundle']), prompt_passphrase(), account)
+    passphrase = prompt_passphrase()
+    identity = crypto.unwrap_identity(json.loads(secret['key_bundle']), passphrase, account)
+    verify_user(cfg, account, crypto.fingerprint(crypto.public_identity(identity)))
+    # Enrollment never caches the identity bundle or starts a session.
+    keychain.call(cfg, account, 'store', passphrase)
+    return {'keychain_enrolled': True}
+
+
+def unlock(cfg, timeout, use_keychain=False):
+    if not 30 <= timeout <= 3600:
+        raise auth.Fail(2, 'Unlock lifetime must be 30–3600 seconds.')
+    peer_uid = peer_uid_reader()
+    if use_keychain:
+        keychain.require_helper()
+    resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
+    account = whoami(cfg)
+    secret = one(cfg, 'identity_secrets', 'account=' + quote(account))
+    passphrase = keychain.call(cfg, account, 'get') if use_keychain else prompt_passphrase()
+    try:
+        identity = crypto.unwrap_identity(json.loads(secret['key_bundle']), passphrase, account)
+    except Exception:
+        if use_keychain:
+            raise auth.Fail(1, 'Saved Keychain credential could not unlock the server identity. Use vc unlock, then enroll again if your passphrase changed.') from None
+        raise
+    finally:
+        # Avoid retaining a direct reference in the forked session. Python does
+        # not guarantee erasure of runtime or IPC copies.
+        del passphrase
     verify_user(cfg, account, crypto.fingerprint(crypto.public_identity(identity)))
     path = socket_path(cfg)
     path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -497,20 +523,33 @@ Manual: https://github.com/pocketcontext/vaultcontext/blob/main/skills/vaultcont
         'stores the encrypted private-key bundle on the server and returns your public fingerprint. '
         'There are no recovery keys. Run vc unlock afterward.', 'init')
     q = add('unlock', 'Start a temporary session with keys in memory',
-            'Requires login and an initialized identity (vc init). Prompts for your vault '
-            'passphrase in an interactive terminal and starts a same-OS-user memory session. '
+            'Requires login and an initialized identity (vc init). Starts a same-OS-user memory '
+            'session. By default, prompts for your vault passphrase in an interactive terminal; '
+            '--keychain uses an enrolled credential after macOS authentication. '
             'The execution host and agents using the session are trusted. Expiration rejects '
             'new requests; an operation already running may finish. Close early with vc lock.',
             'unlock --timeout 900')
     q.add_argument('--timeout', type=int, default=900,
                    help='session lifetime in seconds, 30–3600 (default: %(default)s)')
+    q.add_argument('--keychain', action='store_true',
+                   help='retrieve an enrolled passphrase with macOS authentication; requires the signed helper; no automatic fallback')
+    add('keychain-enroll', 'Remember your passphrase in macOS Keychain',
+        'Requires login and the signed macOS helper. Prompt for your existing passphrase in an '
+        'interactive terminal, verify the server identity, then save the passphrase in a '
+        'non-synchronizing Keychain item protected by macOS user presence. Does not open a session.',
+        'keychain-enroll')
+    add('keychain-forget', 'Remove this account\'s saved macOS passphrase',
+        'Requires login and the signed macOS helper. Delete the Keychain credential scoped to '
+        'this server and account. Does not end an existing session; use vc lock separately. '
+        'Lock and logout retain enrollment.', 'keychain-forget')
     add('lock', 'Close the local memory session',
         'End the unlocked session for the configured server and email. Keeps the application '
         'token; use vc logout to remove it too. Requires an existing unlock session.', 'lock')
     add('change-passphrase', 'Change your identity passphrase',
         unlocked + 'Prompt twice for a new passphrase (at least 12 characters) in an interactive '
         'terminal and re-encrypt the server identity bundle. This does not replace identity keys. '
-        'An existing unlocked session can change a forgotten passphrase; there are no recovery keys.',
+        'An existing unlocked session can change a forgotten passphrase; there are no recovery keys. '
+        'Saved Keychain credentials are not updated; run vc keychain-enroll again afterward.',
         'change-passphrase')
     add('vaults', 'List accessible vault names, IDs and roles',
         unlocked + 'Decrypt vault names and list your active vault memberships.', 'vaults')
@@ -636,7 +675,7 @@ Manual: https://github.com/pocketcontext/vaultcontext/blob/main/skills/vaultcont
     destination(q)
 
     groups = [
-        ('Account and keys', ('login', 'whoami', 'logout', 'check', 'init', 'unlock', 'lock', 'change-passphrase')),
+        ('Account and keys', ('login', 'whoami', 'logout', 'check', 'init', 'unlock', 'lock', 'change-passphrase', 'keychain-enroll', 'keychain-forget')),
         ('Vaults and files', ('vaults', 'create', 'save', 'list', 'search', 'history', 'cat', 'restore', 'archive', 'unarchive')),
         ('Sharing', ('directory', 'verify-user', 'members', 'share', 'invitations', 'accept', 'revoke', 'rotate')),
         ('Encrypted archives', ('export', 'inspect-export', 'restore-export')),
@@ -693,7 +732,13 @@ def run(args):
         verify_user(cfg, account, fingerprint)
         return dict(result, fingerprint=fingerprint)
     if args.command == 'unlock':
-        return unlock(cfg, args.timeout)
+        return unlock(cfg, args.timeout, use_keychain=args.keychain)
+    if args.command == 'keychain-enroll':
+        return keychain_enroll(cfg)
+    if args.command == 'keychain-forget':
+        keychain.require_helper()
+        keychain.call(cfg, whoami(cfg), 'delete')
+        return {'keychain_forgotten': True}
     payload = vars(args).copy()
     if args.command == 'save' and payload.get('name') is None:
         payload['name'] = payload['path']

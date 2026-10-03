@@ -185,3 +185,26 @@ launcher validation on Linux and macOS, with uv installed in an isolated bootstr
 venv to accommodate the macOS runner's managed Python installation.
 Container checks were not run locally: the configured Docker SSH host could not
 resolve. No package was published and no deployment changed.
+
+## Optional macOS Keychain source implementation (2026-10-03)
+
+All 67 unit tests passed on macOS with `TMPDIR=/private/tmp`, including 14 new
+bridge/lifecycle checks and seven native helper rejection checks. The native
+tests compile Swift with warnings treated as errors for macOS 12 and never call
+Keychain with a valid request. Bridge checks cover private-pipe transport,
+sanitized errors, origin scoping, platform and installation rejection, enrollment
+verification, cancellation/stale credentials, explicit opt-in and session behavior.
+An initial run with macOS's default symlinked temporary path failed four existing
+file-safety fixtures; the non-symlink temporary directory resolved those failures.
+
+All twelve README application validation scripts passed against rebuilt pinned
+server `a92b0de5e1b66b6d3b6135b90092d2d6da5f7cc8` using isolated synthetic data.
+Portable source-package and terminal/session suites were rerun after client
+integration and passed. The native build script passed Python syntax validation.
+
+No real Keychain item, production vault or signing credential was accessed.
+Actual profile-authorized signing, installation, enrollment, Touch ID/device
+credential fallback, ACL updates and signed upgrade behavior remain unverified;
+follow the on-device checklist in [macOS setup](macos-keychain.md). Container
+checks were not run for this client-only change. No commit, launcher pin update,
+package publication or deployment was performed.
