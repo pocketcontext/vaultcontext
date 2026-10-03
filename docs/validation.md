@@ -208,3 +208,10 @@ credential fallback, ACL updates and signed upgrade behavior remain unverified;
 follow the on-device checklist in [macOS setup](macos-keychain.md). Container
 checks were not run for this client-only change. No commit, launcher pin update,
 package publication or deployment was performed.
+
+The subsequent client release pins the portable launcher to implementation
+`58e94a3381f4fc8c25a5ed236142f8490ea5867f`. Both copied remote-launcher checks
+(`skill.py` and `cli_forward.py`) passed on macOS against the pinned server before
+publishing the launcher update. These changes do not enter the server image;
+production deployment is unnecessary. The native helper still requires separate
+Apple signing/provisioning and on-device verification.
