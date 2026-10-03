@@ -151,3 +151,16 @@ switching, clipboard success/fallback and native disclosures without JavaScript.
 Public asset verification accounted only for Cloudflare's Rocket Loader HTML
 transformation; all three origin asset hashes matched the checked-in source.
 The production schema endpoint continued to reject anonymous requests.
+
+## Bare-command help release — 2026-10-03
+
+Bare `vc` prints the same full help as `vc --help` and exits 0 before loading
+configuration. Invalid commands and incomplete `save` still exit 2. Checked both
+the development entry point and an isolated copied launcher installed from the
+pushed implementation commit `cd7020f72c7240845b2716405eb9e10d15c238f9`.
+
+All 41 unit tests, 12 OAuth tests, 12 deployment-workflow tests and the README's
+pinned-server integration, archive migration, realtime, size-limit, populated
+backup recovery, auth, OAuth integration, skill, CLI-forward and deployment
+checks passed locally using synthetic fixtures and isolated temporary databases.
+Both remotely installed copied-launcher release checks (`skill.py` and\n`cli_forward.py`) also passed before the launcher release commit.
