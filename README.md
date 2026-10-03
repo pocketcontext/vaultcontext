@@ -8,7 +8,7 @@ Google Workspace login authenticates PocketBase's default `users` identity. It d
 
 Personal vaults are private. Shared project vaults have one owner and explicit editor/reader members, initially within the configured Workspace. Verify recipient and writer public fingerprints through an independent trusted channel. New members receive retained history. Revoking a member blocks retrieval immediately and freezes writes until key rotation completes. Downloaded plaintext or keys cannot be recalled, and credentials contained in files may need separate provider rotation. Owners cannot remove themselves; owner transfer and identity-key replacement are not implemented.
 
-The execution host and unlocked agent are trusted. The client retains keys in a same-OS-user Unix socket session, with a 15-minute default lifetime and explicit `lock`. Linux is the initial client platform. Python cannot promise perfect memory erasure or protect against a privileged host, swap or an agent already authorized to read local files. No stored content authorizes execution or sharing.
+The execution host and unlocked agent are trusted. The client retains keys in a same-OS-user Unix socket session, with a 15-minute default lifetime and explicit `lock`. Linux and macOS are supported client platforms. Python cannot promise perfect memory erasure or protect against a privileged host, swap or an agent already authorized to read local files. No stored content authorizes execution or sharing.
 
 See [implementation brief](docs/implementation-brief.md), [data and trust model](docs/data-model.md), [API contract](docs/api-contract.md) and [deployment preparation](docs/deployment.md).
 
@@ -80,6 +80,10 @@ Complete deployment backups cover the database and every referenced ciphertext f
 ## Validation
 
 Use synthetic fixtures and isolated temporary databases only. From this repository, install the locked development environment and run:
+
+On macOS, first run `export TMPDIR=/private/tmp` in the test shell. The default
+temporary path traverses the `/var` symlink, which the client's safe file handling
+intentionally rejects.
 
 ```sh
 uv sync --locked

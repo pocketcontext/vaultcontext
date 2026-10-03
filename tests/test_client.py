@@ -4,12 +4,74 @@ from pathlib import Path
 import socket
 import sys
 import tempfile
+import time
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from vaultcontext_client import cli as vc
 
 class ClientTests(unittest.TestCase):
+    def test_native_peer_credentials(self):
+        left, right = socket.socketpair()
+        with left, right:
+            self.assertEqual(vc.peer_uid_reader()(left), os.geteuid())
+
+    def test_linux_peer_credentials(self):
+        conn = Mock()
+        conn.getsockopt.return_value = vc.struct.pack('3i', 123, 456, 789)
+        with patch.object(sys, 'platform', 'linux'), patch.object(socket, 'SO_PEERCRED', 17, create=True):
+            self.assertEqual(vc.peer_uid_reader()(conn), 456)
+            conn.getsockopt.assert_called_once_with(socket.SOL_SOCKET, 17, 12)
+
+    def test_darwin_credential_failure(self):
+        libc = Mock()
+        libc.getpeereid.return_value = -1
+        with patch.object(sys, 'platform', 'darwin'), patch.object(vc.ctypes, 'CDLL', return_value=libc):
+            with self.assertRaises(OSError):
+                vc.peer_uid_reader()(Mock(fileno=lambda: 10))
+
+    def test_unsupported_platform_fails_before_passphrase(self):
+        with patch.object(sys, 'platform', 'unsupported'), patch.object(vc, 'prompt_passphrase') as prompt:
+            with self.assertRaises(vc.auth.Fail):
+                vc.unlock({}, 30)
+            prompt.assert_not_called()
+
+    def test_session_survives_rejected_peers(self):
+        # First a credential lookup error, then a foreign UID, then native checks.
+        native = vc.peer_uid_reader()
+        attempts = 0
+        def peer(conn):
+            nonlocal attempts
+            attempts += 1
+            if attempts == 1:
+                raise OSError('synthetic credential failure')
+            if attempts == 2:
+                return os.getuid() + 1
+            return native(conn)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / 'session.sock'
+            with patch.object(vc, 'socket_path', return_value=path), \
+                 patch.object(vc, 'peer_uid_reader', return_value=peer), \
+                 patch.object(vc, 'whoami', return_value='synthetic'), \
+                 patch.object(vc, 'one', return_value={'key_bundle': '{}'}), \
+                 patch.object(vc, 'prompt_passphrase', return_value='synthetic passphrase'), \
+                 patch.object(vc.crypto, 'unwrap_identity', return_value=vc.crypto.generate_identity()), \
+                 patch.object(vc, 'verify_user'), \
+                 patch.object(vc, 'execute', return_value=[]):
+                vc.unlock({}, 30)
+                try:
+                    for _ in range(2):
+                        with self.assertRaises((OSError, ValueError)):
+                            vc.session_call({}, {'command': 'vaults'})
+                    self.assertEqual(vc.session_call({}, {'command': 'vaults'}), [])
+                    self.assertEqual(vc.session_call({}, {'command': 'vaults'}), [])
+                finally:
+                    self.assertEqual(vc.session_call({}, {'command': 'lock'}), {'locked': True})
+                    deadline = time.monotonic() + 5
+                    while path.exists() and time.monotonic() < deadline:
+                        time.sleep(.01)
+                    self.assertFalse(path.exists())
+
     def test_query_objects_and_truncation(self):
         with patch.object(vc,'request',return_value={'columns':['id'],'rows':[{'id':'x'}]}):
             self.assertEqual(vc.query({},'SELECT id'),[{'id':'x'}])

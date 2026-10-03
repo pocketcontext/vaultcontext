@@ -5,6 +5,7 @@ Private keys are stored encrypted on the server and decrypted only in memory.
 """
 import argparse
 import base64
+import ctypes
 import getpass
 import hashlib
 import json
@@ -271,6 +272,27 @@ def execute(cfg, identity, account, args):
     raise auth.Fail(2, 'Unknown vault operation.')
 
 # Local session: same-uid Unix socket, private directory, fixed lifetime, no key files.
+def peer_uid_reader():
+    """Resolve the native credential API before starting a memory session."""
+    if sys.platform.startswith('linux') and hasattr(socket, 'SO_PEERCRED'):
+        def linux_uid(conn):
+            return struct.unpack('3i', conn.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, 12))[1]
+        return linux_uid
+    if sys.platform == 'darwin':
+        # Darwin uid_t/gid_t are unsigned 32-bit integers. Python's socket
+        # module does not expose getpeereid, so call the system libc directly.
+        getpeereid = ctypes.CDLL(None, use_errno=True).getpeereid
+        getpeereid.argtypes = [ctypes.c_int, ctypes.POINTER(ctypes.c_uint32),
+                              ctypes.POINTER(ctypes.c_uint32)]
+        getpeereid.restype = ctypes.c_int
+        def darwin_uid(conn):
+            user, group = ctypes.c_uint32(), ctypes.c_uint32()
+            if getpeereid(conn.fileno(), ctypes.byref(user), ctypes.byref(group)) != 0:
+                raise OSError(ctypes.get_errno(), 'Cannot verify unlock session peer.')
+            return user.value
+        return darwin_uid
+    raise auth.Fail(1, 'Unlock sessions require Linux or macOS peer credentials.')
+
 def socket_path(cfg):
     return auth.cache_file(cfg).with_suffix('.sock')
 
@@ -312,6 +334,7 @@ def prompt_passphrase(confirm=False):
 def unlock(cfg, timeout):
     if not 30 <= timeout <= 3600:
         raise auth.Fail(2, 'Unlock lifetime must be 30–3600 seconds.')
+    peer_uid = peer_uid_reader()
     resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
     account = whoami(cfg)
     secret = one(cfg, 'identity_secrets', 'account=' + quote(account))
@@ -360,7 +383,11 @@ def unlock(cfg, timeout):
                 if time.monotonic() >= deadline:
                     break
                 conn.settimeout(5)
-                peer = struct.unpack('3i', conn.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, 12))[1]
+                try:
+                    peer = peer_uid(conn)
+                except OSError:
+                    # Fail closed for this connection without killing the session.
+                    continue
                 if peer != os.getuid():
                     continue
                 stop = False

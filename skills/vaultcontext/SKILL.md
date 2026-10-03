@@ -5,7 +5,7 @@ description: Store, version, archive, restore and explicitly share arbitrary enc
 
 # VaultContext
 
-Use the executable `vc` launcher. It requires uv and Linux Unix sockets; uv manages Python and dependencies. The launcher pins the packaged client to a full Git commit and works from any directory, including when copied alone to `~/.local/bin/vc`. The first run needs downloads. There is no skill lockfile, so transitive dependency resolution can vary. A conventional package installation also provides `vc` without requiring uv at runtime; see the workflows.
+Use the executable `vc` launcher. It requires uv and Linux or macOS Unix sockets; uv manages Python and dependencies. The launcher pins the packaged client to a full Git commit and works from any directory, including when copied alone to `~/.local/bin/vc`. The first run needs downloads. There is no skill lockfile, so transitive dependency resolution can vary. A conventional package installation also provides `vc` without requiring uv at runtime; see the workflows.
 
 Read [workflows](references/workflows.md) for login, local unlock, files, sharing, rotation and exports. [Schema](references/schema.md) explains the authenticated SQL/REST boundary; the client package bundles the schema checked by `check`.
 

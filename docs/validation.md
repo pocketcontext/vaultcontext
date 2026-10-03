@@ -164,3 +164,23 @@ pinned-server integration, archive migration, realtime, size-limit, populated
 backup recovery, auth, OAuth integration, skill, CLI-forward and deployment
 checks passed locally using synthetic fixtures and isolated temporary databases.
 Both remotely installed copied-launcher release checks (`skill.py` and\n`cli_forward.py`) also passed before the launcher release commit.
+## macOS memory-session compatibility (2026-10-03)
+
+The source client now checks Unix socket peers with Darwin `getpeereid` on macOS
+and retains Linux `SO_PEERCRED`. Credential lookup errors and foreign UIDs reject
+the connection without ending the session. Unsupported platforms fail before
+prompting for an unlock passphrase.
+
+All README validation commands passed on macOS against rebuilt pinned server
+`a92b0de5e1b66b6d3b6135b90092d2d6da5f7cc8`, using isolated synthetic fixtures and
+`TMPDIR=/private/tmp`: 46 unit tests, integration, archive migration, realtime,
+size limits, populated backup recovery, auth, OAuth integration/client, portable
+package, terminal CLI forward exercise, deployment and deployment workflow.
+New regression tests cover native peer credentials, Linux decoding, Darwin
+lookup failure, unsupported platforms and session survival after rejected peers.
+
+CI now runs source-package validation on Linux and macOS. The published launcher
+still pins the previous Linux-only package; copied remote-launcher checks remain
+Linux-only until a tested package revision is published and the launcher repinned.
+Container checks were not run locally: the configured Docker SSH host could not
+resolve. No package was published and no deployment changed.

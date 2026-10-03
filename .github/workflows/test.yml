@@ -7,7 +7,11 @@ permissions:
   contents: read
 jobs:
   test:
-    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-15]
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -19,6 +23,9 @@ jobs:
       - name: Install locked client package
         working-directory: vaultcontext
         run: uv sync --locked
+      - name: Use a symlink-free temporary directory on macOS
+        if: runner.os == 'macOS'
+        run: echo 'TMPDIR=/private/tmp' >> "$GITHUB_ENV"
       - name: Read pinned server revision
         id: server
         shell: bash
@@ -50,6 +57,9 @@ jobs:
             uv run --locked --project vaultcontext python "vaultcontext/tests/$check.py" --binary "$PWD/pocketcontext/bin/pocketcontext"
           done
       - name: Copied standalone launcher and memory session
+        # The released launcher still pins the Linux-only client. Source-package
+        # session coverage above runs on both platforms; enable this after repinning.
+        if: runner.os == 'Linux'
         run: |
           uv run --locked --project vaultcontext python vaultcontext/tests/skill.py --binary "$PWD/pocketcontext/bin/pocketcontext" --client vaultcontext/skills/vaultcontext/vc
           uv run --locked --project vaultcontext python vaultcontext/tests/cli_forward.py --binary "$PWD/pocketcontext/bin/pocketcontext" --client vaultcontext/skills/vaultcontext/vc
