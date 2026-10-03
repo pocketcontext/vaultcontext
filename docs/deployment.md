@@ -1,9 +1,8 @@
 # Deployment preparation
 
-No resources have been provisioned and no image has been published or deployed.
-The proposed application origin is `https://vault.pocketcontext.com`, with image
-`ghcr.io/pocketcontext/vaultcontext`. These names must be confirmed against actual
-infrastructure before release. The prepared container serves port 80 and `/up`,
+VaultContext is deployed at `https://vault.pocketcontext.com`, with public image
+`ghcr.io/pocketcontext/vaultcontext`. See [release evidence](../DEPLOYMENT.md) for
+the deployed digest, provider checks and remaining browser verification. The prepared container serves port 80 and `/up`,
 uses `/storage/pb_data`, and runs one SQLite/Litestream writer.
 
 The image pins the PocketContext commit, Go and Debian base image digests, and
@@ -41,18 +40,13 @@ if a newer database-only replica exists. This is not a zero-data-loss guarantee.
 Keep all app-specific credentials in the deployment scaffold's ignored
 `.envrc.private` under `COLORS_PAR_APP_VAULTCONTEXT_*`.
 
-The local `once-pocketcontext` scaffold was prepared on 3 October 2026 with one
-VaultContext entry (one CPU, 512 MiB RAM), all 13 environment mappings and private
-configuration placeholders. Proposed bucket name: `vaultcontext-backup`.
-Google credentials and R2 object credentials remain blank. At the user's request,
-the endpoint uses the scaffold's existing EU R2 S3 endpoint; dedicated bucket
-jurisdiction and authenticated access remain to be verified.
-At the user's request, operator credentials reference the existing shared
-DealContext superuser settings. Existing private values were preserved and the file
-restricted to mode 0600. Sequential scaffold build and create dry-run passed;
-sibling configuration and compute guards are unchanged. This does not establish
-provider access or deployability. See the scaffold's README for the remaining
-targeted rollout steps. No cloud mutation or publication was performed.
+The `once-pocketcontext` scaffold contains one VaultContext entry (one CPU,
+512 MiB RAM), all 13 environment mappings and populated private settings. The
+bucket is `vaultcontext-backup`, using the existing EU R2 S3 endpoint. Operator
+credentials reference the existing shared DealContext settings at the user's
+request. The private file remains ignored and mode 0600. Build/dry-run passed;
+targeted DNS, initial deployment and a restricted-key update were then verified.
+Sibling configuration and compute guards are unchanged.
 
 ## Validation and publication gates
 
@@ -80,9 +74,9 @@ No drill may use production credentials or the live replica.
 
 Image CI gates publication on application tests and container configuration,
 smoke and populated restore checks. Publication additionally requires repository
-variable `VAULTCONTEXT_PUBLISH=true`; it is not enabled by these files. The workflow
-contains no deployment job. Package visibility and anonymous pull access must be
-verified after an authorized publication; no visibility is assumed here.
+variable `VAULTCONTEXT_PUBLISH=true`, now configured for the repository. The workflow
+contains no deployment job. The current image is public; anonymous manifest and complete layer pull access
+were verified on the deployment host.
 
 ## Single-writer updates
 
@@ -119,7 +113,6 @@ drill before release. Retention configuration is an operator decision, not impli
 by version retention inside the vault.
 
 Local ARM64 container config/smoke/populated-restore checks passed; see [validation evidence](validation.md).
-Outstanding release checks include independent security review, R2 access/restore, DNS/TLS, registry visibility, real
-Google login, and verification of exactly one writer with automatic updates off.
-Record actual source/image digests and provider evidence in a sanitized release
-record when those checks have been performed.
+Live R2 access/initial snapshot restore, DNS/TLS, public registry access and one
+writer with automatic updates off passed; see the release record. Real Google
+browser login and independent security review remain outstanding.

@@ -72,6 +72,6 @@ python3 tests/deploy_workflow.py
 
 Container configuration, smoke and populated complete-restore checks gate image publication; see deployment documentation for commands. Real Google browser/provider configuration and independent security review are separate from synthetic tests. Actual verification results and remaining limitations are recorded in `docs/validation.md`.
 
-No production infrastructure, credentials or provider resources are created by local implementation. Proposed host/image identifiers in deployment files are preparation only. Automatic production deployment is not enabled.
+VaultContext is deployed at `https://vault.pocketcontext.com`; see [release evidence](DEPLOYMENT.md). The repository and container image are public. Image publication is enabled, but automatic production deployment is not.
 
 Identity, OAuth and deployment patterns are adapted from RaiseContext; filtered access and complete-original backup patterns follow AccountContext. Their domain schemas and readers are not copied.

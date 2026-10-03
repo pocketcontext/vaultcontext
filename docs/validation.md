@@ -1,5 +1,8 @@
 # Local validation
 
+This records the initial local validation. Subsequent CI and production checks are
+recorded in [deployment evidence](../DEPLOYMENT.md).
+
 Validated on 2026-10-03 using synthetic users/files and temporary isolated databases on Linux ARM64. No production application, provider resource, real credential or user file was used.
 
 Server pin: `a92b0de5e1b66b6d3b6135b90092d2d6da5f7cc8`, built in a separate checkout with Go 1.27.1 and CGO. Its `make build` and race-enabled `make test` passed. Generic PocketContext source was not modified. Client dependency: PyNaCl 1.6.2.

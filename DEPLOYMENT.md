@@ -1,0 +1,94 @@
+# VaultContext deployment — 3 October 2026
+
+Live origin: https://vault.pocketcontext.com. Interface: portable CLI/skill; no
+browser frontend. The public repository is
+https://github.com/pocketcontext/vaultcontext and the public image is
+`ghcr.io/pocketcontext/vaultcontext`.
+
+- Source: `4faa856ef369ae3064e16521ef9e7bb928061e3d`.
+- PocketContext pin: `a92b0de5e1b66b6d3b6135b90092d2d6da5f7cc8`.
+- Published ARM64/AMD64 manifest:
+  `sha256:be53c2bcbce79fe0f0dfc825ef7af98f8016076075e08aa4d97eaf33b0096db4`.
+- [Publication and test gates](https://github.com/pocketcontext/vaultcontext/actions/runs/37128418154)
+  passed. Earlier [application validation](https://github.com/pocketcontext/vaultcontext/actions/runs/37128274141)
+  and [container checks](https://github.com/pocketcontext/vaultcontext/actions/runs/37128274389)
+  also passed.
+- Existing ONCE host: `130.61.106.194`, ARM64. One CPU, 512 MiB, persistent
+  `/storage`, TLS enabled and automatic updates disabled.
+
+Anonymous registry token/manifest access and a complete pull using an empty Docker
+credential directory on the host succeeded. The first deployment used the immutable
+manifest digest. A subsequent restricted-key update to `latest` pulled that same
+digest; serving revision and resource settings were verified afterward.
+
+## Configuration and isolation
+
+The scaffold is `once-pocketcontext/colors.yml`. Its private `.envrc.private`
+contains all app-specific environment settings and the dedicated deployment key
+path, is ignored by Git and has mode 0600. At the user's request, operator
+credentials reference the existing shared DealContext credentials and R2 uses
+the existing account's EU S3 endpoint. Google uses a separate client with
+Workspace domain `pocketcontext.com`.
+
+The dedicated bucket is `vaultcontext-backup`, prefix
+`once-pocketcontext/vaultcontext`, region `auto`. Authenticated object
+write/read/list/delete passed, disposable probes were removed, and an unsigned
+S3 read was rejected. Provider-level public-domain settings were not inspected.
+
+A saved, reviewed OpenTofu plan added exactly the proxied A record
+`vault.pocketcontext.com` at the existing host and updated the existing DNS state.
+No full scaffold convergence, compute replacement or SMTP changes occurred.
+Initial deployment copied the existing CRM SMTP settings privately. Sibling
+container IDs/running states and deployment-key entries were preserved.
+
+## Verified service and backups
+
+HTTPS `/up`, operator authentication, HTTPS app origin, SMTP enablement, rate
+limits, trusted proxy, default `users`, and the configured Google client passed.
+Anonymous schema/SQL and direct signup were rejected. No `agents` collection or
+ordinary users were created. Every sibling app/demo/website health check returned
+HTTP 200 after deployment.
+
+Verified exactly one running VaultContext container, persistent storage, disabled
+automatic updates and the expected source revision. The startup complete snapshot
+uploaded successfully and nonempty Litestream LTX objects were present. The live
+complete snapshot was downloaded, checksum-verified and restored into an isolated
+temporary directory; SQLite integrity passed. This took approximately 0.41 seconds
+for the initial empty application database. No replica writer was started and
+the restored files were removed. This is not a populated production recovery-time
+measurement; populated encrypted-file recovery passed in isolated CI/local tests.
+
+Complete snapshots run after startup, after each 3600-second interval following
+upload, and during graceful shutdown. Recovery uses the latest complete snapshot,
+including ciphertext files; a newer database-only replica is insufficient. Monitor
+backup age and size as usage grows. Retention remains an operator decision.
+
+## Updates and recovery
+
+The dedicated key `~/.ssh/vaultcontext-deploy` invokes only
+`sudo -n /usr/local/sbin/deploy-vaultcontext`, with SSH restrictions and no-argument
+sudo permission. The root-owned wrapper uses `/run/lock/deploy-vaultcontext.lock`,
+pulls the fixed image, gracefully stops the sole writer and updates only this
+application. A real restricted-key update passed. Temporary deployment scripts
+were removed. The trusted host key was taken from the existing DealContext GitHub
+deployment environment and matched on connection.
+
+GitHub environment `once-pocketcontext` contains the dedicated SSH secret and
+`SERVER_IP`, `SERVER_USER`, `SSH_KNOWN_HOSTS`; `COLORS_PROFILE=once-pocketcontext`
+is configured. `VAULTCONTEXT_PUBLISH=true` enables tested image publication. The
+workflow has no deployment job; later image publication does not update production.
+Do not use ordinary ONCE rolling updates or enable automatic updates.
+
+Stop the production writer before rollback or restoration. Use a prior image only
+with a compatible schema; otherwise restore a verified complete snapshot with a
+deliberate replica strategy. Never run a restored writer against the live replica
+beside production. Backups include sensitive auth settings and must remain private.
+
+## Remaining user verification
+
+Real Google browser login and first-user JIT remain unverified. Registered redirects
+must be `http://127.0.0.1:8765/callback` and
+`https://vault.pocketcontext.com/api/oauth2-redirect`. Server/provider configuration
+checks and synthetic OAuth tests do not prove Google's console audience/redirect
+settings. No independent security audit was performed. See
+[validation and limitations](docs/validation.md).

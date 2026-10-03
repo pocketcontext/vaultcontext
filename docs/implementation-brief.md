@@ -13,12 +13,12 @@ Exports encrypt file content under an independently supplied archive passphrase,
 ## Local implementation choices
 
 - Repository: `vaultcontext`; environment prefix: `VAULTCONTEXT`.
-- Proposed production origin: `https://vault.pocketcontext.com` (not provisioned).
-- Proposed image: `ghcr.io/pocketcontext/vaultcontext` (not published).
+- Proposed production origin: `https://vault.pocketcontext.com` (deployed; see `../DEPLOYMENT.md`).
+- Proposed image: `ghcr.io/pocketcontext/vaultcontext` (public; see `../DEPLOYMENT.md`).
 - Dedicated Google Web client, private R2 bucket `vaultcontext-backup`, replica prefix `once-pocketcontext/vaultcontext` required before deployment.
 - Donors: RaiseContext `40a1fdb69478758e92470a12216358763ea4077a`, AccountContext `b9b81840597c4299263a27bd79f8bde2dbf2e270`.
 - Initial server pin: `a92b0de5e1b66b6d3b6135b90092d2d6da5f7cc8`, matching existing active-app infrastructure; validate intentionally.
-- User authorization: local implementation and subagent collaboration; no cloud provisioning or production deployment.
+- User authorization: local implementation and subagent collaboration, followed by explicit deployment and public repository/image publication.
 - Real records/credentials: none. All automated fixtures synthetic.
 
 ## Release requirements
