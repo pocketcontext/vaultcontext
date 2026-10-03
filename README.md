@@ -57,7 +57,7 @@ python3 -m venv ~/.local/share/vaultcontext-venv
 ~/.local/share/vaultcontext-venv/bin/vc login --google
 ```
 
-Run `vc --help` for grouped commands and a first-use example, or `vc COMMAND --help`
+Run `vc` or `vc --help` for grouped commands and a first-use example, or `vc COMMAND --help`
 for arguments, prerequisites and examples. Commands return JSON except `cat`,
 which writes exact file bytes to stdout. Help does not require configuration or sign-in.
 

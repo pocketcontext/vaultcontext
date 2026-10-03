@@ -685,7 +685,11 @@ def run(args):
 def main():
     resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
     try:
-        args = parser().parse_args()
+        command_parser = parser()
+        if len(sys.argv) == 1:
+            command_parser.print_help()
+            return 0
+        args = command_parser.parse_args()
         result = run(args)
         if args.command == 'cat':
             sys.stdout.buffer.write(result)
