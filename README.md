@@ -86,3 +86,14 @@ Container configuration, smoke and populated complete-restore checks gate image 
 VaultContext is deployed at `https://vault.pocketcontext.com`; see [release evidence](DEPLOYMENT.md). The repository and container image are public. Image publication is enabled, but automatic production deployment is not.
 
 Identity, OAuth and deployment patterns are adapted from RaiseContext; filtered access and complete-original backup patterns follow AccountContext. Their domain schemas and readers are not copied.
+
+## Client launcher releases
+
+Commit and push the tested package implementation first. Update `skills/vaultcontext/vc` to that full commit SHA, then validate the remotely installed client before committing and pushing the launcher:
+
+```sh
+uv run --locked python tests/skill.py --binary /absolute/path/to/pinned/pocketcontext --client skills/vaultcontext/vc
+uv run --locked python tests/cli_forward.py --binary /absolute/path/to/pinned/pocketcontext --client skills/vaultcontext/vc
+```
+
+These checks copy only the executable into a temporary directory. The launcher intentionally has no adjacent lockfile; keep the root development lockfile separate. A copied launcher must be replaced to adopt a later client revision.
