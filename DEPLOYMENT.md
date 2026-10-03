@@ -1,8 +1,36 @@
 # VaultContext deployment — 3 October 2026
 
-## Open Graph social card release
+## macOS and Keychain onboarding release — 4 October 2026
 
 Production at https://vault.pocketcontext.com runs
+`ffc5a9abef8b2209f4c0da487a6a6cf3a27f58a4`, manifest
+`sha256:e346b5095a0270150b5de18f50e48a93bbdd8af5ef5093e65f394079b0ba2b85`.
+The page now documents Linux/macOS support, canonical temporary paths and
+optional Keychain enrollment. Keychain use still requires a separately signed,
+provisioned Apple helper; real device authentication remains unverified.
+
+The portable launcher pins client
+`58e94a3381f4fc8c25a5ed236142f8490ea5867f`. Both copied-launcher tests passed,
+and the installed workspace skill, workspace lock hash and local PATH launcher
+were refreshed and verified. Existing unlocked sessions were preserved.
+
+[Application validation](https://github.com/pocketcontext/vaultcontext/actions/runs/37156427139)
+and [container checks, populated restore and multi-platform publication](https://github.com/pocketcontext/vaultcontext/actions/runs/37156427226)
+passed. The installed deployment wrapper matched reviewed source. Operator SSH
+invoked its locked graceful-stop update after verifying the published revision.
+Exact revision, digest, server pin and public asset hashes passed, with one running
+writer, one CPU, 512 MiB and automatic updates disabled. All fourteen sibling
+container IDs, images, states and settings were unchanged.
+
+Live health/security headers, anonymous schema rejection, private-source denial,
+updated onboarding text and exact CSS/JS passed. Local desktop/390/320-pixel,
+keyboard, installation-switch and clipboard checks passed; live mobile layout,
+keyboard disclosure and Keychain command copying were also verified. No schema,
+application records or cloud resources changed.
+
+## Open Graph social card release
+
+This earlier release at https://vault.pocketcontext.com ran
 `0c07040e6c8c0101fc84df922a75e0c4f4af1c37`, manifest
 `sha256:d1db50cfa540f99a920020ee0f47119c9354d9c2359bf77e7f627d5dabc6a6f2`.
 The public `/og-card.png` is included in the image. Open Graph and Twitter
