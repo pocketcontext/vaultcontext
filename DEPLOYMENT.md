@@ -1,5 +1,27 @@
 # VaultContext deployment — 3 October 2026
 
+## CLI help release update
+
+Production now runs `30b4dedbf4a529b010146c5377151457d0b5579a`, with manifest
+`sha256:1bf88095d05cec887b609891b58226791b180c14b058d8fe556d17e1346dfe80`.
+The standalone launcher pins help implementation
+`b7845ac443f64a1e9b513a04e90545cc7fe3b06d`; the local PATH launcher was updated.
+[Application validation](https://github.com/pocketcontext/vaultcontext/actions/runs/37132558839)
+and [container gates and publication](https://github.com/pocketcontext/vaultcontext/actions/runs/37132558990)
+passed, including copied-launcher session tests and populated backup recovery.
+See [local validation](docs/validation.md#cli-help-release--2026-10-03).
+
+The existing restricted deployment key invoked the verified locked graceful-stop
+wrapper. Post-update inspection matched the exact revision and manifest, one
+running writer, unchanged server pin, one CPU, 512 MiB and disabled automatic
+updates. VaultContext and all sibling public health endpoints returned HTTP 200;
+anonymous schema access returned 401. NotifyContext changed independently before
+the VaultContext update (15:20:53 versus 15:22:56 UTC); all other sibling container
+IDs were unchanged and every container remained running. No schema, application
+behavior or cloud resources changed in this release.
+
+## Initial deployment record
+
 Live origin: https://vault.pocketcontext.com. Interface: portable CLI/skill; no
 browser frontend. The public repository is
 https://github.com/pocketcontext/vaultcontext and the public image is

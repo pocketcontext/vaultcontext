@@ -48,3 +48,16 @@ The client moved into `vaultcontext_client`, with a packaged schema, console ent
 Validated the wheel installed into a fresh environment from outside the repository, including its console entry point and bundled schema. All 39 unit tests passed on Python 3.11 and 3.14; all 12 OAuth client tests passed. Integration, realtime, limits, complete-backup integration, auth, OAuth integration, portable package, deployment settings and deployment workflow tests passed against a rebuilt server at `a92b0de5e1b66b6d3b6135b90092d2d6da5f7cc8` with Go 1.27.1 and CGO. The ARM64 container build, configuration, smoke and populated complete-restore checks passed. No production deployment was performed for this client change.
 
 The single-file `vc` launcher pins client commit `d0c7d4923b563b4797997e0ba026761a78a47162`. A cold-cache run fetched and built that GitHub revision successfully without neighboring files or a script lockfile. Both copied-launcher skill and terminal CLI tests passed outside the repository, including schema access, synthetic login, no-echo passphrase prompts, save/share/restore, daemon survival, explicit locking and real session expiry. CI now runs both copied-launcher checks in addition to the current package tests.
+
+## CLI help release — 2026-10-03
+
+Client `b7845ac443f64a1e9b513a04e90545cc7fe3b06d` adds grouped help, first-use
+configuration, command examples, argument meanings and prerequisites. Launcher
+`30b4ded` pins that published client. No command or server behavior changed.
+
+Independent review checked all 26 commands, 52 old/new argument parsing cases,
+all 27 help screens without configuration, and every subcommand example. All
+README validation commands passed against the clean pinned server using isolated
+synthetic records. The final parser passed the 39-unit suite, packaged skill and
+terminal CLI forward checks. Both copied-launcher release checks passed against
+the published client. The local PATH launcher was replaced and its help verified.
