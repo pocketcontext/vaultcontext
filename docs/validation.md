@@ -89,3 +89,32 @@ cached JSON for actual synthetic private keys, and every regular application
 cache file for private keys or persisted key bundles. Both copied-launcher
 suites passed again after this correction. The local PATH launcher and installed
 skill documentation were updated; no active user session was locked.
+
+## Path labels and document archive release — 2026-10-03
+
+Client/application `7619d0c8e69a2cec5b414063bc63388d5f551f70` preserves the literal source argument as the
+default encrypted file name and adds reversible document archive state. Launcher
+`6a9fa4b` pins that package. Existing names and signed content versions remain
+unchanged. Archive transitions use their own concurrency marker; stale saves
+conflict even after an archive/unarchive cycle. Encrypted export v2 includes
+archive status; the client still reads strict v1 exports.
+
+All README validation passed locally against the clean pinned server using
+isolated synthetic fixtures: 41 unit tests, integration, populated schema
+migration, realtime, limits, populated complete backup recovery, auth/OAuth,
+portable skill, terminal CLI forward, deployment settings and wrapper checks.
+Both copied-launcher release suites passed against the published package,
+including explicit path-label/archive CLI assertions. Independent review found
+no blocking issues.
+
+Tests cover absolute/relative path arguments, explicit name overrides and version
+updates; owner/editor actions, reader/outsider denial, idempotent no-op auditing,
+stale/concurrent saves, frozen vaults, audit rollback and unchanged historical
+reads. Default/archived/all filtering retains pagination; archived documents
+remain accessible by ID and to newly accepted members. Saves fail while archived.
+Populated recovery retains archive state, audit events, versions and exact bytes.
+
+The local ARM64 image build, container configuration, smoke and populated restore
+drill passed. The container drill now archives its encrypted multi-chunk fixture
+and verifies archive state and audit recovery alongside exact-byte decryption
+after both disaster restoration and graceful-shutdown replication.

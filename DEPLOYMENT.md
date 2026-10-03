@@ -1,8 +1,33 @@
 # VaultContext deployment — 3 October 2026
 
+## Path labels and document archive release
+
+Production runs `6a9fa4b614102189391b79a58a75ec372ff117ad`, manifest
+`sha256:65daf0042393c7c1263c08ab16db312c82a9fd70288a852553a019e2dbb778bb`.
+The launcher pins application/client `7619d0c`, preserving literal supplied path
+labels and adding archive/unarchive with a separate archive-state revision.
+Existing documents migrate active without changing their names or signed versions.
+Encrypted export v2 records archive status; updated clients still read v1 exports.
+
+[Application validation](https://github.com/pocketcontext/vaultcontext/actions/runs/37135572376)
+and [container checks, populated recovery and image publication](https://github.com/pocketcontext/vaultcontext/actions/runs/37135572572)
+passed. See [local validation](docs/validation.md#path-labels-and-document-archive-release--2026-10-03).
+The package-only staging commit skipped CI while its launcher still pinned the old
+schema; all release gates ran on the final matching launcher commit before deployment.
+
+The existing restricted-key wrapper completed the locked graceful-stop update.
+Post-deployment checks matched the exact revision and manifest, one running writer,
+unchanged server pin, one CPU, 512 MiB and automatic updates disabled. Every sibling
+container ID was unchanged. VaultContext and sibling public health endpoints
+returned HTTP 200; anonymous schema access returned 401. The updated local PATH
+launcher authenticated normally and `vc check` returned `compatible: true`.
+Installed skill instructions were refreshed. No active unlock session was stopped;
+run `vc lock` then `vc unlock` to replace a session using older client code.
+No cloud resources or generic server changes were needed.
+
 ## Cat release update
 
-Production runs `91ac202ba5b7cced0323c8a1009f6d8e1c26bd35`, manifest
+This earlier release ran `91ac202ba5b7cced0323c8a1009f6d8e1c26bd35`, manifest
 `sha256:350a85961692a30e0fe0c2d2da24ad1085500591b9f2d6b23ddc357abff5ab4c`.
 The launcher pins client `81559e944ceb01896ca0fe76e311c33bcb5ff296`, adding
 `vc cat DOCUMENT_ID [--version VERSION_ID]`. The local PATH launcher and installed
