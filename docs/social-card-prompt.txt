@@ -1,0 +1,15 @@
+Use case: ads-marketing.
+Create a finished Open Graph social preview card for VaultContext, a developer tool for encrypted confidential dotfiles.
+Canvas: landscape 1200 by 630 pixels, approximately 1.905:1 aspect ratio. Opaque background.
+Match the existing website's restrained editorial style: warm off-white #f6f6f0 background, dark forest green #263b31 lettering, muted sage green #68804b accents. Generous whitespace and 65px safe margins.
+Composition: left 60% clean typography, right 40% an elegant small three-dimensional sage green steel vault with a circular combination dial, with two ivory file cards peeking out behind it labelled ".env" and ".envrc". Soft shadows, subtle pale olive halo, no visual clutter.
+Text, precisely spelled:
+Small bold sans-serif brand at top left: "VaultContext"
+Large beautifully typeset dark green serif headline over three lines:
+"Your confidential"
+"dotfiles."
+"One home."
+The last line in muted sage italic.
+Small sans-serif supporting line bottom left: "Encrypted files. Full paths. Version history."
+Small understated website address at bottom left below it: "vault.pocketcontext.com"
+Do not add buttons, browser chrome, badges, invented text, confidential contents, watermarks or extra symbols. The design must remain legible when shared as a small social card.

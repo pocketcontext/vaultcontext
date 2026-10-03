@@ -14,7 +14,7 @@ See [implementation brief](docs/implementation-brief.md), [data and trust model]
 
 ## Onboarding page
 
-The hand-maintained static page lives in `pb_public/` and is served at `/` by the application-owned `pb_hooks/frontend.pb.js` hook. The container includes these assets. No frontend build or third-party assets are required.
+The hand-maintained static page lives in `pb_public/` and is served at `/` by the application-owned `pb_hooks/frontend.pb.js` hook. The container includes these assets. No frontend build or third-party assets are required. Open Graph and Twitter large-image metadata reference the public `pb_public/og-card.png` (1730 × 909); its URL and the canonical page URL use the production origin. The built-in image generator created the card; its prompt is recorded in `docs/social-card-prompt.txt`.
 
 For a page-only local preview, run `python3 -m http.server 8769 --bind 127.0.0.1 --directory pb_public`. Expose only this public directory when sharing a temporary preview.
 
