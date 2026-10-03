@@ -210,6 +210,9 @@ def execute(cfg, identity, account, args):
             _, info, checked = get_version(cfg, identity, account, args['document'], ver['id'], content=False)
             result.append(dict(version=checked['id'], revision=checked['revision'], author=checked['author'], **info))
         return sorted(result, key=lambda v: v['revision'])
+    if command == 'cat':
+        data, _, _ = get_version(cfg, identity, account, args['document'], args.get('version'))
+        return {'data': base64.b64encode(data).decode('ascii')}
     if command == 'restore':
         data, _, ver = get_version(cfg, identity, account, args['document'], args.get('version'))
         crypto.restore_file(args['to'], data, overwrite=args.get('overwrite', False))
@@ -359,7 +362,8 @@ def unlock(cfg, timeout):
                     response = {'error': str(error) if isinstance(error, auth.Fail) else 'Vault operation failed; sensitive error details suppressed.', 'code': getattr(error, 'code', 1)}
                 try:
                     conn.sendall((encode(response) + '\n').encode())
-                except (BrokenPipeError, ConnectionResetError):
+                except OSError:
+                    # A disconnected or stalled client must not end the unlock session.
                     pass
                 if stop:
                     break
@@ -384,7 +388,8 @@ def parser():
 
 Google login authenticates your account; unlock decrypts your keys.
 Passphrases require an interactive terminal. There are no recovery keys.
-Commands return JSON. Run vc COMMAND --help for arguments and examples.
+Commands return JSON except cat, which writes exact file bytes to stdout.
+Run vc COMMAND --help for arguments and examples.
 Manual: https://github.com/pocketcontext/vaultcontext/blob/main/skills/vaultcontext/references/workflows.md""")
     commands = p.add_subparsers(prog=p.prog, dest='command', required=True, metavar='COMMAND',
                                help=argparse.SUPPRESS)
@@ -487,6 +492,16 @@ Manual: https://github.com/pocketcontext/vaultcontext/blob/main/skills/vaultcont
     add('history', 'List a document\'s retained versions',
         unlocked + 'Authenticate retained versions and show version IDs, revisions, authors, '
         'names and sizes. Verify other writers with vc verify-user first.', 'history DOCUMENT_ID', 'document')
+    q = add('cat', 'Write exact file contents to stdout',
+            unlocked + 'Write exact bytes, defaulting to the current version, after verifying '
+            'the entire file. Verify the writer with vc verify-user first. No JSON, headings or '
+            'added newline; errors go to stderr. Creates no plaintext temporary files and never '
+            'executes contents. Output may contain secrets, binary data or terminal control '
+            'characters. Shell redirection uses ordinary shell permissions and overwrite behavior; '
+            'use vc restore for protected file creation.',
+            'cat DOCUMENT_ID --version VERSION_ID', 'document')
+    q.add_argument('--version', metavar='VERSION_ID',
+                   help='version ID from vc history (default: current version)')
     q = add('restore', 'Restore a file version to a local path',
             unlocked + 'Restore exact bytes, defaulting to the current version. Verify the '
             'writer with vc verify-user first. Existing destinations require --overwrite. '
@@ -562,7 +577,7 @@ Manual: https://github.com/pocketcontext/vaultcontext/blob/main/skills/vaultcont
 
     groups = [
         ('Account and keys', ('login', 'whoami', 'logout', 'check', 'init', 'unlock', 'lock', 'change-passphrase')),
-        ('Vaults and files', ('vaults', 'create', 'save', 'list', 'search', 'history', 'restore')),
+        ('Vaults and files', ('vaults', 'create', 'save', 'list', 'search', 'history', 'cat', 'restore')),
         ('Sharing', ('directory', 'verify-user', 'members', 'share', 'invitations', 'accept', 'revoke', 'rotate')),
         ('Encrypted archives', ('export', 'inspect-export', 'restore-export')),
     ]
@@ -627,13 +642,26 @@ def run(args):
         payload['new_passphrase'] = prompt_passphrase(confirm=True)
     if args.command == 'export':
         payload['export_passphrase'] = prompt_passphrase(confirm=True)
-    return session_call(cfg, payload)
+    result = session_call(cfg, payload)
+    if args.command == 'cat':
+        return base64.b64decode(result['data'], validate=True)
+    return result
 
 def main():
     resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
     try:
-        result = run(parser().parse_args())
-        print(encode(result))
+        args = parser().parse_args()
+        result = run(args)
+        if args.command == 'cat':
+            sys.stdout.buffer.write(result)
+            sys.stdout.buffer.flush()
+        else:
+            print(encode(result))
+    except BrokenPipeError:
+        # Prevent another flush of a closed pipe during interpreter shutdown.
+        with open(os.devnull, 'wb') as sink:
+            os.dup2(sink.fileno(), sys.stdout.fileno())
+        return 1
     except auth.Fail as error:
         auth.say(str(error)); return error.code
     except FileNotFoundError:

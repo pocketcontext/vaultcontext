@@ -39,7 +39,7 @@ export VAULTCONTEXT_USER_EMAIL=you@example.com
 vc login --google
 ```
 
-The launcher declares its Python requirements and pins the client package to a full Git commit. It can run from any directory without neighboring source files. The first run needs network access to download the package, Python if needed, and dependencies; later runs reuse uv's cache. Updating the copied launcher adopts its new client revision. The skill has no script lockfile: transitive dependencies may resolve differently on fresh installations. The repository's `uv.lock` governs development and tests, not launcher execution.
+The launcher declares its Python requirements and pins the client package to a full Git commit. It can run from any directory without neighboring source files. The first run needs network access to download the package, Python if needed, and dependencies; later runs reuse uv's cache. Updating the copied launcher adopts its new client revision. If a session is already unlocked, run `vc lock` then `vc unlock` after updating so the session uses the new client. The skill has no script lockfile: transitive dependencies may resolve differently on fresh installations. The repository's `uv.lock` governs development and tests, not launcher execution.
 
 Alternatively, install the package from a trusted checkout into an external Python 3.11+ virtual environment. This provides the same `vc` command without requiring uv at runtime:
 
@@ -50,12 +50,14 @@ python3 -m venv ~/.local/share/vaultcontext-venv
 ```
 
 Run `vc --help` for grouped commands and a first-use example, or `vc COMMAND --help`
-for arguments, prerequisites and examples. Commands return JSON; help does not
-require configuration or sign-in.
+for arguments, prerequisites and examples. Commands return JSON except `cat`,
+which writes exact file bytes to stdout. Help does not require configuration or sign-in.
 
 Use the chosen `vc` command for `whoami`, `check`, `init`, `unlock`, and subsequent operations. `init` and `unlock` prompt in an interactive terminal. Never pass unlock secrets through chat, arguments, environment variables or pipes. Over SSH, forward Google callback port 8765 as described in the [skill workflows](skills/vaultcontext/references/workflows.md); decryption still occurs on the machine running the CLI. Configuration must be available wherever the command runs; a workspace `.envrc` may not be loaded outside that workspace.
 
-The [skill](skills/vaultcontext/SKILL.md) includes the launcher and operation references. It supports vault creation, arbitrary-file saves, local name search, version history, exact restores, invitations, memberships, revocation/rotation, encrypted export and independent archive restore. Saving again with `--document` creates a new immutable version. No format-specific parsing, automatic synchronization or shell activation occurs.
+The [skill](skills/vaultcontext/SKILL.md) includes the launcher and operation references. It supports vault creation, arbitrary-file saves, local name search, version history, exact stdout output with `cat`, exact restores, invitations, memberships, revocation/rotation, encrypted export and independent archive restore. Saving again with `--document` creates a new immutable version. No format-specific parsing, automatic synchronization or shell activation occurs.
+
+`vc cat DOCUMENT_ID` outputs the current file; add `--version VERSION_ID` for a historical version. It verifies the entire file before output, creates no plaintext temporary files, and adds no formatting or newline. Binary data and terminal control characters pass through unchanged. Output can expose secrets to the terminal, pipes or captured logs. Shell redirection uses ordinary shell permissions and overwrite behavior; use `restore` for protected disk writes. Neither command executes file contents.
 
 Restores require explicit paths and existing parent directories, reject symlinks and preserve byte contents with mode 0600. Existing destinations require `--overwrite`. Original executable bits, permissions, ownership and source absolute paths are not restored. An `.envrc.private` restored into a direnv-enabled directory can execute later when the user's shell loads it; the client never activates it.
 

@@ -69,8 +69,11 @@ def main():
             cli('login');cli('check')
             initialized=terminal(command+['init'],env,tmp)
             terminal(command+['unlock','--timeout','60'],env,tmp)
-            actors.append((user['id'],initialized['fingerprint'],cli))
-        owner,owner_fp,a=actors[0];colleague,colleague_fp,b=actors[1]
+            actors.append((user['id'],initialized['fingerprint'],cli,env))
+        owner,owner_fp,a,owner_env=actors[0];colleague,colleague_fp,b,colleague_env=actors[1]
+        cat_help=subprocess.run(command+['cat','--help'],cwd=tmp,capture_output=True)
+        cat_available=cat_help.returncode==0
+        assert args.client or cat_available, 'source package must provide cat'
         try:
             vault=a('create','Synthetic isolated shared project')['id']
             source=Path(tmp)/'arbitrary.binary';content=b'\x00\xff\r\n'+os.urandom(8192);source.write_bytes(content)
@@ -85,6 +88,21 @@ def main():
             assert destination.read_bytes()==content
             assert destination.stat().st_mode&0o777==0o600
             assert len(b('history',saved['id']))==1
+            if cat_available:
+                def cat(*words):
+                    return subprocess.run(command+['cat',saved['id'],*words],env=colleague_env,
+                                          cwd=tmp,capture_output=True,timeout=30)
+                result=cat()
+                assert result.returncode==0 and result.stdout==content and result.stderr==b''
+                source.write_bytes(b'synthetic updated bytes without a newline')
+                a('save',vault,str(source),'--document',saved['id'])
+                assert cat().stdout==source.read_bytes()
+                assert cat('--version',saved['version']).stdout==content
+                a('revoke',vault,colleague)
+                denied=cat()
+                assert denied.returncode!=0 and denied.stdout==b''
+                assert denied.stderr and b'Traceback' not in denied.stderr
+                print('VaultContext copied/packaged CLI cat and revocation: PASS')
         finally:
             a('lock');b('lock')
         # The launcher has exited before subsequent calls: its detached session must
