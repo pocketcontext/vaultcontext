@@ -61,3 +61,31 @@ README validation commands passed against the clean pinned server using isolated
 synthetic records. The final parser passed the 39-unit suite, packaged skill and
 terminal CLI forward checks. Both copied-launcher release checks passed against
 the published client. The local PATH launcher was replaced and its help verified.
+
+## Cat release — 2026-10-03
+
+Client `81559e944ceb01896ca0fe76e311c33bcb5ff296` adds
+`vc cat DOCUMENT_ID [--version VERSION_ID]` with fully verified exact-byte stdout.
+Launcher release `91ac202` pins this client. No server or schema changes were
+needed. Existing unlocked sessions must be restarted with `vc lock` and
+`vc unlock` after the client upgrade.
+
+All README checks passed locally against the clean pinned server, using isolated
+synthetic records: 39 unit tests, integration, realtime, file limits, populated
+backup recovery, authentication/OAuth, portable skill, terminal CLI forward,
+deployment settings and deployment wrapper checks. Independent review found no
+blocking issues. Both copied-launcher release suites passed, explicitly including
+cat coverage.
+
+New checks cover 8 MiB binary and empty files, current/historical versions, exact
+output without an added newline, locked/unauthorized/revoked/unverified reads,
+version/document mismatch and corrupted final ciphertext with zero stdout. Small
+and large closed stdout pipes produce no traceback; disconnected and stalled
+socket readers do not terminate the memory session.
+
+Initial copied-launcher CI exposed a test false positive: uv's public source
+cache contains the schema field name `key_bundle`. The corrected test checks all
+cached JSON for actual synthetic private keys, and every regular application
+cache file for private keys or persisted key bundles. Both copied-launcher
+suites passed again after this correction. The local PATH launcher and installed
+skill documentation were updated; no active user session was locked.

@@ -1,8 +1,29 @@
 # VaultContext deployment — 3 October 2026
 
+## Cat release update
+
+Production runs `91ac202ba5b7cced0323c8a1009f6d8e1c26bd35`, manifest
+`sha256:350a85961692a30e0fe0c2d2da24ad1085500591b9f2d6b23ddc357abff5ab4c`.
+The launcher pins client `81559e944ceb01896ca0fe76e311c33bcb5ff296`, adding
+`vc cat DOCUMENT_ID [--version VERSION_ID]`. The local PATH launcher and installed
+skill documentation were updated. Restart an already-unlocked session with
+`vc lock` then `vc unlock` to load the new client code.
+
+[Application validation](https://github.com/pocketcontext/vaultcontext/actions/runs/37133894422)
+and [container checks, populated recovery and image publication](https://github.com/pocketcontext/vaultcontext/actions/runs/37133894691)
+passed. See [cat validation](docs/validation.md#cat-release--2026-10-03) for exact-byte,
+authorization, integrity and pipe coverage, plus the corrected cache-test assertion.
+
+The existing verified restricted-key wrapper completed a locked graceful-stop
+update. Post-deployment inspection matched the exact image revision and digest,
+one running writer, the unchanged server pin, one CPU, 512 MiB and automatic
+updates disabled. All sibling container IDs were unchanged. VaultContext and all
+sibling public health endpoints returned HTTP 200; anonymous schema access
+returned 401. No server behavior, schema or cloud resources changed.
+
 ## CLI help release update
 
-Production now runs `30b4dedbf4a529b010146c5377151457d0b5579a`, with manifest
+This earlier release ran `30b4dedbf4a529b010146c5377151457d0b5579a`, with manifest
 `sha256:1bf88095d05cec887b609891b58226791b180c14b058d8fe556d17e1346dfe80`.
 The standalone launcher pins help implementation
 `b7845ac443f64a1e9b513a04e90545cc7fe3b06d`; the local PATH launcher was updated.
