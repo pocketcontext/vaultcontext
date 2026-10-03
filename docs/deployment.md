@@ -6,8 +6,8 @@ the deployed digest, provider checks and remaining browser verification. The pre
 uses `/storage/pb_data`, and runs one SQLite/Litestream writer.
 
 The image pins the PocketContext commit, Go and Debian base image digests, and
-Litestream release checksums. It contains no browser frontend or CLI private-key
-cache. Ciphertext chunks are immutable protected files. Complete backups include a
+Litestream release checksums. It serves the public onboarding page from `pb_public/`; vault operations stay in
+the CLI. It contains no CLI private-key cache. Ciphertext chunks are immutable protected files. Complete backups include a
 consistent database snapshot plus every referenced ciphertext file, with checksums.
 A database-only replica cannot restore file contents.
 The user's unlock passphrase is still required. There is no recovery key.

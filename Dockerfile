@@ -68,6 +68,7 @@ WORKDIR /app
 COPY POCKETCONTEXT_VERSION pocketcontext.json ./
 COPY pb_migrations/ ./pb_migrations/
 COPY pb_hooks/ ./pb_hooks/
+COPY pb_public/ ./pb_public/
 
 # The container runs as root. ONCE creates and mounts the /storage volume and offers no option to
 # set its owner or the container's user, and the server binds port 80.

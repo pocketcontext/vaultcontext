@@ -5,6 +5,9 @@
 !pocketcontext.json
 !pb_migrations/*.js
 !pb_hooks/*.js
+!pb_public/index.html
+!pb_public/styles.css
+!pb_public/app.js
 !docker/entrypoint.sh
 !docker/litestream.yml
 
