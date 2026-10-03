@@ -6,18 +6,18 @@ import os
 from pathlib import Path
 import pty
 import select
-import shutil
 import signal
 import subprocess
-import sys
 import tempfile
 import time
-from integration import server, ROOT
+from integration import server
+from client_command import client_command
 
 
-def terminal(argv, env):
+def terminal(argv, env, cwd):
     pid, fd=pty.fork()
     if pid==0:
+        os.chdir(cwd)
         os.execve(argv[0],argv,env)
     output=b'';prompts=0;deadline=time.monotonic()+30
     try:
@@ -52,10 +52,11 @@ def terminal(argv, env):
 
 
 def main():
-    p=argparse.ArgumentParser();p.add_argument('--binary',required=True);args=p.parse_args()
+    p=argparse.ArgumentParser();p.add_argument('--binary',required=True)
+    p.add_argument('--client',help='Copy and execute this standalone launcher outside the repository')
+    args=p.parse_args()
     with tempfile.TemporaryDirectory(prefix='vault-forward-') as tmp, server(args.binary) as request:
-        copied=Path(tmp)/'copied';shutil.copytree(ROOT/'skills/vaultcontext',copied)
-        command=[sys.executable,str(copied/'scripts/vc.py')]
+        command=client_command(args.client,tmp)
         admin=request('POST','/api/collections/_superusers/auth-with-password',{'identity':'admin@example.com','password':'SyntheticAdminPassword123!'})['token']
         actors=[]
         for name in ['owner','colleague']:
@@ -66,8 +67,8 @@ def main():
                 assert result.returncode==0,'CLI failed: '+result.stderr
                 return json.loads(result.stdout)
             cli('login');cli('check')
-            initialized=terminal(command+['init'],env)
-            terminal(command+['unlock','--timeout','60'],env)
+            initialized=terminal(command+['init'],env,tmp)
+            terminal(command+['unlock','--timeout','60'],env,tmp)
             actors.append((user['id'],initialized['fingerprint'],cli))
         owner,owner_fp,a=actors[0];colleague,colleague_fp,b=actors[1]
         try:
@@ -86,5 +87,21 @@ def main():
             assert len(b('history',saved['id']))==1
         finally:
             a('lock');b('lock')
+        # The launcher has exited before subsequent calls: its detached session must
+        # survive, then expire at the requested lifetime without an explicit lock.
+        locked=subprocess.run(command+['vaults'],env=env,cwd=tmp,capture_output=True,text=True)
+        assert locked.returncode!=0, 'lock left an accessible session'
+        terminal(command+['unlock','--timeout','30'],env,tmp)
+        b('vaults')
+        deadline=time.monotonic()+35
+        time.sleep(31)
+        while time.monotonic()<deadline:
+            result=subprocess.run(command+['vaults'],env=env,cwd=tmp,capture_output=True,text=True)
+            if result.returncode!=0 and 'unlock' in result.stderr.lower():
+                break
+            time.sleep(1)
+        else:
+            b('lock')
+            raise AssertionError('expired session remained accessible')
     print('VaultContext independent CLI forward exercise: PASS')
 if __name__=='__main__':main()

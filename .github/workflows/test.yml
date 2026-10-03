@@ -14,8 +14,11 @@ jobs:
         with:
           path: vaultcontext
           persist-credentials: false
-      - name: Install client crypto dependency
-        run: python3 -m pip install --requirement vaultcontext/skills/vaultcontext/scripts/requirements.txt
+      - name: Install uv
+        run: python3 -m pip install uv==0.12.21
+      - name: Install locked client package
+        working-directory: vaultcontext
+        run: uv sync --locked
       - name: Read pinned server revision
         id: server
         shell: bash
@@ -38,11 +41,11 @@ jobs:
         run: CGO_ENABLED=1 go build -tags sqlite_math_functions -o bin/pocketcontext ./cmd/pocketcontext
       - name: Crypto, client, packaging and deployment unit checks
         run: |
-          python3 -m unittest discover -s vaultcontext/tests -p 'test_*.py'
-          python3 vaultcontext/tests/deploy_workflow.py
-          python3 vaultcontext/tests/oauth.py
+          uv run --locked --project vaultcontext python -m unittest discover -s vaultcontext/tests -p 'test_*.py'
+          uv run --locked --project vaultcontext python vaultcontext/tests/deploy_workflow.py
+          uv run --locked --project vaultcontext python vaultcontext/tests/oauth.py
       - name: Isolated application, identity, OAuth, portable skill and deployment checks
         run: |
           for check in integration auth oauth_integration realtime skill cli_forward deploy backup_integration limits; do
-            python3 "vaultcontext/tests/$check.py" --binary "$PWD/pocketcontext/bin/pocketcontext"
+            uv run --locked --project vaultcontext python "vaultcontext/tests/$check.py" --binary "$PWD/pocketcontext/bin/pocketcontext"
           done

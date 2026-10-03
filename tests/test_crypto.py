@@ -3,13 +3,11 @@ import copy
 import os
 from pathlib import Path
 import stat
-import sys
 import tempfile
 import unittest
 from unittest.mock import patch
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'skills/vaultcontext/scripts'))
-import vault_crypto as vc
+from vaultcontext_client import crypto as vc
 from nacl.exceptions import CryptoError
 
 

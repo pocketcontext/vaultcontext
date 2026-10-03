@@ -1,10 +1,7 @@
 """Adversarial decrypted archive validation; fixtures never contain real secrets."""
 import copy
-import sys
 import unittest
-from pathlib import Path
-sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'skills/vaultcontext/scripts'))
-import vault_crypto as crypto
+from vaultcontext_client import crypto
 
 class ArchiveValidation(unittest.TestCase):
     def setUp(self):

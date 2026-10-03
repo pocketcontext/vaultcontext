@@ -4,13 +4,11 @@ import argparse
 import hashlib
 import os
 from pathlib import Path
-import sys
 import tempfile
 from unittest.mock import patch
-from integration import ROOT, server
+from integration import server
 
-sys.path.insert(0, str(ROOT / 'skills/vaultcontext/scripts'))
-import vc
+from vaultcontext_client import cli as vc
 
 
 def main():

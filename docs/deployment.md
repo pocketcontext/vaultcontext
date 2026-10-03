@@ -51,16 +51,16 @@ Sibling configuration and compute guards are unchanged.
 ## Validation and publication gates
 
 ```sh
-python3 -m pip install -r skills/vaultcontext/scripts/requirements.txt
-python3 tests/deploy_workflow.py
-python3 -m unittest discover -s tests -p test_backup.py
-python3 -m unittest discover -s tests -p test_packaging.py
-python3 tests/deploy.py --binary /absolute/path/to/pinned/pocketcontext
-python3 tests/backup_integration.py --binary /absolute/path/to/pinned/pocketcontext
+uv sync --locked
+uv run --locked python tests/deploy_workflow.py
+uv run --locked python -m unittest discover -s tests -p test_backup.py
+uv run --locked python -m unittest discover -s tests -p test_packaging.py
+uv run --locked python tests/deploy.py --binary /absolute/path/to/pinned/pocketcontext
+uv run --locked python tests/backup_integration.py --binary /absolute/path/to/pinned/pocketcontext
 docker build -t vaultcontext:check .
-python3 docker/smoke.py config --image vaultcontext:check
-python3 docker/smoke.py smoke --image vaultcontext:check
-python3 docker/smoke.py restore --image vaultcontext:check
+uv run --locked python docker/smoke.py config --image vaultcontext:check
+uv run --locked python docker/smoke.py smoke --image vaultcontext:check
+uv run --locked python docker/smoke.py restore --image vaultcontext:check
 ```
 
 The populated restore drill uses isolated volumes and a pinned-source MinIO

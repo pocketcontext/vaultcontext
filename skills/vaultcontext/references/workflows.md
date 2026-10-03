@@ -1,13 +1,24 @@
 # Workflows
 
-Install the dependency in an external virtual environment:
+Install [uv](https://docs.astral.sh/uv/getting-started/installation/) and run the installed skill's launcher directly, or copy it onto your PATH:
+
+```sh
+install -Dm755 /absolute/path/to/skill/vc ~/.local/bin/vc
+export PATH="$HOME/.local/bin:$PATH"
+vc --help
+```
+
+Both `uv` and `~/.local/bin` must be on PATH. The launcher is self-contained and pins the client package to a full Git commit. uv supplies a compatible Python and installs dependencies into its managed environment. Initial downloads require network access; offline use requires a prepared cache. Replace the launcher to adopt a new client revision. No adjacent lockfile is required; transitive dependency versions may vary on fresh installations.
+
+For an existing Python 3.11+ setup, install the package from a trusted checkout into an external environment instead:
 
 ```sh
 python3 -m venv ~/.local/share/vaultcontext-venv
-~/.local/share/vaultcontext-venv/bin/pip install -r /absolute/path/to/skill/scripts/requirements.txt
+~/.local/share/vaultcontext-venv/bin/pip install /absolute/path/to/vaultcontext
+~/.local/share/vaultcontext-venv/bin/vc --help
 ```
 
-In these examples, `vc` means running that environment's Python with the installed skill's `scripts/vc.py` path. No shell alias is installed automatically.
+This console entry point does not require uv at runtime. In the examples below, use your chosen `vc` executable. Configuration must be exported in the invoking environment; a workspace `.envrc` is not necessarily loaded when working elsewhere.
 
 ## Sign in and initialize
 

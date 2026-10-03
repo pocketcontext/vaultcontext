@@ -2,12 +2,10 @@
 """OAuth client protocol tests with a real loopback callback and mocked PocketBase."""
 import base64
 import hashlib
-import importlib.util
 import json
 import os
 from pathlib import Path
 import socket
-import sys
 import stat
 import tempfile
 import threading
@@ -17,10 +15,7 @@ import urllib.parse
 import urllib.request
 from unittest.mock import patch
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'skills/vaultcontext/scripts'))
-spec = importlib.util.spec_from_file_location('tc', Path(__file__).resolve().parents[1] / 'skills/vaultcontext/scripts/vault_auth.py')
-tc = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(tc)
+from vaultcontext_client import auth as tc
 
 
 class OAuthTest(unittest.TestCase):

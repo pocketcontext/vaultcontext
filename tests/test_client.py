@@ -7,8 +7,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'skills/vaultcontext/scripts'))
-import vc
+from vaultcontext_client import cli as vc
 
 class ClientTests(unittest.TestCase):
     def test_query_objects_and_truncation(self):

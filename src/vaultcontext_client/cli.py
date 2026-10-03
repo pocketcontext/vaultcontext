@@ -17,8 +17,8 @@ import time
 import urllib.parse
 import urllib.request
 
-import vault_auth as auth
-import vault_crypto as crypto
+from . import auth
+from . import crypto
 
 MAX_FRAME = 24 * 1024 * 1024
 

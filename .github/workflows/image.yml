@@ -41,14 +41,16 @@ jobs:
         run: |
           docker image inspect vaultcontext:ci --format '{{json .Config}}' | python3 -m json.tool
           docker run --rm --entrypoint sh vaultcontext:ci -c 'set -eu; litestream version; pocketcontext --version; cat /app/POCKETCONTEXT_VERSION; find /app /usr/local/bin -type f | sort; test ! -e /app/pb_hooks/.gitkeep'
-      - name: Install crypto dependency for populated recovery verification
-        run: python3 -m pip install --requirement skills/vaultcontext/scripts/requirements.txt
+      - name: Install uv
+        run: python3 -m pip install uv==0.12.21
+      - name: Install locked client package for populated recovery verification
+        run: uv sync --locked
       - name: Startup errors for missing configuration
-        run: python3 docker/smoke.py config --image vaultcontext:ci
+        run: uv run --locked python docker/smoke.py config --image vaultcontext:ci
       - name: Smoke test
-        run: python3 docker/smoke.py smoke --image vaultcontext:ci
+        run: uv run --locked python docker/smoke.py smoke --image vaultcontext:ci
       - name: Restore drill
-        run: python3 docker/smoke.py restore --image vaultcontext:ci
+        run: uv run --locked python docker/smoke.py restore --image vaultcontext:ci
 
   # Main only, from here on (a push, or a manual run on main). The Python tests gate the publication.
   tests:

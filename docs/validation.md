@@ -40,3 +40,9 @@ Go 1.27.1 was downloaded with the upstream SHA-256 verified. Docker was installe
 This is a local implementation with automated tests and targeted subagent review, not an independent security audit. No live Google browser sign-in, production R2/DNS/TLS, registry publication, production deployment or AMD64 image execution was performed. Deployment and provider configuration remain preparation only.
 
 Initial limitations: Linux client, 8 MiB per file, 64 MiB plaintext export container including encoding overhead, explicit fingerprint verification, whole-vault retained-history sharing, no owner transfer, no identity-key reset, no document deletion, no recovery keys, no browser UI or automatic synchronization. Metadata snapshot row/byte budgets still bound very large record histories. The client does not provide comprehensive malicious-server rollback detection or isolation from its unlocked execution host.
+
+## Packaged client validation — 2026-10-03
+
+The client moved into `vaultcontext_client`, with a packaged schema, console entry point and root `uv.lock`. Cryptographic implementation bytes are unchanged. The standalone skill launcher is released separately with an immutable client commit pin and no script lockfile.
+
+Validated the wheel installed into a fresh environment from outside the repository, including its console entry point and bundled schema. All 39 unit tests passed on Python 3.11 and 3.14; all 12 OAuth client tests passed. Integration, realtime, limits, complete-backup integration, auth, OAuth integration, portable package, deployment settings and deployment workflow tests passed against a rebuilt server at `a92b0de5e1b66b6d3b6135b90092d2d6da5f7cc8` with Go 1.27.1 and CGO. The ARM64 container build, configuration, smoke and populated complete-restore checks passed. No production deployment was performed for this client change.

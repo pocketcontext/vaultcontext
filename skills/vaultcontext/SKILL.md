@@ -5,9 +5,9 @@ description: Store, version, restore and explicitly share arbitrary encrypted fi
 
 # VaultContext
 
-Use the bundled `scripts/vc.py` client. It requires Python 3, Linux Unix sockets, and the pinned dependency in `scripts/requirements.txt`. Run from any directory; keep the installed skill directory intact.
+Use the executable `vc` launcher. It requires uv and Linux Unix sockets; uv manages Python and dependencies. The launcher pins the packaged client to a full Git commit and works from any directory, including when copied alone to `~/.local/bin/vc`. The first run needs downloads. There is no skill lockfile, so transitive dependency resolution can vary. A conventional package installation also provides `vc` without requiring uv at runtime; see the workflows.
 
-Read [workflows](references/workflows.md) for login, local unlock, files, sharing, rotation and exports. [Schema](references/schema.md) explains the authenticated SQL/REST boundary; `references/schema.json` is the schema checked by `check`.
+Read [workflows](references/workflows.md) for login, local unlock, files, sharing, rotation and exports. [Schema](references/schema.md) explains the authenticated SQL/REST boundary; the client package bundles the schema checked by `check`.
 
 ## Identity and trust
 

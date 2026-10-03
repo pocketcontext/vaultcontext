@@ -1,26 +1,24 @@
 #!/usr/bin/env python3
-"""Copied portable client against synthetic isolated VaultContext HTTP server."""
+"""Installed package and optional copied launcher against an isolated server."""
 import argparse
-import importlib.util
 import json
 import os
 from pathlib import Path
-import shutil
-import sys
 import subprocess
 import tempfile
 import time
 from unittest.mock import patch
-from integration import server, ROOT
+from integration import server
+from client_command import client_command
+from vaultcontext_client import cli as vc, crypto
 
 
 def main():
-    parser=argparse.ArgumentParser();parser.add_argument('--binary',required=True);args=parser.parse_args()
+    parser=argparse.ArgumentParser();parser.add_argument('--binary',required=True)
+    parser.add_argument('--client',help='Copy and execute this standalone launcher outside the repository')
+    args=parser.parse_args()
     with tempfile.TemporaryDirectory(prefix='vault-skill-') as tmp, server(args.binary) as req:
-        copied=Path(tmp)/'copied';shutil.copytree(ROOT/'skills/vaultcontext',copied)
-        sys.path.insert(0,str(copied/'scripts'))
-        import vc
-        import vault_crypto as crypto
+        command=client_command(args.client,tmp)
         os.environ['XDG_CACHE_HOME']=str(Path(tmp)/'cache')
         admin=req('POST','/api/collections/_superusers/auth-with-password',{'identity':'admin@example.com','password':'SyntheticAdminPassword123!'})['token']
         users=[]
@@ -85,12 +83,12 @@ def main():
         # Validate schema snapshot against live schema.
         os.environ['VAULTCONTEXT_URL']=a['url'];os.environ['VAULTCONTEXT_USER_EMAIL']=a['email'];os.environ['VAULTCONTEXT_USER_PASSWORD']=a['password']
         vc.run(vc.parser().parse_args(['check']))
-        result=subprocess.run([sys.executable,str(copied/'scripts/vc.py'),'check'],capture_output=True,text=True,check=True)
+        result=subprocess.run(command+['check'],cwd=tmp,capture_output=True,text=True,check=True)
         assert json.loads(result.stdout)['compatible'] is True
-        result=subprocess.run([sys.executable,str(copied/'scripts/vc.py'),'whoami'],capture_output=True,text=True,check=True)
+        result=subprocess.run(command+['whoami'],cwd=tmp,capture_output=True,text=True,check=True)
         assert json.loads(result.stdout)['id']==aid
         run(a,ai,aid,'change-passphrase',new_passphrase='replacement vault passphrase')
         bundle=json.loads(vc.one(a,'identity_secrets','account='+vc.quote(aid))['key_bundle'])
         assert crypto.unwrap_identity(bundle,'replacement vault passphrase',aid)==ai
-        print('VaultContext copied portable skill: PASS')
+        print('VaultContext packaged portable client: PASS')
 if __name__=='__main__':main()

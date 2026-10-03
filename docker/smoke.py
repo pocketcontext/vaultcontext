@@ -24,8 +24,7 @@ import urllib.error
 import urllib.request
 
 ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT / 'skills/vaultcontext/scripts'))
-import vault_crypto as crypto
+from vaultcontext_client import crypto
 # Build the withdrawn community image from pinned upstream sources for CI only.
 MINIO_IMAGE = os.environ.get('VAULTCONTEXT_TEST_MINIO_IMAGE', 'vaultcontext-minio-fixture:9e49d5e-7394ce0')
 STOP_LIMIT = 60  # seconds. `docker stop` waits 10 seconds by default before it kills.

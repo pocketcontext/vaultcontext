@@ -29,19 +29,29 @@ Production Google settings use a separate Web OAuth client, paired `VAULTCONTEXT
 
 ## Portable client
 
-Install the crypto dependency in an external virtual environment, then run the skill by absolute path:
+Install [uv](https://docs.astral.sh/uv/getting-started/installation/) and copy the executable launcher onto your PATH:
+
+```sh
+install -Dm755 skills/vaultcontext/vc ~/.local/bin/vc
+export PATH="$HOME/.local/bin:$PATH"
+export VAULTCONTEXT_URL=https://vault.example.com
+export VAULTCONTEXT_USER_EMAIL=you@example.com
+vc login --google
+```
+
+The launcher declares its Python requirements and pins the client package to a full Git commit. It can run from any directory without neighboring source files. The first run needs network access to download the package, Python if needed, and dependencies; later runs reuse uv's cache. Updating the copied launcher adopts its new client revision. The skill has no script lockfile: transitive dependencies may resolve differently on fresh installations. The repository's `uv.lock` governs development and tests, not launcher execution.
+
+Alternatively, install the package from a trusted checkout into an external Python 3.11+ virtual environment. This provides the same `vc` command without requiring uv at runtime:
 
 ```sh
 python3 -m venv ~/.local/share/vaultcontext-venv
-~/.local/share/vaultcontext-venv/bin/pip install -r skills/vaultcontext/scripts/requirements.txt
-export VAULTCONTEXT_URL=https://vault.example.com
-export VAULTCONTEXT_USER_EMAIL=you@example.com
-~/.local/share/vaultcontext-venv/bin/python /absolute/path/skills/vaultcontext/scripts/vc.py login --google
+~/.local/share/vaultcontext-venv/bin/pip install /absolute/path/to/vaultcontext
+~/.local/share/vaultcontext-venv/bin/vc login --google
 ```
 
-Use that same Python/script pair for `whoami`, `check`, `init`, `unlock`, and subsequent commands. `init` and `unlock` prompt in an interactive terminal. Never pass unlock secrets through chat, arguments, environment variables or pipes. Over SSH, forward Google callback port 8765 as described in the [skill workflows](skills/vaultcontext/references/workflows.md); decryption still occurs on the machine running the CLI.
+Use the chosen `vc` command for `whoami`, `check`, `init`, `unlock`, and subsequent operations. `init` and `unlock` prompt in an interactive terminal. Never pass unlock secrets through chat, arguments, environment variables or pipes. Over SSH, forward Google callback port 8765 as described in the [skill workflows](skills/vaultcontext/references/workflows.md); decryption still occurs on the machine running the CLI. Configuration must be available wherever the command runs; a workspace `.envrc` may not be loaded outside that workspace.
 
-The [skill](skills/vaultcontext/SKILL.md) can be copied outside this repository with all its scripts/references. It supports vault creation, arbitrary-file saves, local name search, version history, exact restores, invitations, memberships, revocation/rotation, encrypted export and independent archive restore. Saving again with `--document` creates a new immutable version. No format-specific parsing, automatic synchronization or shell activation occurs.
+The [skill](skills/vaultcontext/SKILL.md) includes the launcher and operation references. It supports vault creation, arbitrary-file saves, local name search, version history, exact restores, invitations, memberships, revocation/rotation, encrypted export and independent archive restore. Saving again with `--document` creates a new immutable version. No format-specific parsing, automatic synchronization or shell activation occurs.
 
 Restores require explicit paths and existing parent directories, reject symlinks and preserve byte contents with mode 0600. Existing destinations require `--overwrite`. Original executable bits, permissions, ownership and source absolute paths are not restored. An `.envrc.private` restored into a direnv-enabled directory can execute later when the user's shell loads it; the client never activates it.
 
@@ -53,21 +63,22 @@ Complete deployment backups cover the database and every referenced ciphertext f
 
 ## Validation
 
-Use synthetic fixtures and isolated temporary databases only. With dependencies installed:
+Use synthetic fixtures and isolated temporary databases only. From this repository, install the locked development environment and run:
 
 ```sh
-python3 -m unittest discover -s tests -p 'test_*.py'
-python3 tests/integration.py --binary /absolute/path/to/pinned/pocketcontext
-python3 tests/realtime.py --binary /absolute/path/to/pinned/pocketcontext
-python3 tests/limits.py --binary /absolute/path/to/pinned/pocketcontext
-python3 tests/backup_integration.py --binary /absolute/path/to/pinned/pocketcontext
-python3 tests/auth.py --binary /absolute/path/to/pinned/pocketcontext
-python3 tests/oauth_integration.py --binary /absolute/path/to/pinned/pocketcontext
-python3 tests/oauth.py
-python3 tests/skill.py --binary /absolute/path/to/pinned/pocketcontext
-python3 tests/cli_forward.py --binary /absolute/path/to/pinned/pocketcontext
-python3 tests/deploy.py --binary /absolute/path/to/pinned/pocketcontext
-python3 tests/deploy_workflow.py
+uv sync --locked
+uv run --locked python -m unittest discover -s tests -p 'test_*.py'
+uv run --locked python tests/integration.py --binary /absolute/path/to/pinned/pocketcontext
+uv run --locked python tests/realtime.py --binary /absolute/path/to/pinned/pocketcontext
+uv run --locked python tests/limits.py --binary /absolute/path/to/pinned/pocketcontext
+uv run --locked python tests/backup_integration.py --binary /absolute/path/to/pinned/pocketcontext
+uv run --locked python tests/auth.py --binary /absolute/path/to/pinned/pocketcontext
+uv run --locked python tests/oauth_integration.py --binary /absolute/path/to/pinned/pocketcontext
+uv run --locked python tests/oauth.py
+uv run --locked python tests/skill.py --binary /absolute/path/to/pinned/pocketcontext
+uv run --locked python tests/cli_forward.py --binary /absolute/path/to/pinned/pocketcontext
+uv run --locked python tests/deploy.py --binary /absolute/path/to/pinned/pocketcontext
+uv run --locked python tests/deploy_workflow.py
 ```
 
 Container configuration, smoke and populated complete-restore checks gate image publication; see deployment documentation for commands. Real Google browser/provider configuration and independent security review are separate from synthetic tests. Actual verification results and remaining limitations are recorded in `docs/validation.md`.
