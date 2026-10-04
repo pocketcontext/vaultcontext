@@ -19,3 +19,12 @@
 .steps .cli-details>summary{padding:13px 0;font-size:12px;justify-content:space-between}
 .steps .cli-details[open]>summary>span{transform:rotate(45deg)}
 @media(max-width:640px){.comparison th,.comparison td{padding:10px 4px}.comparison{font-size:11px}.result{font-size:10px}.path-map{padding:12px}}
+
+/* Optional analytics choice, with equal-weight actions and a persistent settings control. */
+.privacy-link{border:0;background:transparent;color:var(--muted);padding:4px 0;font-size:11px;text-decoration:underline;text-underline-offset:4px}
+.analytics-notice{position:fixed;z-index:30;bottom:18px;left:18px;right:18px;max-width:760px;margin:auto;background:var(--paper);border:1px solid var(--line);border-radius:8px;box-shadow:0 8px 35px #263b3130;padding:22px;max-height:85vh;overflow:auto}
+.analytics-notice h2{font:600 16px/1.4 ui-sans-serif,system-ui,sans-serif;letter-spacing:0}
+.analytics-notice p{font-size:12px;line-height:1.7;margin:9px 0;color:var(--muted)}
+.analytics-actions{display:flex;gap:12px;margin-top:16px;flex-wrap:wrap}
+.analytics-actions button{padding:9px 16px;background:var(--green);color:white;border:1px solid var(--green);border-radius:4px;font-size:12px;flex:1}
+@media(max-width:640px){.analytics-notice{left:12px;right:12px;bottom:12px;padding:18px}.analytics-actions{gap:8px}.analytics-actions button{padding:9px 8px}.footer{gap:12px}}

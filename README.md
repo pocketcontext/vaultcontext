@@ -14,11 +14,52 @@ See [implementation brief](docs/implementation-brief.md), [data and trust model]
 
 ## Onboarding page
 
-The hand-maintained static page lives in `pb_public/` and is served at `/` by the application-owned `pb_hooks/frontend.pb.js` hook. The container includes these assets. No frontend build or third-party assets are required. Open Graph and Twitter large-image metadata reference the public `pb_public/og-card.png` (1730 × 909); its URL and the canonical page URL use the production origin. The built-in image generator created the card; its prompt is recorded in `docs/social-card-prompt.txt`.
+The hand-maintained static page lives in `pb_public/` and is served at `/` by the application-owned `pb_hooks/frontend.pb.js` hook. The container includes these assets. No frontend build is required. Optional production-only analytics are described below. Open Graph and Twitter large-image metadata reference the public `pb_public/og-card.png` (1730 × 909); its URL and the canonical page URL use the production origin. The built-in image generator created the card; its prompt is recorded in `docs/social-card-prompt.txt`.
 
 For a page-only local preview, run `python3 -m http.server 8769 --bind 127.0.0.1 --directory pb_public`. Expose only this public directory when sharing a temporary preview.
 
 Keep onboarding commands aligned with the portable client and `skills/vaultcontext/references/workflows.md`. After edits, check desktop/mobile layout, keyboard disclosures, installation method switching and clipboard success/failure. Validate routing and security headers with the pinned server in an isolated temporary database before release. The “Bring your files to another computer” guide demonstrates explicit prefix mapping, comparison reports, selected version-pinned restores and verification with synthetic examples. Company-specific onboarding stays in WikiContext.
+
+## Public website analytics
+
+Tracking runs only on the exact origin `https://vault.pocketcontext.com` and root
+page `/`, after the visitor chooses **Allow analytics**. Localhost, forks,
+previews, alternate ports and self-hosted deployments load no analytics services,
+even with a remembered choice. **Analytics settings** in the footer lets visitors
+withdraw; the browser stores only the choice until analytics is accepted.
+
+The page reuses PocketContext's public GA4 measurement ID `G-1X0FZLTWGE` and
+Rybbit site ID `d8b36ba4a63f`. These are public routing identifiers, not credentials.
+Rybbit receives explicit `/api/track` requests, without loading its script or
+session recorder. GA4 loads in an empty same-origin frame only after acceptance;
+its automatic capture operates on a blank document instead of the guide. Ads storage,
+ad personalization and Google signals are disabled. Google analytics cookies use
+a VaultContext-specific prefix and host. Withdrawal removes the frame and those
+cookies, and stops new application events; it cannot recall already sent events.
+
+Explicit events are `page_view`, `onboarding_open`, `onboarding_method` and
+`onboarding_copy`. The shared GA4 property can also emit automatic scroll or
+engagement events for the empty frame; filter to the explicit event names when
+measuring guide use. The frame isolates automatic capture, not untrusted scripts. Custom events contain only an allowlisted `target` such as
+`compare_prompt` or `restore_commands`. Copy events mean a successful clipboard
+write, not a completed CLI operation. Requests use a fixed root page URL/title
+and omit query strings, fragments and referrers. No contents, local paths,
+clipboard text, identities or vault operations enter analytics. Providers still
+receive ordinary network metadata; browser blocking can reduce reported counts.
+
+Filter both dashboards by **Hostname equals `vault.pocketcontext.com`**.
+In Rybbit, use the site dashboard filter and save a segment where supported.
+In GA4, create a Free form exploration, import Hostname, then apply the exact
+hostname filter. These are reporting filters; the origin guard controls collection.
+Existing marketing-site tracking settings are not changed by this integration.
+
+Run the offline browser checks (all provider traffic is intercepted):
+
+```sh
+uv run --with playwright==1.60.0 python -m playwright install chromium
+uv run --with playwright==1.60.0 python tests/website_analytics.py
+# With an installed Chrome instead: PLAYWRIGHT_CHANNEL=chrome uv run --with playwright==1.60.0 python tests/website_analytics.py
+```
 
 ## Local server
 

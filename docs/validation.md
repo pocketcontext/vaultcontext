@@ -336,3 +336,32 @@ Local and live desktop/390/320-pixel browser checks passed, including keyboard,
 exact copied text, copy fallback and no-JavaScript disclosures. Live public assets
 match source after the existing Cloudflare HTML script transformation. Application
 and container recovery CI passed; immutable deployment evidence is in DEPLOYMENT.md.
+
+## Production-origin analytics (2026-10-04)
+
+The public guide adds optional Rybbit and GA4 tracking, restricted to the exact
+production origin and root page. Default and declined states load no providers.
+Rybbit uses explicit minimal HTTP events; GA4 runs in an empty same-origin frame.
+Fixed event targets and page metadata exclude query strings, fragments, referrers
+and command text. A footer control withdraws tracking and clears scoped GA cookies.
+
+The rebuilt exact pinned server passed all README unit, integration, archive
+migration, identity, OAuth, realtime, portable skill, CLI forwarding, deployment,
+maximum-file and populated complete-backup checks with isolated synthetic data.
+Actual server routing and headers were checked for the guide and analytics frame:
+only the frame permits same-origin embedding; restrictive script/connect origins,
+no-referrer and the application's other response protections remain in place.
+The new offline browser suite is a Linux CI release gate and intercepts provider
+traffic, so synthetic test activity never reaches analytics dashboards.
+
+Offline Chrome checks passed for exact-origin/path exclusion (including remembered
+consent on other hosts), default/declined/accepted states, cross-tab withdrawal,
+malicious URL and copied-text canaries, allowlisted event payloads, direct-frame
+navigation refusal, asynchronous and synchronous provider failure, successful and
+failed clipboard writes, mobile widths and keyboard controls. A separate review
+ran the actual downloaded Google tag with all outgoing traffic intercepted:
+exactly one pageview, expected fixed onboarding events, no canary leakage, scoped
+cookies removed on withdrawal and no later requests. The shared GA property also
+emits an automatic scroll event for the empty frame; this is documented and is
+not a guide interaction. Rybbit CORS permits the production origin. No dashboard
+settings were changed, and offline tests published no analytics events.
