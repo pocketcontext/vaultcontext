@@ -15,7 +15,7 @@ for (const button of document.querySelectorAll('.copy')) {
     try {
       await navigator.clipboard.writeText(code.textContent);
       button.textContent = 'Copied';
-      document.getElementById('copy-status').textContent = 'Commands copied. Replace any placeholders before running.';
+      document.getElementById('copy-status').textContent = 'Copied. Replace example paths and placeholders before use.';
       setTimeout(() => { button.textContent = 'Copy'; }, 2000);
     } catch {
       const selection = window.getSelection();

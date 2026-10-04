@@ -299,3 +299,25 @@ recovered the reported stale socket; authenticated schema compatibility passed.
 After the user unlocked privately on macOS, live metadata reads and comparisons
 completed without the earlier crash. No real file contents or plaintext checksums
 were inspected, and no vault documents were modified.
+
+
+## Compare and restore across computers (2026-10-04)
+
+The public static guide now demonstrates a synthetic Linux-to-macOS prefix map,
+active-document comparison report, explicit selection of missing/differing files,
+version-pinned restoration and equality verification. Copyable agent prompts and
+CLI equivalents preserve private terminal unlock, error classification, explicit
+overwrite and optional user-only text diff. No application API, client code,
+server pin or encryption format changed.
+
+All 89 unit tests and the full documented validation suite passed on macOS with
+locked uv dependencies and the exact pinned CGO server. An additional isolated
+synthetic scenario checked prefix mapping, match/different/missing outcomes,
+default overwrite refusal, mode 0600, and restoring the reviewed version after
+a newer current version was published.
+
+Chrome checks passed at 1440, 390 and 320 pixels: no page overflow, keyboard
+disclosures, copy success and fallback selection, existing installation method
+switching, no-JavaScript access and no console errors. Screenshots were visually
+reviewed. The pinned server served exact HTML/CSS/JS/image bytes with restrictive
+security headers; anonymous schema/query requests remained rejected.

@@ -18,7 +18,7 @@ The hand-maintained static page lives in `pb_public/` and is served at `/` by th
 
 For a page-only local preview, run `python3 -m http.server 8769 --bind 127.0.0.1 --directory pb_public`. Expose only this public directory when sharing a temporary preview.
 
-Keep onboarding commands aligned with the portable client and `skills/vaultcontext/references/workflows.md`. After edits, check desktop/mobile layout, keyboard disclosures, installation method switching and clipboard success/failure. Validate routing and security headers with the pinned server in an isolated temporary database before release. Company-specific onboarding stays in WikiContext.
+Keep onboarding commands aligned with the portable client and `skills/vaultcontext/references/workflows.md`. After edits, check desktop/mobile layout, keyboard disclosures, installation method switching and clipboard success/failure. Validate routing and security headers with the pinned server in an isolated temporary database before release. The “Bring your files to another computer” guide demonstrates explicit prefix mapping, comparison reports, selected version-pinned restores and verification with synthetic examples. Company-specific onboarding stays in WikiContext.
 
 ## Local server
 
