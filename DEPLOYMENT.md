@@ -1,5 +1,47 @@
 # VaultContext deployment
 
+## Full-name CLI — 4 October 2026
+
+The public command is now `vaultcontext`, with no `vc` alias or compatibility
+wrapper. The standalone uv launcher pins package
+`0298c2c33abb3b8037d5624c237ab63c9b0437fb`; Python requirements, encrypted storage,
+authentication, Keychain enrollment and memory-session behavior are unchanged.
+No ObserveContext dependency or tracing was added. The public onboarding guide
+uses the full-name command and documents locking old sessions before upgrading.
+
+Local validation passed 90 unit tests (7 macOS-only skips), all twelve README
+validation scripts and both copied remote-launcher checks against pinned server
+`a92b0de5e1b66b6d3b6135b90092d2d6da5f7cc8`. Checks cover encryption, privacy,
+Google OAuth, file limits, complete backups, independent launcher/session lifecycle,
+revocation and byte-exact file output. Offline onboarding analytics and
+320/390/1440-pixel keyboard, installation-switching and clipboard checks passed.
+
+The installed workspace skill and `~/.local/bin/vaultcontext` were refreshed.
+The verified old VaultContext `~/.local/bin/vc` launcher was removed after locking
+the configured session. The new client passed ordinary live identity/schema checks.
+The workspace skill lock update is committed as `6d3417c`.
+
+Production runs source `9a7e0c28bda818e63cc44f83be3ee030bea2b83a`, pinned to
+`ghcr.io/pocketcontext/vaultcontext@sha256:4b41228781e4c7464c1ba99c372c12834306bc77024645f41fa9a19e55ce495a`.
+[Linux/macOS application CI](https://github.com/pocketcontext/vaultcontext/actions/runs/37200857449)
+and [container recovery and multi-platform publication](https://github.com/pocketcontext/vaultcontext/actions/runs/37200857582)
+passed. A fresh complete database/ciphertext backup was uploaded, downloaded and
+verified before deployment. The hash-verified installed wrapper ran with its
+image fixed to this manifest, retaining its app lock, graceful stop and single
+writer. Its installed file was unchanged.
+
+The exact production source, image, server pin, one CPU, 512 MiB, disabled
+automatic updates and one writer were verified. All fourteen sibling containers
+retained their IDs, images, running states and resources. Public HTML matched
+source after the existing Cloudflare Rocket Loader rewrite; other public assets,
+security headers, health and anonymous-access rejection passed. Live browser
+checks at 320, 390 and 1440 pixels passed keyboard navigation, installation
+switching and copied full-name commands, without JavaScript errors or analytics
+requests. Scaffold build
+and create dry-run passed. No cloud resources, vault records or encrypted files
+were changed by this release. Real Google sign-in and Keychain user-presence
+flows remain user-device checks.
+
 ## Production-only website analytics — 4 October 2026
 
 Production runs source `928f10c86c124c280c02ec2b86efdf794b4153f0`, pinned to
