@@ -304,9 +304,22 @@ def call(cfg, method, path, body=None):
         if path == '/api/collections/users/auth-refresh':
             return status, data
     status, data = send(cfg, method, path, body, session['token'])
-    if cached and 400 <= status < 500 and status != 409 and (status == 401 or token_rejected(cfg, session['token'])):
+    if cached and 400 <= status < 500 and status not in (409, 429) and (status == 401 or token_rejected(cfg, session['token'])):
         if session.get('method') == 'google':
             raise Fail(1, 'Google session was rejected; run vaultcontext login --google again.')
         session = login(cfg)
         status, data = send(cfg, method, path, body, session['token'])
     return status, data
+
+
+def call_read_query(cfg, body):
+    """Retry only the read-only SQL endpoint after a rate-limit window.
+
+    Two retries bound the additional wait to 20 seconds. Action requests never
+    pass through here, and response bodies remain private to the caller.
+    """
+    for attempt in range(3):
+        status, data = call(cfg, 'POST', '/api/context/query', body)
+        if status != 429 or attempt == 2:
+            return status, data
+        time.sleep(10)

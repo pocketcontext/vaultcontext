@@ -377,3 +377,26 @@ source; desktop/mobile/keyboard/copy/no-JavaScript checks passed without browser
 errors. Default-off, opt-in provider responses (Rybbit 200, GA4 204), scoped
 cookies and withdrawal passed. Production image and sibling-state evidence are
 recorded in DEPLOYMENT.md. Analytics dashboard processing was not inspected.
+
+
+## Batched client listings (2026-10-04)
+
+Listing and name search select current versions in batches of 25 and keep opened
+epoch keys and verified writer keys only for the current command. A synthetic
+15-file vault requires 6 SQL requests instead of 91; 63 files across two epochs
+and writers require 12. Every manifest retains signature, context, author,
+revision and document/vault checks. Missing, duplicate or truncated version
+results fail closed, and subsequent commands recheck fingerprints and envelopes.
+
+Read-only SQL HTTP 429 responses receive at most two retries with 10-second
+waits. Rate limiting does not trigger token rejection checks or replay writes.
+The server rate limits and server pin are unchanged. Regression coverage includes
+a terminal-started client listing and searching 15 synthetic files under the
+production 60-requests-per-10-seconds SQL rule, with no source-query retry needed.
+
+All 106 unit tests and the README integration, archive migration, realtime,
+maximum-file, populated backup recovery, authentication, OAuth integration/client,
+portable skill, terminal CLI, deployment settings and deployment workflow suites
+passed on macOS with isolated synthetic data and the rebuilt pinned server
+`a92b0de5e1b66b6d3b6135b90092d2d6da5f7cc8`. Independent subagent review found no
+release blockers. No production deployment was performed.

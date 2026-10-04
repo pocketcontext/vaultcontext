@@ -38,7 +38,9 @@ def quote(value):
     return "'" + str(value).replace("'", "''") + "'"
 
 def request(cfg, method, path, body=None):
-    status, data = auth.call(cfg, method, path, body)
+    status, data = (auth.call_read_query(cfg, body)
+                    if method == 'POST' and path == '/api/context/query'
+                    else auth.call(cfg, method, path, body))
     if status >= 400:
         raise auth.Fail(4 if status == 409 else 1, f'HTTP {status}; operation failed. Reread state before retrying; response content suppressed.')
     return data
@@ -152,6 +154,50 @@ def download_chunk(cfg, chunk):
 def document_context(vault, document, version, epoch):
     return {'kind': 'file', 'vault': vault, 'document': document, 'version': version, 'epoch': epoch}
 
+def verified_file_metadata(doc, ver, key, author):
+    if ver['document'] != doc['id'] or ver['vault'] != doc['vault']:
+        raise auth.Fail(1, 'Version/document mismatch.')
+    manifest = json.loads(ver['manifest'])
+    crypto.verify_manifest(author, manifest, ver['signature'])
+    context = document_context(doc['vault'], doc['id'], ver['id'], int(ver['epoch']))
+    if manifest['context'] != context or manifest['author'] != ver['author'] or manifest['revision'] != int(ver['revision']):
+        raise auth.Fail(1, 'Signed manifest identity mismatch.')
+    info = decrypt_metadata(key, manifest['metadata'], dict(context, kind='file-metadata'))
+    validate_file_metadata(info)
+    return info, context, manifest
+
+
+def listing_metadata(cfg, identity, account, documents):
+    # All caches are local to this command. A later command rechecks access and pins.
+    if not documents:
+        return []
+    vault_id = documents[0]['vault']
+    vault = one(cfg, 'vaults', 'id=' + quote(vault_id))
+    keys, authors, result = {}, {}, []
+    for offset in range(0, len(documents), 25):
+        batch = documents[offset:offset + 25]
+        selected = {doc['current_version'] for doc in batch}
+        versions = query(cfg, 'SELECT * FROM versions WHERE id IN (' +
+                         ','.join(quote(value) for value in sorted(selected)) + ') ORDER BY id LIMIT 25')
+        by_id = {ver['id']: ver for ver in versions}
+        if len(by_id) != len(versions) or set(by_id) != selected:
+            raise auth.Fail(1, 'Incomplete or duplicate listing versions.')
+        for doc in batch:
+            ver = by_id[doc['current_version']]
+            if doc['vault'] != vault_id or ver['document'] != doc['id'] or ver['vault'] != vault_id:
+                raise auth.Fail(1, 'Version/document mismatch.')
+            if int(doc['revision']) != int(ver['revision']):
+                raise auth.Fail(1, 'Current document revision mismatch.')
+            epoch = int(ver['epoch'])
+            if epoch not in keys:
+                keys[epoch] = vault_key(cfg, identity, account, vault_id, epoch, expected_signer=vault['owner'])
+            if ver['author'] not in authors:
+                authors[ver['author']] = verify_user(cfg, ver['author'])
+            info, _, _ = verified_file_metadata(doc, ver, keys[epoch], authors[ver['author']])
+            result.append((doc, info, ver))
+    return result
+
+
 def get_version(cfg, identity, account, document, version=None, content=True):
     doc = one(cfg, 'documents', 'id=' + quote(document))
     ver = one(cfg, 'versions', 'id=' + quote(version or doc['current_version']))
@@ -160,13 +206,7 @@ def get_version(cfg, identity, account, document, version=None, content=True):
     if version is None and int(doc['revision']) != int(ver['revision']):
         raise auth.Fail(1, 'Current document revision mismatch.')
     key = vault_key(cfg, identity, account, doc['vault'], int(ver['epoch']))
-    manifest = json.loads(ver['manifest'])
-    crypto.verify_manifest(verify_user(cfg, ver['author']), manifest, ver['signature'])
-    context = document_context(doc['vault'], document, ver['id'], int(ver['epoch']))
-    if manifest['context'] != context or manifest['author'] != ver['author'] or manifest['revision'] != int(ver['revision']):
-        raise auth.Fail(1, 'Signed manifest identity mismatch.')
-    info = decrypt_metadata(key, manifest['metadata'], dict(context, kind='file-metadata'))
-    validate_file_metadata(info)
+    info, context, manifest = verified_file_metadata(doc, ver, key, verify_user(cfg, ver['author']))
     if not content:
         return None, info, ver
     # Fetch individual chunks: a file must not overflow the SQL result byte budget.
@@ -228,8 +268,8 @@ def execute(cfg, identity, account, args):
         where = 'vault=' + quote(args['vault'])
         if not args.get('all'):
             where += ' AND archived=' + ('1' if args.get('archived') else '0')
-        for doc in rows(cfg, 'documents', where):
-            _, info, ver = get_version(cfg, identity, account, doc['id'], content=False)
+        documents = rows(cfg, 'documents', where)
+        for doc, info, ver in listing_metadata(cfg, identity, account, documents):
             if command != 'search' or args['text'].casefold() in info['name'].casefold():
                 result.append(dict(id=doc['id'], revision=ver['revision'], archived=bool(doc['archived']), **display_file_metadata(info)))
         return result

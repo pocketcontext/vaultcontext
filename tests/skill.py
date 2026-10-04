@@ -12,6 +12,7 @@ import time
 from unittest.mock import patch
 from integration import server
 from client_command import client_command
+from cli_forward import terminal
 from vaultcontext_client import cli as vc, crypto
 
 
@@ -181,6 +182,45 @@ def compare_checks(temporary, owner):
     print('VaultContext encrypted checksum privacy, history and legacy comparisons: PASS')
 
 
+def listing_rate_limit_checks(command, temporary, request, admin, owner):
+    """Fifteen encrypted documents must list without exhausting the production SQL limit."""
+    cfg, identity, account, _ = owner
+    def run(command, **kwargs):
+        return vc.execute(cfg, identity, account, dict(command=command, **kwargs))
+    vault = run('create', name='Synthetic rate limit fixtures')['id']
+    source = Path(temporary) / 'rate-limit.binary'
+    source.write_bytes(b'synthetic rate-limit content')
+    expected = set()
+    for index in range(15):
+        expected.add(run('save', vault=vault, path=str(source), name=f'rate-file-{index:02d}')['id'])
+    run('change-passphrase', new_passphrase='Synthetic terminal passphrase 123!')
+    env = dict(os.environ, VAULTCONTEXT_URL=cfg['url'],
+               VAULTCONTEXT_USER_EMAIL=cfg['email'], VAULTCONTEXT_USER_PASSWORD=cfg['password'])
+    terminal(command + ['unlock', '--timeout', '180'], env, temporary)
+    request('PATCH', '/api/settings', {'rateLimits': {'enabled': True, 'rules': [
+        {'label': '/api/context/', 'audience': '', 'duration': 10, 'maxRequests': 60},
+    ]}}, admin)
+    try:
+        # Count actual source HTTP SQL requests, so retrying an inefficient listing
+        # cannot masquerade as a successful batching regression check.
+        for name, arguments in (('list', {}), ('search', {'text': 'rate-file-'})):
+            with patch.object(vc.auth, 'send', wraps=vc.auth.send) as sends, patch.object(vc.auth.time, 'sleep') as sleeps:
+                result = run(name, vault=vault, **arguments)
+            assert {row['id'] for row in result} == expected
+            sql_calls = [call for call in sends.call_args_list if call.args[2] == '/api/context/query']
+            assert len(sql_calls) <= 8, f'{name} used {len(sql_calls)} SQL requests for 15 documents'
+            sleeps.assert_not_called()
+        for words in (['list', vault], ['search', vault, 'rate-file-']):
+            result = subprocess.run(command + words, cwd=temporary, env=env,
+                                    capture_output=True, timeout=45)
+            assert result.returncode == 0, result.stderr
+            assert {row['id'] for row in json.loads(result.stdout)} == expected
+    finally:
+        request('PATCH', '/api/settings', {'rateLimits': {'enabled': False}}, admin)
+        vc.session_call(cfg, {'command': 'lock'})
+    print('VaultContext 15-file listing/search under 60 SQL requests per 10 seconds: PASS')
+
+
 def main():
     parser=argparse.ArgumentParser();parser.add_argument('--binary',required=True)
     parser.add_argument('--client',help='Copy and execute this standalone launcher outside the repository')
@@ -277,6 +317,7 @@ def main():
         result=subprocess.run(command+['whoami'],cwd=tmp,capture_output=True,text=True,check=True)
         assert json.loads(result.stdout)['id']==aid
         compare_checks(tmp, users[0])
+        listing_rate_limit_checks(command, tmp, req, admin, users[0])
         run(a,ai,aid,'change-passphrase',new_passphrase='replacement vault passphrase')
         bundle=json.loads(vc.one(a,'identity_secrets','account='+vc.quote(aid))['key_bundle'])
         assert crypto.unwrap_identity(bundle,'replacement vault passphrase',aid)==ai

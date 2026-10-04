@@ -117,6 +117,12 @@ The [skill](skills/vaultcontext/SKILL.md) includes the launcher and operation re
 
 `vaultcontext archive DOCUMENT_ID` hides a document and all its versions from default `list` and `search`; `--archived` selects archived documents and `--all` selects both. Owners and editors can archive or `unarchive`; readers cannot. Repeating either action is harmless. Archived documents retain `history`, `cat` and `restore` access by ID, but reject new versions until unarchived. Archiving changes neither access nor retention: exports, complete backups and whole-vault sharing include archived documents. Archive state is document metadata, distinct from an encrypted export archive.
 
+Listings and name searches fetch selected version metadata in batches and reuse verified
+keys only for the current command. Every version's signature and document binding
+are still checked; subsequent commands recheck access and fingerprints. SQL reads
+that receive HTTP 429 retry at most twice, waiting 10 seconds each time. Writes
+are never automatically replayed after rate limiting.
+
 `vaultcontext compare DOCUMENT_ID LOCAL_PATH` compares a local file with the current saved version; add `--version VERSION_ID` to select history. It requires login and an unlocked session and returns document/version IDs, a `same` boolean and a comparison `method`, never contents or hashes. New saves include a SHA-256 checksum of the plaintext inside encrypted, signed version metadata. For those versions, comparison downloads metadata only (`encrypted-sha256`); it reads local bytes internally to compute their checksum. Older versions use `legacy-download`, downloading and verifying the stored bytes in memory without plaintext temporary files. No existing version is rewritten. Hash equality has negligible collision risk, but does not prove that stored ciphertext remains downloadable or recoverable. Use backup/restore validation for recovery assurance.
 
 `vaultcontext cat DOCUMENT_ID` outputs the current file; add `--version VERSION_ID` for a historical version. It verifies the entire file before output, creates no plaintext temporary files, and adds no formatting or newline. Binary data and terminal control characters pass through unchanged. Output can expose secrets to the terminal, pipes or captured logs. Shell redirection uses ordinary shell permissions and overwrite behavior; use `restore` for protected disk writes. Neither command executes file contents.

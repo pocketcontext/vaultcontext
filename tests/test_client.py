@@ -108,13 +108,14 @@ class ClientTests(unittest.TestCase):
                         self.assertTrue(sql.startswith(expected), sql)
                         offset = int(sql[len(expected):])
                         return documents[offset:offset + 50]
-                    def version(cfg, identity, account, document, content):
-                        self.assertFalse(content)
-                        return None, {'name': 'MATCH-' + document, 'size': 1}, {'revision': 1}
+                    def metadata(cfg, identity, account, selected):
+                        self.assertEqual(selected, documents)
+                        return [(doc, {'name': 'MATCH-' + doc['id'], 'size': 1}, {'revision': 1})
+                                for doc in selected]
                     values = dict(command=command, vault='vault', text='match')
                     if flag:
                         values[flag] = True
-                    with patch.object(vc, 'query', side_effect=query), patch.object(vc, 'get_version', side_effect=version):
+                    with patch.object(vc, 'query', side_effect=query), patch.object(vc, 'listing_metadata', side_effect=metadata):
                         result = vc.execute({}, {}, 'owner', values)
                     self.assertEqual([row['id'] for row in result], [str(index) for index in range(51)])
                     self.assertTrue(all(row['archived'] is archived for row in result))

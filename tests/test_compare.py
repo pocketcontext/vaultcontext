@@ -36,6 +36,8 @@ class CompareTests(unittest.TestCase):
 
     def run_command(self, command='compare', forbid_download=False, **args):
         def one(cfg, table, where):
+            if table == 'vaults':
+                return {'id': 'vault', 'owner': 'owner'}
             if table == 'documents':
                 return self.document
             if table == 'versions':
@@ -46,7 +48,7 @@ class CompareTests(unittest.TestCase):
         with patch.object(vc, 'one', side_effect=one), \
              patch.object(vc, 'vault_key', return_value=self.key), \
              patch.object(vc, 'verify_user', return_value=vc.crypto.public_identity(self.identity)), \
-             patch.object(vc, 'query', return_value=[{'id': 'chunk', 'position': 0}]) as query, \
+             patch.object(vc, 'query', side_effect=lambda cfg, sql: [self.version] if 'FROM versions ' in sql else [{'id': 'chunk', 'position': 0}]) as query, \
              patch.object(vc, 'download_chunk', return_value=self.payload,
                           side_effect=AssertionError('unexpected payload download') if forbid_download else None) as download:
             result = vc.execute({}, self.identity, 'owner',
