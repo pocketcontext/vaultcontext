@@ -328,3 +328,11 @@ and [container recovery/publication CI](https://github.com/pocketcontext/vaultco
 After the pinned deployment, the same browser checks passed on the public origin,
 as did exact asset checks, security headers and anonymous API/source rejection.
 Production and immutable image evidence are recorded in DEPLOYMENT.md.
+
+## Comparison prompt paragraphs (2026-10-04)
+
+Source `1b318a6f4f2c5c6fdb7c2fe60306550d869e7ca5` changes only prompt whitespace.
+Local and live desktop/390/320-pixel browser checks passed, including keyboard,
+exact copied text, copy fallback and no-JavaScript disclosures. Live public assets
+match source after the existing Cloudflare HTML script transformation. Application
+and container recovery CI passed; immutable deployment evidence is in DEPLOYMENT.md.

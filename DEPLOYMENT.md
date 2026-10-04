@@ -1,5 +1,18 @@
 # VaultContext deployment
 
+## Comparison prompt readability — 4 October 2026
+
+Production runs source `1b318a6f4f2c5c6fdb7c2fe60306550d869e7ca5`, pinned to
+`ghcr.io/pocketcontext/vaultcontext@sha256:ada04c443f653c340877c2b2238738c4157f3aab72a07806270136b3a6c0ded3`.
+The comparison prompt uses readable paragraphs; copying preserves line breaks.
+[Application CI](https://github.com/pocketcontext/vaultcontext/actions/runs/37194769730)
+and [container recovery/publication CI](https://github.com/pocketcontext/vaultcontext/actions/runs/37194769810)
+passed. A verified complete backup preceded the locked graceful deployment.
+Live exact assets and desktop/mobile, keyboard, clipboard and no-JavaScript checks
+passed without browser errors. Production revision and image match the pin;
+resources, server pin, deployment wrapper and all fourteen sibling containers
+remain unchanged. Scaffold build and create dry-run passed.
+
 ## Cross-computer comparison and restore guide — 4 October 2026
 
 Production at https://vault.pocketcontext.com runs
