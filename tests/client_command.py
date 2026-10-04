@@ -6,7 +6,7 @@ import sys
 
 def client_command(launcher, temporary):
     if launcher:
-        destination = Path(temporary) / 'bin' / 'vc'
+        destination = Path(temporary) / 'bin' / 'vaultcontext'
         destination.parent.mkdir()
         shutil.copy2(Path(launcher).resolve(), destination)
         assert destination.stat().st_mode & 0o111, 'launcher must be executable'

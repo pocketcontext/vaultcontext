@@ -27,21 +27,21 @@ This build step does not notarize or publish the helper. Distributing it to othe
 Install the signed native helper before enrollment. Run enrollment in your own interactive terminal:
 
 ```sh
-vc login --google
-vc keychain-enroll
-vc unlock --keychain --timeout 900
+vaultcontext login --google
+vaultcontext keychain-enroll
+vaultcontext unlock --keychain --timeout 900
 ```
 
-Enrollment prompts for the existing vault passphrase and validates it against the server bundle before saving it. It does not create a new identity. Running enrollment again updates the saved passphrase and reapplies the required user-presence and device-only access policy; macOS may request authentication. `unlock --keychain` retrieves the secret through the helper and starts the ordinary memory session. Cancellation, a missing item, an unavailable helper or authentication failure stops the command; there is no silent fallback. Ordinary `vc unlock` continues to prompt for the passphrase.
+Enrollment prompts for the existing vault passphrase and validates it against the server bundle before saving it. It does not create a new identity. Running enrollment again updates the saved passphrase and reapplies the required user-presence and device-only access policy; macOS may request authentication. `unlock --keychain` retrieves the secret through the helper and starts the ordinary memory session. Cancellation, a missing item, an unavailable helper or authentication failure stops the command; there is no silent fallback. Ordinary `vaultcontext unlock` continues to prompt for the passphrase.
 
-The authentication request applies to opening a session, not each vault operation. Same-user agents are trusted for the session's lifetime, which defaults to 15 minutes. `vc lock`, expiration and `vc logout` retain enrollment. Remove it explicitly while logged into the enrolled account:
+The authentication request applies to opening a session, not each vault operation. Same-user agents are trusted for the session's lifetime, which defaults to 15 minutes. `vaultcontext lock`, expiration and `vaultcontext logout` retain enrollment. Remove it explicitly while logged into the enrolled account:
 
 ```sh
-vc keychain-forget
-vc lock
+vaultcontext keychain-forget
+vaultcontext lock
 ```
 
-Forgetting the credential does not end an already unlocked session. Changing the vault passphrase does not update Keychain. After `vc change-passphrase`, run `vc keychain-enroll` with the new passphrase, or remove the stale credential with `vc keychain-forget`.
+Forgetting the credential does not end an already unlocked session. Changing the vault passphrase does not update Keychain. After `vaultcontext change-passphrase`, run `vaultcontext keychain-enroll` with the new passphrase, or remove the stale credential with `vaultcontext keychain-forget`.
 
 ## Trust and remote use
 

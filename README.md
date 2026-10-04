@@ -86,38 +86,40 @@ Production Google settings use a separate Web OAuth client, paired `VAULTCONTEXT
 Install [uv](https://docs.astral.sh/uv/getting-started/installation/) and copy the executable launcher onto your PATH:
 
 ```sh
-install -Dm755 skills/vaultcontext/vc ~/.local/bin/vc
+install -Dm755 skills/vaultcontext/vaultcontext ~/.local/bin/vaultcontext
 export PATH="$HOME/.local/bin:$PATH"
 export VAULTCONTEXT_URL=https://vault.example.com
 export VAULTCONTEXT_USER_EMAIL=you@example.com
-vc login --google
+vaultcontext login --google
 ```
 
-The launcher declares its Python requirements and pins the client package to a full Git commit. It can run from any directory without neighboring source files. The first run needs network access to download the package, Python if needed, and dependencies; later runs reuse uv's cache. Updating the copied launcher adopts its new client revision. If a session is already unlocked, run `vc lock` then `vc unlock` after updating so the session uses the new client. The skill has no script lockfile: transitive dependencies may resolve differently on fresh installations. The repository's `uv.lock` governs development and tests, not launcher execution.
+The launcher declares its Python requirements and pins the client package to a full Git commit. It can run from any directory without neighboring source files. The first run needs network access to download the package, Python if needed, and dependencies; later runs reuse uv's cache. Updating the copied launcher adopts its new client revision. Before replacing an installed client, run its `lock` command for each configured server/account with an unlocked session. After updating, have the user run `vaultcontext unlock` explicitly in their private terminal so the session uses the new client; installation never unlocks automatically. The skill has no script lockfile: transitive dependencies may resolve differently on fresh installations. The repository's `uv.lock` governs development and tests, not launcher execution.
+
+To migrate from the old `vc` launcher, run `vc lock` before installing `vaultcontext`, then remove only the old VaultContext launcher you installed (for example, `~/.local/bin/vc`). The package and skill provide no `vc` alias or compatibility wrapper. Update scripts to call `vaultcontext`. Existing authentication configuration and macOS Keychain enrollment remain valid.
 
 The memory session runs in a fresh Python process using the launcher's own interpreter and installed package environment. Unlock waits for worker readiness; verified keys cross only a private inherited socket, never arguments, environment variables or files. Lock sessions before clearing uv's cache. `unlock`, `lock` and `logout` recover an abandoned socket only after checking ownership, permissions and connection refusal; ambiguous or unsafe endpoints remain errors. Repeating `lock` on an already locked account succeeds.
 
-Alternatively, install the package from a trusted checkout into an external Python 3.11+ virtual environment. This provides the same `vc` command without requiring uv at runtime:
+Alternatively, install the package from a trusted checkout into an external Python 3.11+ virtual environment. This provides the same `vaultcontext` command without requiring uv at runtime:
 
 ```sh
 python3 -m venv ~/.local/share/vaultcontext-venv
 ~/.local/share/vaultcontext-venv/bin/pip install /absolute/path/to/vaultcontext
-~/.local/share/vaultcontext-venv/bin/vc login --google
+~/.local/share/vaultcontext-venv/bin/vaultcontext login --google
 ```
 
-Run `vc` or `vc --help` for grouped commands and a first-use example, or `vc COMMAND --help`
+Run `vaultcontext` or `vaultcontext --help` for grouped commands and a first-use example, or `vaultcontext COMMAND --help`
 for arguments, prerequisites and examples. Commands return JSON except `cat`,
 which writes exact file bytes to stdout. Help does not require configuration or sign-in.
 
-Use the chosen `vc` command for `whoami`, `check`, `init`, `unlock`, and subsequent operations. `init` and ordinary `unlock` prompt in an interactive terminal. On macOS, opt in with `vc keychain-enroll`, then use `vc unlock --keychain` to retrieve the saved passphrase after Touch ID or macOS credential authentication. This requires the signed native helper; see [macOS Keychain setup and trust model](docs/macos-keychain.md). Never pass unlock secrets through chat, arguments, environment variables or pipes. Over SSH, forward Google callback port 8765 as described in the [skill workflows](skills/vaultcontext/references/workflows.md); decryption still occurs on the machine running the CLI. Configuration must be available wherever the command runs; a workspace `.envrc` may not be loaded outside that workspace.
+Use the chosen `vaultcontext` command for `whoami`, `check`, `init`, `unlock`, and subsequent operations. `init` and ordinary `unlock` prompt in an interactive terminal. On macOS, opt in with `vaultcontext keychain-enroll`, then use `vaultcontext unlock --keychain` to retrieve the saved passphrase after Touch ID or macOS credential authentication. This requires the signed native helper; see [macOS Keychain setup and trust model](docs/macos-keychain.md). Never pass unlock secrets through chat, arguments, environment variables or pipes. Over SSH, forward Google callback port 8765 as described in the [skill workflows](skills/vaultcontext/references/workflows.md); decryption still occurs on the machine running the CLI. Configuration must be available wherever the command runs; a workspace `.envrc` may not be loaded outside that workspace.
 
 The [skill](skills/vaultcontext/SKILL.md) includes the launcher and operation references. It supports vault creation, arbitrary-file saves, local name search, version history, private equality checks, exact restores, invitations, memberships, revocation/rotation, encrypted export and independent archive restore. Agents manage files and metadata but never inspect file contents, including source or restored files. The dedicated `compare` command may answer a requested equality check without exposing contents or hashes. Content viewing with `cat` is for users in their own private terminals. This skill rule does not remove the CLI or unlocked session's decryption capability. Saving again with `--document` creates a new immutable version. The default encrypted display name preserves the exact source-path argument (after shell expansion), including relative or absolute directories; `--name` overrides it. Names are labels, not unique identifiers or restore destinations. Existing versions keep their names. No format-specific parsing, automatic synchronization or shell activation occurs.
 
-`vc archive DOCUMENT_ID` hides a document and all its versions from default `list` and `search`; `--archived` selects archived documents and `--all` selects both. Owners and editors can archive or `unarchive`; readers cannot. Repeating either action is harmless. Archived documents retain `history`, `cat` and `restore` access by ID, but reject new versions until unarchived. Archiving changes neither access nor retention: exports, complete backups and whole-vault sharing include archived documents. Archive state is document metadata, distinct from an encrypted export archive.
+`vaultcontext archive DOCUMENT_ID` hides a document and all its versions from default `list` and `search`; `--archived` selects archived documents and `--all` selects both. Owners and editors can archive or `unarchive`; readers cannot. Repeating either action is harmless. Archived documents retain `history`, `cat` and `restore` access by ID, but reject new versions until unarchived. Archiving changes neither access nor retention: exports, complete backups and whole-vault sharing include archived documents. Archive state is document metadata, distinct from an encrypted export archive.
 
-`vc compare DOCUMENT_ID LOCAL_PATH` compares a local file with the current saved version; add `--version VERSION_ID` to select history. It requires login and an unlocked session and returns document/version IDs, a `same` boolean and a comparison `method`, never contents or hashes. New saves include a SHA-256 checksum of the plaintext inside encrypted, signed version metadata. For those versions, comparison downloads metadata only (`encrypted-sha256`); it reads local bytes internally to compute their checksum. Older versions use `legacy-download`, downloading and verifying the stored bytes in memory without plaintext temporary files. No existing version is rewritten. Hash equality has negligible collision risk, but does not prove that stored ciphertext remains downloadable or recoverable. Use backup/restore validation for recovery assurance.
+`vaultcontext compare DOCUMENT_ID LOCAL_PATH` compares a local file with the current saved version; add `--version VERSION_ID` to select history. It requires login and an unlocked session and returns document/version IDs, a `same` boolean and a comparison `method`, never contents or hashes. New saves include a SHA-256 checksum of the plaintext inside encrypted, signed version metadata. For those versions, comparison downloads metadata only (`encrypted-sha256`); it reads local bytes internally to compute their checksum. Older versions use `legacy-download`, downloading and verifying the stored bytes in memory without plaintext temporary files. No existing version is rewritten. Hash equality has negligible collision risk, but does not prove that stored ciphertext remains downloadable or recoverable. Use backup/restore validation for recovery assurance.
 
-`vc cat DOCUMENT_ID` outputs the current file; add `--version VERSION_ID` for a historical version. It verifies the entire file before output, creates no plaintext temporary files, and adds no formatting or newline. Binary data and terminal control characters pass through unchanged. Output can expose secrets to the terminal, pipes or captured logs. Shell redirection uses ordinary shell permissions and overwrite behavior; use `restore` for protected disk writes. Neither command executes file contents.
+`vaultcontext cat DOCUMENT_ID` outputs the current file; add `--version VERSION_ID` for a historical version. It verifies the entire file before output, creates no plaintext temporary files, and adds no formatting or newline. Binary data and terminal control characters pass through unchanged. Output can expose secrets to the terminal, pipes or captured logs. Shell redirection uses ordinary shell permissions and overwrite behavior; use `restore` for protected disk writes. Neither command executes file contents.
 
 Restores require explicit paths and existing parent directories, reject symlinks and preserve byte contents with mode 0600. Existing destinations require `--overwrite`. Original executable bits, permissions, ownership and source absolute paths are not restored. An `.envrc.private` restored into a direnv-enabled directory can execute later when the user's shell loads it; the client never activates it.
 
@@ -161,11 +163,11 @@ Identity, OAuth and deployment patterns are adapted from RaiseContext; filtered 
 
 ## Client launcher releases
 
-Commit and push the tested package implementation first. Update `skills/vaultcontext/vc` to that full commit SHA, then validate the remotely installed client before committing and pushing the launcher:
+Commit and push the tested package implementation first. Update `skills/vaultcontext/vaultcontext` to that full commit SHA, then validate the remotely installed client before committing and pushing the launcher:
 
 ```sh
-uv run --locked python tests/skill.py --binary /absolute/path/to/pinned/pocketcontext --client skills/vaultcontext/vc
-uv run --locked python tests/cli_forward.py --binary /absolute/path/to/pinned/pocketcontext --client skills/vaultcontext/vc
+uv run --locked python tests/skill.py --binary /absolute/path/to/pinned/pocketcontext --client skills/vaultcontext/vaultcontext
+uv run --locked python tests/cli_forward.py --binary /absolute/path/to/pinned/pocketcontext --client skills/vaultcontext/vaultcontext
 ```
 
 These checks copy only the executable into a temporary directory. The launcher intentionally has no adjacent lockfile; keep the root development lockfile separate. A copied launcher must be replaced to adopt a later client revision.
