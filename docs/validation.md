@@ -254,3 +254,13 @@ clipboard success/failure and no-JavaScript checks passed. The main marketing
 website contains no VaultContext instructions needing this update. No generic
 server source, server pin, cryptographic primitive or database schema changed.
 Release CI, copied-launcher and production evidence are recorded in DEPLOYMENT.md.
+
+Both source portable-client/session suites and both copied standalone-launcher
+release suites passed. The launcher pins client
+`1e8432ba7a6ba1a069667591cb667c5ff48abf1d`. The final ARM64 image labelled
+`c4ae54849afe99048a6c5fb37b5386affa461520` passed configuration, smoke and
+populated complete-backup restoration checks. Comparison checks also cover
+locked sessions, reader access and revocation. The installed skill and PATH
+launcher match the published source; authenticated `vc check` returned compatible.
+Existing unlocked sessions were left running and need an explicit lock/unlock
+to adopt the new client. No real file plaintext was inspected and no vault document was rewritten during release validation.

@@ -1,8 +1,48 @@
-# VaultContext deployment — 3 October 2026
+# VaultContext deployment
+
+## Encrypted comparison checksum release — 4 October 2026
+
+Production at https://vault.pocketcontext.com runs
+`c4ae54849afe99048a6c5fb37b5386affa461520`, manifest
+`sha256:f22e72b569705259c6b96051f59e216f2870a819b1f171cca159bd72a30c5d1a`.
+The portable launcher pins client `1e8432ba7a6ba1a069667591cb667c5ff48abf1d`.
+New saves put plaintext SHA-256 inside encrypted, signed metadata; `vc compare`
+returns only equality and document/version/method identifiers. New versions need
+no file-chunk download for comparison; older versions use authenticated in-memory
+comparison without temporary plaintext files or history changes. Restore, cat and
+export verify the plaintext checksum when present. The onboarding page documents
+comparison and its limits; the main marketing website required no change.
+
+[Linux/macOS application validation](https://github.com/pocketcontext/vaultcontext/actions/runs/37188779894)
+and [container configuration, smoke, populated restore and multi-platform publication](https://github.com/pocketcontext/vaultcontext/actions/runs/37188779992)
+passed. The complete local README suite, both copied-launcher release checks and
+final ARM64 image configuration/smoke/populated-restore checks passed; see
+[local validation](docs/validation.md#encrypted-comparison-checksums--2026-10-04).
+The package staging commit skipped CI; the final pinned release ran every gate.
+
+A pre-deployment complete database/ciphertext backup uploaded successfully. The
+installed wrapper hash matched reviewed source; existing operator SSH invoked its
+locked graceful-stop update. Production revision, digest, unchanged server pin,
+one running writer, one CPU, 512 MiB and disabled automatic updates were verified.
+All fourteen sibling container IDs, images, states and settings were unchanged;
+all public application/website health endpoints returned 200.
+
+Public HTML matched source after the existing Cloudflare Rocket Loader rewrite;
+CSS/JS matched exactly. Security headers, health, anonymous schema rejection and
+private source-path denial passed. Live desktop, 390/320-pixel mobile, keyboard,
+installation switching, compare-command clipboard success/fallback and no-JavaScript
+checks passed with no browser errors.
+
+Installed skills, the workspace lockfile and the local PATH launcher were refreshed;
+authenticated `vc check` returned compatible. Existing unlocked sessions were not
+stopped: run `vc lock` then `vc unlock` privately to load the new comparison code.
+No server/schema/cloud-resource changes or vault document rewrites occurred.
+Real Google and macOS Keychain user-presence interaction remain separate manual
+checks; this release did not perform an independent security audit.
 
 ## macOS and Keychain onboarding release — 4 October 2026
 
-Production at https://vault.pocketcontext.com runs
+This earlier release ran
 `ffc5a9abef8b2209f4c0da487a6a6cf3a27f58a4`, manifest
 `sha256:e346b5095a0270150b5de18f50e48a93bbdd8af5ef5093e65f394079b0ba2b85`.
 The page now documents Linux/macOS support, canonical temporary paths and
