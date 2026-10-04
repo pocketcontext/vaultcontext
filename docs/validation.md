@@ -365,3 +365,8 @@ cookies removed on withdrawal and no later requests. The shared GA property also
 emits an automatic scroll event for the empty frame; this is documented and is
 not a guide interaction. Rybbit CORS permits the production origin. No dashboard
 settings were changed, and offline tests published no analytics events.
+
+Live release verification caught stale CDN JS/CSS and omitted frame assets in
+the container allowlist. Asset references now use verified content hashes, both
+frame files are explicitly included, and container smoke verifies exact public
+asset bytes and headers. This check supplements the checkout-based browser suite.

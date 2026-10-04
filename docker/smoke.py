@@ -320,6 +320,18 @@ def once_env(extra=None):
     return env
 
 
+def public_assets(base):
+    """Check the published image, not just the checkout used by browser tests."""
+    for asset in ('index.html', 'styles.css', 'app.js', 'analytics-frame.html', 'analytics-frame.js', 'og-card.png'):
+        path = '/' if asset == 'index.html' else '/' + asset
+        with urllib.request.urlopen(base + path, timeout=15) as response:
+            check(response.status == 200, f'public asset {asset} is served')
+            check(response.read() == (ROOT / 'pb_public' / asset).read_bytes(), f'public asset {asset} matches source')
+            ancestor = "'self'" if asset == 'analytics-frame.html' else "'none'"
+            check('frame-ancestors ' + ancestor in response.headers.get('Content-Security-Policy', ''), f'frame policy for {asset}')
+            check(response.headers.get('Referrer-Policy') == 'no-referrer', f'no referrer for {asset}')
+
+
 def smoke(image, tmp, run_id):
     name, volume = f'vc-smoke-{run_id}', f'vc-smoke-{run_id}'
     env = once_env({'LITESTREAM_DISABLED': 'true'})
@@ -328,6 +340,7 @@ def smoke(image, tmp, run_id):
     step('starting the image with the ONCE variables, LITESTREAM_DISABLED=true, a superuser, and a volume at /storage')
     run_app(image, name, volume, env)
     base = wait_up(name)
+    public_assets(base)
     check(docker('exec', name, 'cat', '/proc/1/comm')[1].strip() == 'tini', 'PID 1 is tini')
 
     step('settings taken from the environment, read with the superuser token')

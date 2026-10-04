@@ -8,6 +8,8 @@
 !pb_public/index.html
 !pb_public/styles.css
 !pb_public/app.js
+!pb_public/analytics-frame.html
+!pb_public/analytics-frame.js
 !pb_public/og-card.png
 !docker/entrypoint.sh
 !docker/litestream.yml

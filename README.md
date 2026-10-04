@@ -53,6 +53,11 @@ In GA4, create a Free form exploration, import Hostname, then apply the exact
 hostname filter. These are reporting filters; the origin guard controls collection.
 Existing marketing-site tracking settings are not changed by this integration.
 
+Public JS/CSS references include a `v` query containing the first 12 characters
+of that asset's SHA-256. Update the HTML reference whenever its asset changes;
+the browser check verifies these versions. The container smoke gate verifies
+all public assets, including both analytics-frame files, match source exactly.
+
 Run the offline browser checks (all provider traffic is intercepted):
 
 ```sh

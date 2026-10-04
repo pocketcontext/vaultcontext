@@ -4,6 +4,7 @@ Run: uv run --with playwright python tests/website_analytics.py
 Install bundled Chromium with python -m playwright install chromium.
 Set PLAYWRIGHT_CHANNEL=chrome to use locally installed Google Chrome.
 """
+import hashlib
 import json
 import mimetypes
 import os
@@ -15,6 +16,18 @@ from playwright.sync_api import sync_playwright
 ROOT = Path(__file__).resolve().parents[1]
 PUBLIC = ROOT / 'pb_public'
 PRODUCTION = 'https://vault.pocketcontext.com'
+
+# Asset cache keys must follow their exact bytes, including the isolated frame script.
+for document, assets in [('index.html', ('app.js', 'styles.css')), ('analytics-frame.html', ('analytics-frame.js',))]:
+    markup = (PUBLIC / document).read_text()
+    for asset in assets:
+        digest = hashlib.sha256((PUBLIC / asset).read_bytes()).hexdigest()[:12]
+        assert f'/{asset}?v={digest}' in markup, f'{document}: stale cache key for {asset}'
+
+# Default-deny container context must explicitly ship the isolated analytics frame.
+allowlist = (ROOT / '.dockerignore').read_text().splitlines()
+for asset in ('analytics-frame.html', 'analytics-frame.js'):
+    assert f'!pb_public/{asset}' in allowlist, f'container is missing {asset}'
 
 
 def run(browser, origin, path='/', stored=None, fail=False, delayed_frame=False):
