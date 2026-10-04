@@ -19,7 +19,12 @@ const trackOnboarding = (() => {
   let ready = false;
   const pending = [];
   window.addEventListener('message', (event) => {
-    if (event.origin !== origin || event.source !== frame?.contentWindow || event.data !== 'vault-analytics-ready' || choice !== 'accepted') return;
+    if (event.origin !== origin || event.source !== frame?.contentWindow || choice !== 'accepted') return;
+    if (event.data === 'vault-analytics-listening') {
+      frame.contentWindow.postMessage('vault-analytics-start', origin);
+      return;
+    }
+    if (event.data !== 'vault-analytics-ready') return;
     ready = true;
     for (const payload of pending.splice(0)) frame.contentWindow.postMessage(payload, origin);
   });
@@ -48,9 +53,6 @@ const trackOnboarding = (() => {
     frame.title = 'Optional website analytics';
     frame.referrerPolicy = 'no-referrer';
     frame.src = '/analytics-frame.html';
-    frame.addEventListener('load', () => {
-      if (choice === 'accepted') frame.contentWindow.postMessage('vault-analytics-start', origin);
-    });
     document.body.appendChild(frame);
     emit('page_view');
   }

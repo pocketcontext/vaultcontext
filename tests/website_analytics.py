@@ -17,7 +17,7 @@ PUBLIC = ROOT / 'pb_public'
 PRODUCTION = 'https://vault.pocketcontext.com'
 
 
-def run(browser, origin, path='/', stored=None, fail=False):
+def run(browser, origin, path='/', stored=None, fail=False, delayed_frame=False):
     context = browser.new_context(viewport={'width': 390, 'height': 844})
     if stored:
         context.add_init_script(f"localStorage.setItem('vaultcontext.analytics.v1', {json.dumps(stored)})")
@@ -36,7 +36,10 @@ def run(browser, origin, path='/', stored=None, fail=False):
             if match:
                 expression = match.group(1).replace('frameAncestors', json.dumps("'self'" if url.path == '/analytics-frame.html' else "'none'"))
                 headers['Content-Security-Policy'] = ''.join(json.loads(part.strip()) for part in expression.split(' + '))
-            request.fulfill(body=asset.read_bytes(), content_type=mimetypes.guess_type(str(asset))[0] or 'application/octet-stream', headers=headers)
+            body = asset.read_bytes()
+            if delayed_frame and url.path == '/analytics-frame.html':
+                body = re.sub(rb'<script\b[^>]*>.*?</script>', b'', body)
+            request.fulfill(body=body, content_type=mimetypes.guess_type(str(asset))[0] or 'application/octet-stream', headers=headers)
         else:
             external.append({'url': request.request.url, 'body': request.request.post_data})
             if fail:
@@ -139,6 +142,18 @@ with sync_playwright() as playwright:
         context.close()
     context, page, external, errors = run(browser, PRODUCTION, '/analytics-frame.html', stored='accepted')
     assert not external and not errors
+    context.close()
+    # A script optimizer can execute frame JS after the iframe load event.
+    context, page, external, errors = run(browser, PRODUCTION, stored='accepted', delayed_frame=True)
+    frame = next(frame for frame in page.frames if frame.url.endswith('/analytics-frame.html'))
+    assert frame.evaluate('document.readyState') == 'complete'
+    assert not any('googletagmanager.com' in item['url'] for item in external)
+    frame.evaluate((PUBLIC / 'analytics-frame.js').read_text())
+    frame.wait_for_function("(window.dataLayer || []).some(x=>x[0]==='event' && x[1]==='page_view')")
+    page.wait_for_timeout(100)
+    assert sum('googletagmanager.com' in item['url'] for item in external) == 1
+    assert frame.evaluate("window.dataLayer.filter(x=>x[0]==='event' && x[1]==='page_view').length") == 1
+    assert not errors, errors
     context.close()
     browser.close()
 print('PASS: exact-origin/path gate, consent, withdrawal, payload privacy, offline trackers, failure isolation, mobile and keyboard')

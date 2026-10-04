@@ -35,4 +35,6 @@
     gtag('event', data.name, { ...(data.name === 'page_view' ? {} : { target: data.target }), send_to: measurement,
       page_location: `${origin}/`, page_title: 'VaultContext', page_referrer: '' });
   });
+  // Optimizers may defer this script beyond the iframe's load event.
+  window.parent.postMessage('vault-analytics-listening', origin);
 })();
