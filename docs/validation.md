@@ -289,3 +289,13 @@ on-device check; this change preserves its existing prompting flow.
 Both copied standalone-launcher release tests passed against the remote package
 commit `6c383279ea2b8d5f721196b5df46e19a405ecffc`, including uv execution outside
 the checkout, survival after launcher exit, hostname requests and real expiry.
+
+[Source application CI](https://github.com/pocketcontext/vaultcontext/actions/runs/37192558069)
+and [launcher application CI](https://github.com/pocketcontext/vaultcontext/actions/runs/37192651144)
+passed on Linux and macOS. The [source image pipeline](https://github.com/pocketcontext/vaultcontext/actions/runs/37192558246)
+passed configuration, smoke and populated restore gates and published both
+architectures. No production server deployment was needed. The installed launcher
+recovered the reported stale socket; authenticated schema compatibility passed.
+After the user unlocked privately on macOS, live metadata reads and comparisons
+completed without the earlier crash. No real file contents or plaintext checksums
+were inspected, and no vault documents were modified.
