@@ -192,7 +192,7 @@ def main():
         users=[]
         for name in ['alice','bob','eve']:
             row=req('POST','/api/collections/users/records',{'email':name+'@example.com','name':name,'password':'SyntheticUserPassword123!','passwordConfirm':'SyntheticUserPassword123!'},admin)
-            cfg={'url':req.base_url,'email':name+'@example.com','password':'SyntheticUserPassword123!'}
+            cfg={'url':req.base_url.replace('127.0.0.1', 'localhost'),'email':name+'@example.com','password':'SyntheticUserPassword123!'}
             vc.auth.login(cfg)
             identity=crypto.generate_identity();pub=crypto.public_identity(identity);fingerprint=crypto.fingerprint(pub)
             vc.action(cfg,'identity_init',{'public_key':pub['enc_public'],'signing_key':pub['sign_public'],'fingerprint':fingerprint,'key_bundle':vc.encode(crypto.wrap_identity(identity,'synthetic passphrase',row['id']))})
@@ -245,7 +245,7 @@ def main():
             cat_checks(command,tmp,req,users[0],users[2],doc,ver,content)
         else:
             print('Copied launcher predates cat; source cat checks run separately.')
-        # Real fork/socket lifecycle: no private material in cache, restore via broker, lock.
+        # Real fresh-process/socket lifecycle: no private material in cache, restore via broker, lock.
         with patch.object(vc,'prompt_passphrase',return_value='synthetic passphrase'):
             vc.unlock(a,30)
         assert vc.session_call(a,{'command':'vaults'})[0]['id']==vault
@@ -267,13 +267,8 @@ def main():
         for _ in range(100):
             if not vc.socket_path(a).exists():break
             time.sleep(.01)
-        # Advance the broker clock across its fixed lifetime after its first accept timeout.
-        with patch.object(vc,'prompt_passphrase',return_value='synthetic passphrase'), patch.object(vc.time,'monotonic',side_effect=[0,0,31]):
-            vc.unlock(a,30)
-        for _ in range(300):
-            if not vc.socket_path(a).exists():break
-            time.sleep(.01)
-        assert not vc.socket_path(a).exists(), 'expired daemon retained its socket'
+        # Session expiry is exercised with real time by cli_forward.py and
+        # with a bounded in-process serving loop by the unit suite.
         # Validate schema snapshot against live schema.
         os.environ['VAULTCONTEXT_URL']=a['url'];os.environ['VAULTCONTEXT_USER_EMAIL']=a['email'];os.environ['VAULTCONTEXT_USER_PASSWORD']=a['password']
         vc.run(vc.parser().parse_args(['check']))

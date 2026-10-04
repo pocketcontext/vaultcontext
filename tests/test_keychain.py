@@ -133,23 +133,23 @@ class LifecycleTests(unittest.TestCase):
         for value in ('stale synthetic passphrase', cli.auth.Fail(1, 'Keychain authentication cancelled')):
             with patch.object(keychain, 'call', **({'side_effect': value} if isinstance(value, Exception)
                                                    else {'return_value': value})), \
-                    patch.object(cli, 'session_call') as session, patch.object(cli.os, 'fork') as fork:
+                    patch.object(cli, 'session_call') as session, patch.object(cli.session, 'start') as start:
                 with self.assertRaises(cli.auth.Fail):
                     cli.unlock(CFG, 30, use_keychain=True)
                 self.prompt_passphrase.assert_not_called()
                 session.assert_not_called()
-                fork.assert_not_called()
+                start.assert_not_called()
 
     def test_keychain_unlock_uses_existing_memory_session_lifecycle(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / 'session.sock'
             with patch.object(cli, 'socket_path', return_value=path), \
                     patch.object(keychain, 'call', return_value=SECRET) as call, \
-                    patch.object(cli.os, 'fork', return_value=123):
+                    patch.object(cli.session, 'start', return_value={'unlocked': True, 'expires_in': 30}) as start:
                 self.assertEqual(cli.unlock(CFG, 30, use_keychain=True), {'unlocked': True, 'expires_in': 30})
                 call.assert_called_once_with(CFG, ACCOUNT, 'get')
                 self.prompt_passphrase.assert_not_called()
-                self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+                start.assert_called_once_with(CFG, self.identity, ACCOUNT, 30)
 
     def test_forget_requires_authenticated_id_and_does_not_lock(self):
         with patch.object(cli.auth, 'config', return_value=CFG), patch.object(keychain, 'call') as call, \

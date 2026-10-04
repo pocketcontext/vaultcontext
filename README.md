@@ -49,6 +49,8 @@ vc login --google
 
 The launcher declares its Python requirements and pins the client package to a full Git commit. It can run from any directory without neighboring source files. The first run needs network access to download the package, Python if needed, and dependencies; later runs reuse uv's cache. Updating the copied launcher adopts its new client revision. If a session is already unlocked, run `vc lock` then `vc unlock` after updating so the session uses the new client. The skill has no script lockfile: transitive dependencies may resolve differently on fresh installations. The repository's `uv.lock` governs development and tests, not launcher execution.
 
+The memory session runs in a fresh Python process using the launcher's own interpreter and installed package environment. Unlock waits for worker readiness; verified keys cross only a private inherited socket, never arguments, environment variables or files. Lock sessions before clearing uv's cache. `unlock`, `lock` and `logout` recover an abandoned socket only after checking ownership, permissions and connection refusal; ambiguous or unsafe endpoints remain errors. Repeating `lock` on an already locked account succeeds.
+
 Alternatively, install the package from a trusted checkout into an external Python 3.11+ virtual environment. This provides the same `vc` command without requiring uv at runtime:
 
 ```sh

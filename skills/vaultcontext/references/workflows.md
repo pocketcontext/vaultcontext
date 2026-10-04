@@ -10,6 +10,8 @@ vc --help
 
 Both `uv` and `~/.local/bin` must be on PATH. The launcher is self-contained and pins the client package to a full Git commit. uv supplies a compatible Python and installs dependencies into its managed environment. Initial downloads require network access; offline use requires a prepared cache. Replace the launcher to adopt a new client revision. If a session is already unlocked, run `vc lock` then `vc unlock` after updating so new commands are available in the session. No adjacent lockfile is required; transitive dependency versions may vary on fresh installations.
 
+The detached session uses a fresh Python process in the same uv environment and reports readiness before unlock succeeds. Lock sessions before clearing uv's cache. Unlock, lock and logout safely recover owned abandoned sockets after connection refusal; other endpoint errors require inspection. `vc lock` also succeeds if the session is already absent.
+
 For an existing Python 3.11+ setup, install the package from a trusted checkout into an external environment instead:
 
 ```sh

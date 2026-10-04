@@ -264,3 +264,24 @@ locked sessions, reader access and revocation. The installed skill and PATH
 launcher match the published source; authenticated `vc check` returned compatible.
 Existing unlocked sessions were left running and need an explicit lock/unlock
 to adopt the new client. No real file plaintext was inspected and no vault document was rewritten during release validation.
+
+## Fresh-process memory sessions (2026-10-04)
+
+A reported macOS crash in hostname resolution after `os.fork()` left an abandoned
+session socket. The client now starts a fresh interpreter in its current package
+environment, passes the verified identity through private inherited IPC, and waits
+for readiness. Per-account lifecycle locking and inode checks protect replacement
+and stale-socket recovery for unlock, lock and logout. No server schema, server
+pin, encryption format or application deployment change is required.
+
+Local macOS ARM64 validation used Python 3.14.3, `TMPDIR=/private/tmp` and rebuilt
+pinned server `a92b0de5e1b66b6d3b6135b90092d2d6da5f7cc8`. All 89 unit tests passed,
+including real fresh-worker startup, killed-worker recovery, concurrent unlocks,
+startup exit/timeout cleanup, unsafe endpoints, stale logout and replacement
+socket preservation. The portable skill test now uses `localhost` to exercise
+hostname resolution; it and the terminal CLI suite passed, including foreground
+exit, subsequent requests, locking and real expiry. Integration, archive migration,
+authentication, OAuth integration/client, realtime, size boundaries, deployment
+settings/wrapper and populated complete-backup recovery also passed. All fixtures
+were synthetic and databases isolated. Real Keychain/Touch ID remains a separate
+on-device check; this change preserves its existing prompting flow.

@@ -4,6 +4,7 @@ from pathlib import Path
 import socket
 import sys
 import tempfile
+import threading
 import time
 import unittest
 from unittest.mock import Mock, patch
@@ -50,27 +51,40 @@ class ClientTests(unittest.TestCase):
             return native(conn)
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / 'session.sock'
+            server = socket.socket(socket.AF_UNIX)
+            server.bind(str(path))
+            os.chmod(path, 0o600)
+            server.listen(4)
+            server.settimeout(.1)
             with patch.object(vc, 'socket_path', return_value=path), \
-                 patch.object(vc, 'peer_uid_reader', return_value=peer), \
-                 patch.object(vc, 'whoami', return_value='synthetic'), \
-                 patch.object(vc, 'one', return_value={'key_bundle': '{}'}), \
-                 patch.object(vc, 'prompt_passphrase', return_value='synthetic passphrase'), \
-                 patch.object(vc.crypto, 'unwrap_identity', return_value=vc.crypto.generate_identity()), \
-                 patch.object(vc, 'verify_user'), \
                  patch.object(vc, 'execute', return_value=[]):
-                vc.unlock({}, 30)
+                worker = threading.Thread(target=vc.session.serve, args=(
+                    server, {}, vc.crypto.generate_identity(), 'synthetic',
+                    time.monotonic() + 5), kwargs={'peer_uid': peer})
+                worker.start()
                 try:
                     for _ in range(2):
                         with self.assertRaises((OSError, ValueError)):
                             vc.session_call({}, {'command': 'vaults'})
                     self.assertEqual(vc.session_call({}, {'command': 'vaults'}), [])
                     self.assertEqual(vc.session_call({}, {'command': 'vaults'}), [])
-                finally:
                     self.assertEqual(vc.session_call({}, {'command': 'lock'}), {'locked': True})
-                    deadline = time.monotonic() + 5
-                    while path.exists() and time.monotonic() < deadline:
-                        time.sleep(.01)
-                    self.assertFalse(path.exists())
+                finally:
+                    worker.join(6)
+                    server.close()
+                self.assertFalse(worker.is_alive())
+
+    def test_session_serving_loop_expires(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            server = socket.socket(socket.AF_UNIX)
+            with server:
+                server.bind(str(Path(tmp) / 'expiry.sock'))
+                server.listen(4)
+                server.settimeout(.05)
+                started = time.monotonic()
+                vc.session.serve(server, {}, {}, 'synthetic', started + .15)
+                self.assertGreaterEqual(time.monotonic() - started, .15)
+                self.assertLess(time.monotonic() - started, 2)
 
     def test_query_objects_and_truncation(self):
         with patch.object(vc,'request',return_value={'columns':['id'],'rows':[{'id':'x'}]}):

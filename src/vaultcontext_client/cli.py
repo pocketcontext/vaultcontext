@@ -15,10 +15,8 @@ import resource
 import re
 import secrets
 import socket
-import stat
 import struct
 import sys
-import time
 import textwrap
 import urllib.parse
 import urllib.request
@@ -26,6 +24,7 @@ import urllib.request
 from . import auth
 from . import crypto
 from . import keychain
+from . import session
 
 MAX_FRAME = 24 * 1024 * 1024
 
@@ -337,14 +336,14 @@ def recv_frame(conn):
             raise ValueError('Session request too large')
     return json.loads(bytes(data).split(b'\n', 1)[0])
 
-def session_call(cfg, payload):
+def session_call(cfg, payload, timeout=180):
     path = socket_path(cfg)
-    info = path.lstat()
-    if not stat.S_ISSOCK(info.st_mode) or info.st_uid != os.getuid() or stat.S_IMODE(info.st_mode) != 0o600:
-        raise auth.Fail(1, 'Unsafe unlock session socket.')
+    session.socket_info(path)
     with socket.socket(socket.AF_UNIX) as conn:
-        conn.settimeout(180)
+        conn.settimeout(timeout)
         conn.connect(str(path))
+        if peer_uid_reader()(conn) != os.getuid():
+            raise auth.Fail(1, 'Unsafe unlock session peer.')
         conn.sendall((encode(payload) + '\n').encode())
         result = recv_frame(conn)
     if 'error' in result:
@@ -377,7 +376,7 @@ def keychain_enroll(cfg):
 def unlock(cfg, timeout, use_keychain=False):
     if not 30 <= timeout <= 3600:
         raise auth.Fail(2, 'Unlock lifetime must be 30–3600 seconds.')
-    peer_uid = peer_uid_reader()
+    peer_uid_reader()
     if use_keychain:
         keychain.require_helper()
     resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
@@ -391,79 +390,11 @@ def unlock(cfg, timeout, use_keychain=False):
             raise auth.Fail(1, 'Saved Keychain credential could not unlock the server identity. Use vc unlock, then enroll again if your passphrase changed.') from None
         raise
     finally:
-        # Avoid retaining a direct reference in the forked session. Python does
-        # not guarantee erasure of runtime or IPC copies.
+        # Only the verified identity crosses private IPC, never the passphrase.
+        # Python does not guarantee erasure of runtime copies.
         del passphrase
     verify_user(cfg, account, crypto.fingerprint(crypto.public_identity(identity)))
-    path = socket_path(cfg)
-    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-    if path.parent.is_symlink() or path.parent.stat().st_uid != os.getuid():
-        raise auth.Fail(1, 'Unsafe session directory.')
-    os.chmod(path.parent, 0o700)
-    if path.exists():
-        try:
-            session_call(cfg, {'command': 'lock'})
-            for _ in range(100):
-                if not path.exists():
-                    break
-                time.sleep(.01)
-        except (OSError, auth.Fail):
-            raise auth.Fail(1, 'Existing session socket cannot be safely closed; inspect it before retrying.')
-    server = socket.socket(socket.AF_UNIX)
-    oldmask = os.umask(0o177)
-    try:
-        server.bind(str(path))
-    finally:
-        os.umask(oldmask)
-    server.listen(4)
-    server.settimeout(1)
-    pid = os.fork()
-    if pid:
-        server.close()
-        return {'unlocked': True, 'expires_in': timeout}
-    os.setsid()
-    null = os.open(os.devnull, os.O_RDWR)
-    for fd in (0, 1, 2):
-        os.dup2(null, fd)
-    if null > 2:
-        os.close(null)
-    deadline = time.monotonic() + timeout
-    try:
-        while time.monotonic() < deadline:
-            try:
-                conn, _ = server.accept()
-            except socket.timeout:
-                continue
-            with conn:
-                if time.monotonic() >= deadline:
-                    break
-                conn.settimeout(5)
-                try:
-                    peer = peer_uid(conn)
-                except OSError:
-                    # Fail closed for this connection without killing the session.
-                    continue
-                if peer != os.getuid():
-                    continue
-                stop = False
-                try:
-                    payload = recv_frame(conn)
-                    stop = payload.get('command') == 'lock'
-                    result = {'locked': True} if stop else execute(cfg, identity, account, payload)
-                    response = {'result': result}
-                except Exception as error:
-                    response = {'error': str(error) if isinstance(error, auth.Fail) else 'Vault operation failed; sensitive error details suppressed.', 'code': getattr(error, 'code', 1)}
-                try:
-                    conn.sendall((encode(response) + '\n').encode())
-                except OSError:
-                    # A disconnected or stalled client must not end the unlock session.
-                    pass
-                if stop:
-                    break
-    finally:
-        server.close()
-        path.unlink(missing_ok=True)
-        os._exit(0)
+    return session.start(cfg, identity, account, timeout)
 
 def parser():
     p = argparse.ArgumentParser(
@@ -573,7 +504,7 @@ Manual: https://github.com/pocketcontext/vaultcontext/blob/main/skills/vaultcont
         'Lock and logout retain enrollment.', 'keychain-forget')
     add('lock', 'Close the local memory session',
         'End the unlocked session for the configured server and email. Keeps the application '
-        'token; use vc logout to remove it too. Requires an existing unlock session.', 'lock')
+        'token; use vc logout to remove it too. Safely clears stale sessions.', 'lock')
     add('change-passphrase', 'Change your identity passphrase',
         unlocked + 'Prompt twice for a new passphrase (at least 12 characters) in an interactive '
         'terminal and re-encrypt the server identity bundle. This does not replace identity keys. '
@@ -741,12 +672,9 @@ def run(args):
         (auth.google_login(cfg, args.port, args.timeout) if args.google else auth.login(cfg))
         return {'signed_in': True}
     if args.command == 'logout':
-        try:
-            session_call(cfg, {'command': 'lock'})
-        except FileNotFoundError:
-            pass
-        auth.cache_file(cfg).unlink(missing_ok=True)
-        return {'signed_out': True}
+        return session.stop(cfg, logout=True)
+    if args.command == 'lock':
+        return session.stop(cfg)
     if args.command == 'whoami':
         return {'id': whoami(cfg)}
     if args.command == 'check':
