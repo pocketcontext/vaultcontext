@@ -400,3 +400,8 @@ portable skill, terminal CLI, deployment settings and deployment workflow suites
 passed on macOS with isolated synthetic data and the rebuilt pinned server
 `a92b0de5e1b66b6d3b6135b90092d2d6da5f7cc8`. Independent subagent review found no
 release blockers. No production deployment was performed.
+
+The standalone launcher pins published client
+`9eea4bad1e00c03435dd439da688d7fc30b68eac`. Both copied-launcher release suites
+(`skill.py` and `cli_forward.py`) passed against that remote package from unrelated
+temporary directories, including the terminal-started worker's rate-limit regression.
