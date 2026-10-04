@@ -387,7 +387,7 @@ def unlock(cfg, timeout, use_keychain=False):
         identity = crypto.unwrap_identity(json.loads(secret['key_bundle']), passphrase, account)
     except Exception:
         if use_keychain:
-            raise auth.Fail(1, 'Saved Keychain credential could not unlock the server identity. Use vc unlock, then enroll again if your passphrase changed.') from None
+            raise auth.Fail(1, 'Saved Keychain credential could not unlock the server identity. Use vaultcontext unlock, then enroll again if your passphrase changed.') from None
         raise
     finally:
         # Only the verified identity crosses private IPC, never the passphrase.
@@ -398,42 +398,43 @@ def unlock(cfg, timeout, use_keychain=False):
 
 def parser():
     p = argparse.ArgumentParser(
+        prog='vaultcontext',
         description=__doc__, usage='%(prog)s [-h] COMMAND ...',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""First use (replace the example URL and email):
   export VAULTCONTEXT_URL=https://vault.example.com
   export VAULTCONTEXT_USER_EMAIL=you@example.com
-  vc login --google
-  vc init                         # once per account; prompts for a passphrase
-  vc unlock                       # prompts; session lasts 15 minutes
-  vc create 'Personal'            # returns the VAULT_ID for save
-  vc save VAULT_ID /path/to/file
-  vc lock
+  vaultcontext login --google
+  vaultcontext init                         # once per account; prompts for a passphrase
+  vaultcontext unlock                       # prompts; session lasts 15 minutes
+  vaultcontext create 'Personal'            # returns the VAULT_ID for save
+  vaultcontext save VAULT_ID /path/to/file
+  vaultcontext lock
 
 Google login authenticates your account; unlock decrypts your keys.
 Passphrases require an interactive terminal. There are no recovery keys.
 Commands return JSON except cat, which writes exact file bytes to stdout.
-Run vc COMMAND --help for arguments and examples.
+Run vaultcontext COMMAND --help for arguments and examples.
 Manual: https://github.com/pocketcontext/vaultcontext/blob/main/skills/vaultcontext/references/workflows.md""")
     commands = p.add_subparsers(prog=p.prog, dest='command', required=True, metavar='COMMAND',
                                help=argparse.SUPPRESS)
     summaries = {}
     positional_help = {
-        'vault': ('VAULT_ID', 'vault ID from vc vaults or vc create'),
-        'document': ('DOCUMENT_ID', 'document ID from vc list or vc search'),
-        'account': ('ACCOUNT_ID', 'account ID from vc directory or vc members'),
-        'invitation': ('INVITATION_ID', 'invitation ID from vc invitations'),
+        'vault': ('VAULT_ID', 'vault ID from vaultcontext vaults or vaultcontext create'),
+        'document': ('DOCUMENT_ID', 'document ID from vaultcontext list or vaultcontext search'),
+        'account': ('ACCOUNT_ID', 'account ID from vaultcontext directory or vaultcontext members'),
+        'invitation': ('INVITATION_ID', 'invitation ID from vaultcontext invitations'),
         'path': ('PATH', 'source file path; at most 8 MiB; symlinks rejected'),
         'name': ('NAME', 'display name for the new vault (encrypted on the server)'),
         'text': ('TEXT', 'case-insensitive fragment of the decrypted display name'),
-        'archive': ('ARCHIVE', 'local encrypted archive created by vc export'),
+        'archive': ('ARCHIVE', 'local encrypted archive created by vaultcontext export'),
     }
 
     def add(name, summary, description, example, *positionals):
         summaries[name] = summary
         q = commands.add_parser(
             name, description='\n\n'.join(textwrap.fill(part, width=76) for part in description.split('\n\n')),
-            epilog='Example:\n  vc ' + example,
+            epilog='Example:\n  vaultcontext ' + example,
             formatter_class=argparse.RawDescriptionHelpFormatter)
         for arg in positionals:
             metavar, help_text = positional_help[arg]
@@ -455,7 +456,7 @@ Manual: https://github.com/pocketcontext/vaultcontext/blob/main/skills/vaultcont
         q.add_argument('--fingerprint', required=True, metavar='FINGERPRINT',
                        help=f'{person} public-key fingerprint, verified through an independent trusted channel')
 
-    unlocked = 'Requires login and an unlocked session (vc unlock). '
+    unlocked = 'Requires login and an unlocked session (vaultcontext unlock). '
     q = add('login', 'Sign in to your account',
             'Sign in and cache an application token. Set VAULTCONTEXT_URL and '
             'VAULTCONTEXT_USER_EMAIL first. Use --google for browser sign-in, or '
@@ -481,13 +482,13 @@ Manual: https://github.com/pocketcontext/vaultcontext/blob/main/skills/vaultcont
         'Requires login. Create your encryption/signing identity once per account. '
         'Prompts twice for a passphrase of at least 12 characters in an interactive terminal; '
         'stores the encrypted private-key bundle on the server and returns your public fingerprint. '
-        'There are no recovery keys. Run vc unlock afterward.', 'init')
+        'There are no recovery keys. Run vaultcontext unlock afterward.', 'init')
     q = add('unlock', 'Start a temporary session with keys in memory',
-            'Requires login and an initialized identity (vc init). Starts a same-OS-user memory '
+            'Requires login and an initialized identity (vaultcontext init). Starts a same-OS-user memory '
             'session. By default, prompts for your vault passphrase in an interactive terminal; '
             '--keychain uses an enrolled credential after macOS authentication. '
             'The execution host and agents using the session are trusted. Expiration rejects '
-            'new requests; an operation already running may finish. Close early with vc lock.',
+            'new requests; an operation already running may finish. Close early with vaultcontext lock.',
             'unlock --timeout 900')
     q.add_argument('--timeout', type=int, default=900,
                    help='session lifetime in seconds, 30–3600 (default: %(default)s)')
@@ -500,21 +501,21 @@ Manual: https://github.com/pocketcontext/vaultcontext/blob/main/skills/vaultcont
         'keychain-enroll')
     add('keychain-forget', 'Remove this account\'s saved macOS passphrase',
         'Requires login and the signed macOS helper. Delete the Keychain credential scoped to '
-        'this server and account. Does not end an existing session; use vc lock separately. '
+        'this server and account. Does not end an existing session; use vaultcontext lock separately. '
         'Lock and logout retain enrollment.', 'keychain-forget')
     add('lock', 'Close the local memory session',
         'End the unlocked session for the configured server and email. Keeps the application '
-        'token; use vc logout to remove it too. Safely clears stale sessions.', 'lock')
+        'token; use vaultcontext logout to remove it too. Safely clears stale sessions.', 'lock')
     add('change-passphrase', 'Change your identity passphrase',
         unlocked + 'Prompt twice for a new passphrase (at least 12 characters) in an interactive '
         'terminal and re-encrypt the server identity bundle. This does not replace identity keys. '
         'An existing unlocked session can change a forgotten passphrase; there are no recovery keys. '
-        'Saved Keychain credentials are not updated; run vc keychain-enroll again afterward.',
+        'Saved Keychain credentials are not updated; run vaultcontext keychain-enroll again afterward.',
         'change-passphrase')
     add('vaults', 'List accessible vault names, IDs and roles',
         unlocked + 'Decrypt vault names and list your active vault memberships.', 'vaults')
     add('create', 'Create a private vault',
-        unlocked + 'Create a vault you own and return its ID. Use vc share to invite members.',
+        unlocked + 'Create a vault you own and return its ID. Use vaultcontext share to invite members.',
         "create 'Personal'", 'name')
     q = add('save', 'Save a file or add an immutable version',
             unlocked + 'Owners and editors can save exact file bytes, up to 8 MiB. By default '
@@ -524,17 +525,17 @@ Manual: https://github.com/pocketcontext/vaultcontext/blob/main/skills/vaultcont
             'Names are not unique and never select restore destinations. Symlink sources and ancestors are rejected.',
             'save VAULT_ID /path/to/file --document DOCUMENT_ID', 'vault', 'path')
     q.add_argument('--document', metavar='DOCUMENT_ID',
-                   help='existing document ID from vc list; omit to create a new document')
+                   help='existing document ID from vaultcontext list; omit to create a new document')
     q.add_argument('--name', metavar='NAME',
                    help='encrypted display name for this version (default: exact source path argument)')
     q = add('list', 'List files and document IDs in a vault',
         unlocked + 'Authenticate current versions and show decrypted names, sizes, revisions and '
         'archive status. Lists active documents by default. Does not print file contents. '
-        'Verify other writers with vc verify-user first.', 'list VAULT_ID --all', 'vault')
+        'Verify other writers with vaultcontext verify-user first.', 'list VAULT_ID --all', 'vault')
     archive_filters(q)
     q = add('search', 'Search decrypted file names',
         unlocked + 'Search current display names locally, ignoring case. Searches active documents '
-        'by default. Does not search file contents. Verify other writers with vc verify-user first.',
+        'by default. Does not search file contents. Verify other writers with vaultcontext verify-user first.',
         'search VAULT_ID project --archived', 'vault', 'text')
     archive_filters(q)
     add('archive', 'Hide a document from active file listings',
@@ -549,7 +550,7 @@ Manual: https://github.com/pocketcontext/vaultcontext/blob/main/skills/vaultcont
         'unarchive DOCUMENT_ID', 'document')
     add('history', 'List a document\'s retained versions',
         unlocked + 'Authenticate retained versions and show version IDs, revisions, authors, '
-        'names and sizes. Verify other writers with vc verify-user first.', 'history DOCUMENT_ID', 'document')
+        'names and sizes. Verify other writers with vaultcontext verify-user first.', 'history DOCUMENT_ID', 'document')
     q = add('compare', 'Compare a local file with a stored version',
             unlocked + 'Verify signed encrypted metadata and compare a local file, defaulting to '
             'the current version. Returns document/version IDs, same (boolean), and method; '
@@ -557,28 +558,28 @@ Manual: https://github.com/pocketcontext/vaultcontext/blob/main/skills/vaultcont
             'downloading stored file chunks. Legacy versions use legacy-download, verifying '
             'and decrypting stored contents in memory without temporary files. Reads the local '
             'file internally; symlinks and files over 8 MiB are rejected. A metadata match does '
-            'not verify stored chunk availability. Verify the writer with vc verify-user first.',
+            'not verify stored chunk availability. Verify the writer with vaultcontext verify-user first.',
             'compare DOCUMENT_ID /path/to/file --version VERSION_ID', 'document', 'path')
     q.add_argument('--version', metavar='VERSION_ID',
-                   help='version ID from vc history (default: current version)')
+                   help='version ID from vaultcontext history (default: current version)')
     q = add('cat', 'Write exact file contents to stdout',
             unlocked + 'Write exact bytes, defaulting to the current version, after verifying '
-            'the entire file. Verify the writer with vc verify-user first. No JSON, headings or '
+            'the entire file. Verify the writer with vaultcontext verify-user first. No JSON, headings or '
             'added newline; errors go to stderr. Creates no plaintext temporary files and never '
             'executes contents. Output may contain secrets, binary data or terminal control '
             'characters. Shell redirection uses ordinary shell permissions and overwrite behavior; '
-            'use vc restore for protected file creation.',
+            'use vaultcontext restore for protected file creation.',
             'cat DOCUMENT_ID --version VERSION_ID', 'document')
     q.add_argument('--version', metavar='VERSION_ID',
-                   help='version ID from vc history (default: current version)')
+                   help='version ID from vaultcontext history (default: current version)')
     q = add('restore', 'Restore a file version to a local path',
             unlocked + 'Restore exact bytes, defaulting to the current version. Verify the '
-            'writer with vc verify-user first. Existing destinations require --overwrite. '
+            'writer with vaultcontext verify-user first. Existing destinations require --overwrite. '
             'Parents must exist; symlink destinations and ancestors are rejected. Writes mode '
             '0600; original permissions and executable bits are not restored. Never executes the file.',
             'restore DOCUMENT_ID --to /path/to/destination', 'document')
     q.add_argument('--version', metavar='VERSION_ID',
-                   help='version ID from vc history (default: current version)')
+                   help='version ID from vaultcontext history (default: current version)')
     destination(q)
     add('directory', 'List registered accounts and public keys',
         'Requires login; no unlock needed. List user names, emails, account IDs and public keys. '
@@ -602,7 +603,7 @@ Manual: https://github.com/pocketcontext/vaultcontext/blob/main/skills/vaultcont
                    help='reader can restore; editor can also save (default: %(default)s)')
     fingerprint(q, 'recipient')
     add('invitations', 'List accessible pending invitations',
-        unlocked + 'List pending invitations and their IDs. Use vc accept for an invitation addressed to you.',
+        unlocked + 'List pending invitations and their IDs. Use vaultcontext accept for an invitation addressed to you.',
         'invitations')
     q = add('accept', 'Accept a vault invitation',
             unlocked + 'Verify the owner\'s fingerprint independently, authenticate the offered '
@@ -613,11 +614,11 @@ Manual: https://github.com/pocketcontext/vaultcontext/blob/main/skills/vaultcont
         unlocked + 'Owner only; owners cannot remove themselves. Revoke the member, cancel pending '
         'invitations and freeze writes before rotating keys for remaining members. Previously '
         'downloaded plaintext and keys cannot be recalled; rotation protects future versions. '
-        'If rotation fails, verify remaining members and run vc rotate. Reissue canceled invitations afterward.',
+        'If rotation fails, verify remaining members and run vaultcontext rotate. Reissue canceled invitations afterward.',
         'revoke VAULT_ID ACCOUNT_ID', 'vault', 'account')
     add('rotate', 'Rotate vault keys or finish a failed revocation',
         unlocked + 'Owner only. Independently verify and pin all remaining member fingerprints '
-        'with vc verify-user first. Publish keys for a new generation and unfreeze writes after '
+        'with vaultcontext verify-user first. Publish keys for a new generation and unfreeze writes after '
         'revocation. Existing versions keep their original keys; reissue canceled invitations afterward.',
         'rotate VAULT_ID', 'vault')
     q = add('export', 'Export retained files to an encrypted archive',
@@ -626,13 +627,13 @@ Manual: https://github.com/pocketcontext/vaultcontext/blob/main/skills/vaultcont
             'Contains no identity private keys or '
             'live vault-key envelopes and cannot recover your live-vault passphrase. The plaintext '
             'archive limit is 64 MiB, including base64 and metadata. Restore without a server using '
-            'vc restore-export. Parent directory must exist; output mode is 0600.',
+            'vaultcontext restore-export. Parent directory must exist; output mode is 0600.',
             'export VAULT_ID --to /path/to/files.vault-export', 'vault')
     destination(q)
     add('inspect-export', 'List document and version IDs in an archive',
         'Works offline without server configuration, login or unlock. Prompts for the archive '
         'passphrase in an interactive terminal and decrypts in memory. Lists metadata without '
-        'file contents; use its document/version IDs with vc restore-export.',
+        'file contents; use its document/version IDs with vaultcontext restore-export.',
         'inspect-export /path/to/files.vault-export', 'archive')
     q = add('restore-export', 'Restore one file from an encrypted archive',
             'Works offline without server configuration, login or unlock. Prompts for the archive '
@@ -641,8 +642,8 @@ Manual: https://github.com/pocketcontext/vaultcontext/blob/main/skills/vaultcont
             'are rejected. Refuses existing destinations unless --overwrite is supplied. Never executes the file.',
             'restore-export /path/to/files.vault-export --document DOCUMENT_ID --version VERSION_ID --to /path/to/file',
             'archive')
-    q.add_argument('--document', required=True, metavar='DOCUMENT_ID', help='document ID from vc inspect-export')
-    q.add_argument('--version', required=True, metavar='VERSION_ID', help='version ID from vc inspect-export')
+    q.add_argument('--document', required=True, metavar='DOCUMENT_ID', help='document ID from vaultcontext inspect-export')
+    q.add_argument('--version', required=True, metavar='VERSION_ID', help='version ID from vaultcontext inspect-export')
     destination(q)
 
     groups = [

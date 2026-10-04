@@ -1,7 +1,9 @@
 import json
+from importlib.metadata import distribution
 import os
 from pathlib import Path
 import socket
+import subprocess
 import sys
 import tempfile
 import threading
@@ -135,6 +137,18 @@ class ClientTests(unittest.TestCase):
     def test_noninteractive_passphrase_rejected(self):
         with patch.object(sys.stdin,'isatty',return_value=False):
             with self.assertRaises(vc.auth.Fail):vc.prompt_passphrase()
+
+    def test_installed_cli_help(self):
+        commands = {entry.name for entry in distribution('vaultcontext-client').entry_points
+                    if entry.group == 'console_scripts'}
+        self.assertEqual(commands, {'vaultcontext'})
+        with tempfile.TemporaryDirectory() as temporary:
+            command = Path(sys.executable).parent / 'vaultcontext'
+            result = subprocess.run([str(command), '--help'], cwd=temporary,
+                                    capture_output=True, text=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(result.stdout.startswith('usage: vaultcontext '), result.stdout)
+        self.assertIn('vaultcontext login --google', result.stdout)
 
     def test_cli_no_secret_argument(self):
         with self.assertRaises(SystemExit):vc.parser().parse_args(['unlock','--passphrase','secret'])

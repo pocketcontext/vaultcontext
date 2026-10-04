@@ -21,7 +21,7 @@ def helper_path():
 
 def require_helper():
     if sys.platform != 'darwin':
-        raise auth.Fail(2, 'Keychain unlock requires macOS. Use vc unlock for a terminal passphrase.')
+        raise auth.Fail(2, 'Keychain unlock requires macOS. Use vaultcontext unlock for a terminal passphrase.')
     path = helper_path()
     # Do not resolve symlinks before checking: the installed helper and its
     # ancestors must not redirect execution to a different location.
@@ -85,14 +85,14 @@ def call(cfg, account, command, passphrase=None):
     if result.returncode or response.get('ok') is not True:
         # Fixed messages only; do not echo arbitrary helper error strings.
         messages = {
-            'not_found': 'No saved Keychain credential. Run vc keychain-enroll in your terminal.',
+            'not_found': 'No saved Keychain credential. Run vaultcontext keychain-enroll in your terminal.',
             'cancelled': 'Keychain authentication cancelled; no session opened.',
-            'authentication_failed': 'Keychain authentication failed; use vc unlock in your terminal.',
+            'authentication_failed': 'Keychain authentication failed; use vaultcontext unlock in your terminal.',
             'interaction_not_allowed': 'Keychain authentication requires an interactive macOS login session.',
         }
         code = response.get('error')
         message = messages.get(code) if isinstance(code, str) else None
-        raise auth.Fail(1, message or 'Keychain operation failed; check the signed helper installation or use vc unlock.')
+        raise auth.Fail(1, message or 'Keychain operation failed; check the signed helper installation or use vaultcontext unlock.')
     if command == 'get':
         secret = response.get('passphrase')
         if not isinstance(secret, str) or not 1 <= len(secret.encode('utf-8')) <= 1024:

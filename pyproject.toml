@@ -6,7 +6,7 @@ requires-python = ">=3.11"
 dependencies = ["PyNaCl==1.6.2"]
 
 [project.scripts]
-vc = "vaultcontext_client.cli:main"
+vaultcontext = "vaultcontext_client.cli:main"
 
 [build-system]
 requires = ["hatchling==1.27.0"]
