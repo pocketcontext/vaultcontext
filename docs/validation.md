@@ -321,3 +321,10 @@ disclosures, copy success and fallback selection, existing installation method
 switching, no-JavaScript access and no console errors. Screenshots were visually
 reviewed. The pinned server served exact HTML/CSS/JS/image bytes with restrictive
 security headers; anonymous schema/query requests remained rejected.
+
+
+The release passed [application CI](https://github.com/pocketcontext/vaultcontext/actions/runs/37193527231)
+and [container recovery/publication CI](https://github.com/pocketcontext/vaultcontext/actions/runs/37193527386).
+After the pinned deployment, the same browser checks passed on the public origin,
+as did exact asset checks, security headers and anonymous API/source rejection.
+Production and immutable image evidence are recorded in DEPLOYMENT.md.

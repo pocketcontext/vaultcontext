@@ -1,5 +1,42 @@
 # VaultContext deployment
 
+## Cross-computer comparison and restore guide — 4 October 2026
+
+Production at https://vault.pocketcontext.com runs
+`c41c2865910e13619866d732ffbfad37927b7b48`, pinned to manifest
+`sha256:550886572fb72a3dfe8549defbce54603b6148d071039bbb4f351b3071c90aa9`.
+The public guide at `/#another-computer` demonstrates synthetic prefix mapping,
+comparison reports, selected version-pinned restores and verification. Agent
+prompts and CLI equivalents preserve private unlock, explicit overwrite and
+user-only diff. The workflow reference and installed skill were refreshed.
+The launcher remains pinned to tested client
+`6c383279ea2b8d5f721196b5df46e19a405ecffc`; no client implementation changed.
+
+[Linux/macOS application validation](https://github.com/pocketcontext/vaultcontext/actions/runs/37193527231)
+and [container configuration, smoke, populated restore and multi-platform publication](https://github.com/pocketcontext/vaultcontext/actions/runs/37193527386)
+passed. All local README checks passed, plus an isolated synthetic cross-computer
+scenario and desktop/390/320-pixel browser checks; see [validation](docs/validation.md#compare-and-restore-across-computers-2026-10-04).
+
+A complete verified database/originals backup succeeded immediately before the
+update. Existing operator SSH verified the installed deployment wrapper against
+reviewed source. The wrapper ran in memory with only its fixed image changed to
+the tested digest and its guard extended to accept the previous `latest` reference.
+Its persistent file, lock, graceful-stop, sole-writer and recovery behavior were
+unchanged. No full scaffold convergence or cloud provisioning occurred.
+
+Production matched the exact revision, digest and server pin. One running writer,
+one CPU, 512 MiB and disabled automatic updates were verified. All fourteen sibling
+container IDs, images, running states and settings were unchanged. Public health,
+exact CSS/JS/image bytes and HTML after Cloudflare's existing script transformation,
+security headers, anonymous schema/query rejection and source-path denial passed.
+Live desktop/390/320-pixel layout, keyboard disclosures, installation switching,
+copy success/fallback and no-JavaScript access passed without browser errors.
+
+The deployment scaffold pins the same manifest; its build and create dry-run passed
+using the installed Java runtime. No vault records, schema, server pin or encrypted
+file contents were changed or inspected. Real Google and Keychain user-presence
+flows were not exercised for this static-guide release.
+
 ## Encrypted comparison checksum release — 4 October 2026
 
 Production at https://vault.pocketcontext.com runs
