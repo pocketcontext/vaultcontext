@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Installed package and optional copied launcher against an isolated server."""
 import argparse
+import hashlib
 import json
 import os
 import socket
@@ -112,6 +113,74 @@ def cat_checks(command, temporary, request, owner, other, document, historical, 
     print('VaultContext cat exact bytes, integrity, privacy and pipes: PASS')
 
 
+def compare_checks(temporary, owner):
+    """Real encrypted records: private fast comparisons and immutable legacy fallback."""
+    cfg, identity, account, _ = owner
+    def run(command, **kw):
+        return vc.execute(cfg, identity, account, dict(command=command, **kw))
+    vault = run('create', name='Synthetic comparison fixtures')['id']
+    source = Path(temporary) / 'comparison.binary'
+    original = b'synthetic opaque comparison bytes\x00\xff'
+    source.write_bytes(original)
+    saved = run('save', vault=vault, path=str(source))
+    document = saved['id']
+    def compare(**kw):
+        return run('compare', document=document, path=str(source), **kw)
+    expected = dict(document=document, version=saved['version'], same=True, method='encrypted-sha256')
+    with patch.object(vc, 'download_chunk', side_effect=AssertionError('fast comparison downloaded content')):
+        assert compare() == expected
+        # Equal length alone cannot establish equality.
+        source.write_bytes(b'X' + original[1:])
+        assert compare() == dict(expected, same=False)
+        source.write_bytes(b'')
+        assert compare() == dict(expected, same=False)
+    source.write_bytes(original)
+    # Plaintext digests are absent from all persisted server record types and public results.
+    digest = hashlib.sha256(original).hexdigest()
+    for table in ('documents', 'versions', 'version_chunks', 'audit_log'):
+        assert digest not in vc.encode(vc.rows(cfg, table)), table
+    for result in (run('list', vault=vault), run('search', vault=vault, text='comparison'),
+                   run('history', document=document), compare()):
+        encoded = vc.encode(result)
+        assert digest not in encoded and 'plaintext_sha256' not in encoded
+    source.write_bytes(b'second synthetic version')
+    run('save', vault=vault, path=str(source), document=document)
+    assert compare()['same'] is True
+    assert compare(version=saved['version']) == dict(expected, same=False)
+    source.write_bytes(original)
+    assert compare(version=saved['version']) == expected
+    assert compare()['same'] is False
+    run('archive', document=document)
+    assert compare(version=saved['version']) == expected
+    before = vc.rows(cfg, 'versions', 'document=' + vc.quote(document))
+    # Simulate a historical client by omitting only the new encrypted metadata field.
+    encrypt_metadata = vc.metadata
+    def old_metadata(key, value, context):
+        return encrypt_metadata(key, {k: v for k, v in value.items() if k != 'plaintext_sha256'}, context)
+    with patch.object(vc, 'metadata', side_effect=old_metadata):
+        legacy = run('save', vault=vault, path=str(source))
+    with patch.object(vc, 'download_chunk', wraps=vc.download_chunk) as downloads:
+        result = run('compare', document=legacy['id'], path=str(source))
+        assert result == dict(document=legacy['id'], version=legacy['version'], same=True, method='legacy-download')
+        assert downloads.call_count > 0
+    source.write_bytes(b'different synthetic legacy bytes')
+    assert run('compare', document=legacy['id'], path=str(source))['same'] is False
+    assert vc.rows(cfg, 'versions', 'document=' + vc.quote(document)) == before
+    assert len(run('history', document=legacy['id'])) == 1, 'comparison rewrote immutable history'
+    source.write_bytes(b'')
+    empty = run('save', vault=vault, path=str(source))
+    assert run('compare', document=empty['id'], path=str(source)) == dict(
+        document=empty['id'], version=empty['version'], same=True, method='encrypted-sha256')
+    source.unlink()
+    try:
+        compare()
+    except (vc.auth.Fail, OSError, ValueError):
+        pass
+    else:
+        raise AssertionError('comparison accepted a missing local file')
+    print('VaultContext encrypted checksum privacy, history and legacy comparisons: PASS')
+
+
 def main():
     parser=argparse.ArgumentParser();parser.add_argument('--binary',required=True)
     parser.add_argument('--client',help='Copy and execute this standalone launcher outside the repository')
@@ -212,6 +281,7 @@ def main():
         assert json.loads(result.stdout)['compatible'] is True
         result=subprocess.run(command+['whoami'],cwd=tmp,capture_output=True,text=True,check=True)
         assert json.loads(result.stdout)['id']==aid
+        compare_checks(tmp, users[0])
         run(a,ai,aid,'change-passphrase',new_passphrase='replacement vault passphrase')
         bundle=json.loads(vc.one(a,'identity_secrets','account='+vc.quote(aid))['key_bundle'])
         assert crypto.unwrap_identity(bundle,'replacement vault passphrase',aid)==ai

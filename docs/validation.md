@@ -230,3 +230,27 @@ clipboard-denial fallback selected commands and announced manual copying in an
 isolated JavaScript check. Pinned-server checks with an isolated database verified
 exact public assets, CSP/security headers, private-source 404s and anonymous API
 rejection. The page does not install or authenticate the native helper.
+
+## Encrypted comparison checksums — 2026-10-04
+
+The client stores plaintext SHA-256 only inside encrypted, signed version metadata.
+The dedicated `compare` command returns equality and version/method identifiers,
+without file contents or hashes. Existing versions use authenticated in-memory
+comparison; no immutable version or server schema is rewritten. Metadata-only
+comparison is not a ciphertext availability or recovery check.
+
+Local Linux ARM64 validation used the rebuilt pinned server `a92b0de5e1b66b6d3b6135b90092d2d6da5f7cc8`
+with Go 1.27.1 and CGO, synthetic files and isolated temporary databases. The
+unit suite ran 77 tests with seven macOS-only skips. Integration, archive migration,
+authentication, OAuth integration/client, realtime, size boundaries, deployment
+settings/wrapper and complete-backup recovery passed. Comparison tests cover
+metadata-only downloads, encrypted checksum privacy, malformed and tampered
+metadata, historical and legacy versions, empty/binary/changed files, safe local
+paths and changed-file rejection, and checksum validation during content reads.
+
+The onboarding page now includes compare commands and their privacy/recovery
+limits. Desktop, 390/320-pixel mobile, keyboard navigation, installation switching,
+clipboard success/failure and no-JavaScript checks passed. The main marketing
+website contains no VaultContext instructions needing this update. No generic
+server source, server pin, cryptographic primitive or database schema changed.
+Release CI, copied-launcher and production evidence are recorded in DEPLOYMENT.md.

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Forward exercise of the documented skill through real CLI/terminal prompts."""
 import argparse
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -68,12 +69,15 @@ def main():
                 return json.loads(result.stdout)
             cli('login');cli('check')
             initialized=terminal(command+['init'],env,tmp)
-            terminal(command+['unlock','--timeout','60'],env,tmp)
+            terminal(command+['unlock','--timeout','180'],env,tmp)
             actors.append((user['id'],initialized['fingerprint'],cli,env))
         owner,owner_fp,a,owner_env=actors[0];colleague,colleague_fp,b,colleague_env=actors[1]
         cat_help=subprocess.run(command+['cat','--help'],cwd=tmp,capture_output=True)
         cat_available=cat_help.returncode==0
         assert args.client or cat_available, 'source package must provide cat'
+        compare_help=subprocess.run(command+['compare','--help'],cwd=tmp,capture_output=True)
+        compare_available=compare_help.returncode==0
+        assert args.client or compare_available, 'source package must provide compare'
         try:
             vault=a('create','Synthetic isolated shared project')['id']
             source=Path(tmp)/'arbitrary.binary';content=b'\x00\xff\r\n'+os.urandom(8192);source.write_bytes(content)
@@ -98,6 +102,29 @@ def main():
             assert destination.read_bytes()==content
             assert destination.stat().st_mode&0o777==0o600
             assert [entry['name'] for entry in b('history',saved['id'])]==[str(source),relative,'Explicit display name']
+            if compare_available:
+                def compare(*words, environment=colleague_env):
+                    return subprocess.run(command+['compare',saved['id'],str(source),*words],
+                                          env=environment,cwd=tmp,capture_output=True,timeout=30)
+                result=compare()
+                assert result.returncode==0 and result.stderr==b''
+                comparison=json.loads(result.stdout)
+                assert comparison['same'] is True and comparison['method']=='encrypted-sha256'
+                assert set(comparison)=={'document','version','same','method'}
+                assert content not in result.stdout and hashlib.sha256(content).hexdigest().encode() not in result.stdout
+                source.write_bytes(b'X'+content[1:])
+                result=compare()
+                assert result.returncode==0 and json.loads(result.stdout)['same'] is False
+                source.unlink()
+                denied=compare()
+                assert denied.returncode!=0 and denied.stdout==b'' and b'Traceback' not in denied.stderr
+                source.write_bytes(content)
+                source.rename(Path(tmp)/'comparison-target')
+                source.symlink_to(Path(tmp)/'comparison-target')
+                denied=compare()
+                assert denied.returncode!=0 and denied.stdout==b''
+                source.unlink()
+                (Path(tmp)/'comparison-target').rename(source)
             if cat_available:
                 def cat(*words):
                     return subprocess.run(command+['cat',saved['id'],*words],env=colleague_env,
@@ -108,8 +135,13 @@ def main():
                 a('save',vault,str(source),'--document',saved['id'])
                 assert cat().stdout==source.read_bytes()
                 assert cat('--version',saved['version']).stdout==content
+                if compare_available:
+                    assert json.loads(compare().stdout)['same'] is True
+                    assert json.loads(compare('--version',saved['version']).stdout)['same'] is False
                 archived=a('archive',saved['id'])
                 assert archived['archived'] is True
+                if compare_available:
+                    assert json.loads(compare().stdout)['same'] is True
                 assert a('archive',saved['id'])==archived
                 assert a('list',vault)==[] and b('list',vault)==[]
                 assert a('search',vault,'arbitrary')==[]
@@ -136,6 +168,10 @@ def main():
                 denied=cat()
                 assert denied.returncode!=0 and denied.stdout==b''
                 assert denied.stderr and b'Traceback' not in denied.stderr
+                if compare_available:
+                    denied=compare()
+                    assert denied.returncode!=0 and denied.stdout==b'' and b'Traceback' not in denied.stderr
+                    print('VaultContext copied/packaged CLI comparison, privacy and revocation: PASS')
                 print('VaultContext copied/packaged CLI cat and revocation: PASS')
         finally:
             a('lock');b('lock')
@@ -143,6 +179,9 @@ def main():
         # survive, then expire at the requested lifetime without an explicit lock.
         locked=subprocess.run(command+['vaults'],env=env,cwd=tmp,capture_output=True,text=True)
         assert locked.returncode!=0, 'lock left an accessible session'
+        if compare_available:
+            denied=compare(environment=owner_env)
+            assert denied.returncode!=0 and denied.stdout==b'' and b'unlock' in denied.stderr.lower()
         terminal(command+['unlock','--timeout','30'],env,tmp)
         b('vaults')
         deadline=time.monotonic()+35

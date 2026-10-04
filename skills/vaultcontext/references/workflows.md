@@ -74,6 +74,21 @@ Files may be binary or text, up to 8 MiB. Parent directories must already exist.
 
 Agents must not inspect source or restored file contents, including through previews, scripts, content searches or redaction. Verify operations using returned metadata/status and `history`, without opening the file. For content changes, have the user edit privately and provide the replacement path for `save --document`.
 
+### Compare without exposing contents
+
+For a requested equality check, agents may use the dedicated command:
+
+```sh
+vc compare DOCUMENT_ID /absolute/path/to/local-file
+vc compare DOCUMENT_ID /absolute/path/to/local-file --version VERSION_ID
+```
+
+Login and unlock first. After upgrading an already unlocked client, run `vc lock` and have the user unlock again so the session uses the updated code. Comparison works for active and archived documents accessible to the account. It rejects symlinks and oversized local files using the same source-file rules as `save`.
+
+The JSON result contains `document`, `version`, `same` (a boolean), and `method`. `encrypted-sha256` means the saved version carries a plaintext SHA-256 checksum inside encrypted, signed metadata: the client verifies and decrypts metadata, hashes the local bytes internally, and avoids downloading file chunks. `legacy-download` means an older version lacks the checksum: the client downloads and verifies saved bytes in memory, without plaintext temporary files. Neither method prints file contents or hashes. Existing immutable versions remain unchanged.
+
+Use only this command for agent equality checks; do not read files, invoke `cat`, run manual hashing/diffs or build alternative comparison scripts. Hash equality has negligible collision risk. In particular, `encrypted-sha256` does not prove ciphertext availability or successful recovery; use the separate backup and restore validation workflow for that assurance.
+
 ### Private viewing by the user only
 
 If the user requests content inspection, explain the skill's management-only boundary and offer this command for their own private terminal. Never execute it through agent tools or ask for its output:
@@ -97,7 +112,7 @@ vc unarchive DOCUMENT_ID
 
 Owners and editors can archive a whole document and its versions; readers cannot. Default `list` and `search` show active documents. `--archived` selects only archived documents; `--all` selects both, and these flags cannot be combined. Results include an `archived` boolean.
 
-Archived documents remain accessible through `history` and `restore` by ID; user-operated private viewing with `cat` also remains available. Unarchive before saving another version. Repeated archive/unarchive requests are harmless. Concurrent changes can return revision conflicts; reread state before retrying. Archiving does not delete ciphertext, reclaim storage or revoke access. Complete backups, encrypted exports and whole-vault sharing retain archived documents and history. An archived document is distinct from an encrypted export archive.
+Archived documents remain accessible through `history`, `compare` and `restore` by ID; user-operated private viewing with `cat` also remains available. Unarchive before saving another version. Repeated archive/unarchive requests are harmless. Concurrent changes can return revision conflicts; reread state before retrying. Archiving does not delete ciphertext, reclaim storage or revoke access. Complete backups, encrypted exports and whole-vault sharing retain archived documents and history. An archived document is distinct from an encrypted export archive.
 
 ## Shared project vaults
 

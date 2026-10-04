@@ -12,6 +12,7 @@ import json
 import os
 from pathlib import Path
 import resource
+import re
 import secrets
 import socket
 import stat
@@ -122,6 +123,20 @@ def metadata(key, value, context):
 def decrypt_metadata(key, value, context):
     return json.loads(crypto.decrypt_bytes(key, json.loads(value), context))
 
+def validate_file_metadata(info):
+    if (not isinstance(info, dict) or not isinstance(info.get('name'), str) or
+            type(info.get('size')) is not int or not 0 <= info['size'] <= crypto.MAX_FILE_SIZE):
+        raise auth.Fail(1, 'Invalid file metadata.')
+    if 'plaintext_sha256' in info and (not isinstance(info['plaintext_sha256'], str) or
+                                      not re.fullmatch(r'[0-9a-f]{64}', info['plaintext_sha256'])):
+        raise auth.Fail(1, 'Invalid file checksum metadata.')
+
+
+def display_file_metadata(info):
+    # Internal authenticated metadata is never expanded into user-facing JSON.
+    return {'name': info['name'], 'size': info['size']}
+
+
 def download_chunk(cfg, chunk):
     token = request(cfg, 'POST', '/api/files/token')['token']
     path = '/api/files/version_chunks/' + urllib.parse.quote(chunk['id'], safe='') + '/' + urllib.parse.quote(chunk['ciphertext'], safe='')
@@ -152,6 +167,7 @@ def get_version(cfg, identity, account, document, version=None, content=True):
     if manifest['context'] != context or manifest['author'] != ver['author'] or manifest['revision'] != int(ver['revision']):
         raise auth.Fail(1, 'Signed manifest identity mismatch.')
     info = decrypt_metadata(key, manifest['metadata'], dict(context, kind='file-metadata'))
+    validate_file_metadata(info)
     if not content:
         return None, info, ver
     # Fetch individual chunks: a file must not overflow the SQL result byte budget.
@@ -162,9 +178,10 @@ def get_version(cfg, identity, account, document, version=None, content=True):
     if hashlib.sha256(payload.encode()).hexdigest() != manifest['sha256']:
         raise auth.Fail(1, 'File integrity check failed.')
     data = crypto.decrypt_bytes(key, json.loads(payload), context)
-    info = decrypt_metadata(key, manifest['metadata'], dict(context, kind='file-metadata'))
     if len(data) != info['size']:
         raise auth.Fail(1, 'File size mismatch.')
+    if 'plaintext_sha256' in info and not secrets.compare_digest(hashlib.sha256(data).hexdigest(), info['plaintext_sha256']):
+        raise auth.Fail(1, 'File checksum mismatch.')
     return data, info, ver
 
 def execute(cfg, identity, account, args):
@@ -196,7 +213,7 @@ def execute(cfg, identity, account, args):
         key = vault_key(cfg, identity, account, vault['id'], epoch)
         data = crypto.read_file(args['path'])
         context = document_context(vault['id'], document, version, epoch)
-        info = {'name': args['name'] if args.get('name') is not None else args['path'], 'size': len(data)}
+        info = {'name': args['name'] if args.get('name') is not None else args['path'], 'size': len(data), 'plaintext_sha256': hashlib.sha256(data).hexdigest()}
         encrypted_info = metadata(key, info, dict(context, kind='file-metadata'))
         ciphertext = encode(crypto.encrypt_bytes(key, data, context))
         manifest = {'context': context, 'author': account, 'revision': revision + 1, 'metadata': encrypted_info, 'sha256': hashlib.sha256(ciphertext.encode()).hexdigest()}
@@ -215,14 +232,26 @@ def execute(cfg, identity, account, args):
         for doc in rows(cfg, 'documents', where):
             _, info, ver = get_version(cfg, identity, account, doc['id'], content=False)
             if command != 'search' or args['text'].casefold() in info['name'].casefold():
-                result.append(dict(id=doc['id'], revision=ver['revision'], archived=bool(doc['archived']), **info))
+                result.append(dict(id=doc['id'], revision=ver['revision'], archived=bool(doc['archived']), **display_file_metadata(info)))
         return result
     if command == 'history':
         result = []
         for ver in rows(cfg, 'versions', 'document=' + quote(args['document'])):
             _, info, checked = get_version(cfg, identity, account, args['document'], ver['id'], content=False)
-            result.append(dict(version=checked['id'], revision=checked['revision'], author=checked['author'], **info))
+            result.append(dict(version=checked['id'], revision=checked['revision'], author=checked['author'], **display_file_metadata(info)))
         return sorted(result, key=lambda v: v['revision'])
+    if command == 'compare':
+        _, info, ver = get_version(cfg, identity, account, args['document'], args.get('version'), content=False)
+        local = crypto.read_file(args['path'])
+        if 'plaintext_sha256' in info:
+            same = len(local) == info['size'] and secrets.compare_digest(hashlib.sha256(local).hexdigest(), info['plaintext_sha256'])
+            method = 'encrypted-sha256'
+        else:
+            # Pin the fallback to the version already selected, even if another save races us.
+            stored, _, _ = get_version(cfg, identity, account, args['document'], ver['id'])
+            same = secrets.compare_digest(local, stored)
+            method = 'legacy-download'
+        return {'document': args['document'], 'version': ver['id'], 'same': same, 'method': method}
     if command == 'cat':
         data, _, _ = get_version(cfg, identity, account, args['document'], args.get('version'))
         return {'data': base64.b64encode(data).decode('ascii')}
@@ -590,6 +619,17 @@ Manual: https://github.com/pocketcontext/vaultcontext/blob/main/skills/vaultcont
     add('history', 'List a document\'s retained versions',
         unlocked + 'Authenticate retained versions and show version IDs, revisions, authors, '
         'names and sizes. Verify other writers with vc verify-user first.', 'history DOCUMENT_ID', 'document')
+    q = add('compare', 'Compare a local file with a stored version',
+            unlocked + 'Verify signed encrypted metadata and compare a local file, defaulting to '
+            'the current version. Returns document/version IDs, same (boolean), and method; '
+            'never prints contents or checksums. New versions use encrypted-sha256 without '
+            'downloading stored file chunks. Legacy versions use legacy-download, verifying '
+            'and decrypting stored contents in memory without temporary files. Reads the local '
+            'file internally; symlinks and files over 8 MiB are rejected. A metadata match does '
+            'not verify stored chunk availability. Verify the writer with vc verify-user first.',
+            'compare DOCUMENT_ID /path/to/file --version VERSION_ID', 'document', 'path')
+    q.add_argument('--version', metavar='VERSION_ID',
+                   help='version ID from vc history (default: current version)')
     q = add('cat', 'Write exact file contents to stdout',
             unlocked + 'Write exact bytes, defaulting to the current version, after verifying '
             'the entire file. Verify the writer with vc verify-user first. No JSON, headings or '
@@ -676,7 +716,7 @@ Manual: https://github.com/pocketcontext/vaultcontext/blob/main/skills/vaultcont
 
     groups = [
         ('Account and keys', ('login', 'whoami', 'logout', 'check', 'init', 'unlock', 'lock', 'change-passphrase', 'keychain-enroll', 'keychain-forget')),
-        ('Vaults and files', ('vaults', 'create', 'save', 'list', 'search', 'history', 'cat', 'restore', 'archive', 'unarchive')),
+        ('Vaults and files', ('vaults', 'create', 'save', 'list', 'search', 'history', 'compare', 'cat', 'restore', 'archive', 'unarchive')),
         ('Sharing', ('directory', 'verify-user', 'members', 'share', 'invitations', 'accept', 'revoke', 'rotate')),
         ('Encrypted archives', ('export', 'inspect-export', 'restore-export')),
     ]

@@ -1,6 +1,6 @@
 ---
 name: vaultcontext
-description: Store, version, archive, restore and explicitly share arbitrary encrypted files in personal or project VaultContext vaults through a CLI. Use for sensitive file storage, including private configuration files; excludes inspecting or executing file contents and cloud provisioning.
+description: Store, version, compare for equality, archive, restore and explicitly share arbitrary encrypted files in personal or project VaultContext vaults through a CLI. Use for sensitive file storage, including private configuration files; excludes inspecting or executing file contents and cloud provisioning.
 ---
 
 # VaultContext
@@ -19,7 +19,9 @@ Optional macOS Keychain enrollment stores the passphrase locally with user-prese
 
 ## Content privacy boundary
 
-Agents manage files but never inspect their contents, even when asked to show, summarize, search within, compare or redact a file. Keep file plaintext out of agent context, chat, tool output and logs, just as with passphrases. Do not run `vc cat`, read source or restored files, preview attachments, or use scripts, subprocesses, other tools or agents to extract content or content-derived answers. Redacting after reading does not preserve this boundary. If asked to inspect a file, explain this rule and provide a command for the user to run in their own private terminal; do not run it through agent tools or ask the user to paste the output.
+Agents manage files but never inspect their contents, even when asked to show, summarize, search within or redact a file. Keep file plaintext out of agent context, chat, tool output and logs, just as with passphrases. Do not run `vc cat`, read source or restored files, preview attachments, or use scripts, subprocesses, other tools or agents to extract content or content-derived answers. Redacting after reading does not preserve this boundary. If asked to inspect a file, explain this rule and provide a command for the user to run in their own private terminal; do not run it through agent tools or ask the user to paste the output.
+
+For an explicitly requested equality check, agents may run only the dedicated `vc compare DOCUMENT_ID LOCAL_PATH [--version VERSION_ID]` command. It internally reads local bytes and, for older versions, verifies downloaded bytes in memory. It returns equality and comparison status without contents or hashes. This exception permits no content inspection, diff, general content-derived answers, manual hashing, or alternative scripts/pipelines. Never request or print plaintext checksums.
 
 Metadata inspection is allowed: vault/document IDs, names, sizes, revisions, archive state, history and membership. Use metadata and command status to select and verify operations. Saving and restoring may process plaintext inside the client, but the agent must pass explicit paths and never open the files before or afterward. Content editing must be done by the user; the agent may save the resulting replacement by path as a new version.
 
@@ -33,7 +35,7 @@ Use explicit destination paths. Restore refuses symlinks and existing destinatio
 
 `archive DOCUMENT_ID` and `unarchive DOCUMENT_ID` organize the whole document without deleting data or changing access. Owners and editors may use them; readers may not. Default `list` and `search` show active documents; `--archived` shows only archived documents and `--all` shows both. Archived documents remain readable by ID and included in exports, backups and whole-vault sharing. Unarchive before saving a new version. Repeated state requests are harmless; revision conflicts still require reassessment.
 
-Use commands that return metadata and status without file contents. Use `restore` for protected disk writes; never substitute `cat` with shell redirection. The CLI retains `cat` for user-operated private terminal viewing, outside agent tools.
+Use commands that return metadata and status without file contents. `compare` requires login and an unlocked session; it does not prove backup recoverability. Use `restore` for protected disk writes; never substitute `cat` with shell redirection. The CLI retains `cat` for user-operated private terminal viewing, outside agent tools.
 
 ## Sharing
 
