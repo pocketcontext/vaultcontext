@@ -370,3 +370,10 @@ Live release verification caught stale CDN JS/CSS and omitted frame assets in
 the container allowlist. Asset references now use verified content hashes, both
 frame files are explicitly included, and container smoke verifies exact public
 asset bytes and headers. This check supplements the checkout-based browser suite.
+
+Final source `928f10c86c124c280c02ec2b86efdf794b4153f0` passed application CI
+37197135639 and image/recovery CI 37197135835. Live versioned assets matched
+source; desktop/mobile/keyboard/copy/no-JavaScript checks passed without browser
+errors. Default-off, opt-in provider responses (Rybbit 200, GA4 204), scoped
+cookies and withdrawal passed. Production image and sibling-state evidence are
+recorded in DEPLOYMENT.md. Analytics dashboard processing was not inspected.

@@ -1,5 +1,35 @@
 # VaultContext deployment
 
+## Production-only website analytics — 4 October 2026
+
+Production runs source `928f10c86c124c280c02ec2b86efdf794b4153f0`, pinned to
+`ghcr.io/pocketcontext/vaultcontext@sha256:3b93448c975fd175874141f5ea5539bf714c9ecfaa07fc9bfed148b9c19d2005`.
+Optional analytics activate only on `https://vault.pocketcontext.com/` after a
+visitor accepts. Rybbit receives explicit fixed events without its replay script;
+GA4 runs in an empty same-origin frame. Fixed metadata and allowlisted targets
+exclude guide text, local paths and URL parameters. Both dashboards can filter
+Hostname equals `vault.pocketcontext.com`. CLI and server pins are unchanged.
+
+[Application CI](https://github.com/pocketcontext/vaultcontext/actions/runs/37197135639)
+and [container asset, smoke, populated restore and publication gates](https://github.com/pocketcontext/vaultcontext/actions/runs/37197135835)
+passed. Local README checks, offline privacy/browser tests, actual Google tag
+verification with intercepted collection, desktop/mobile visual and keyboard checks
+passed. Content-hashed JS/CSS URLs avoid stale CDN assets; container smoke checks
+all public files including the analytics frame. Shared dashboard settings were
+not changed. GA's automatic empty-frame engagement/scroll events are documented;
+filter to explicit onboarding events to measure guide use.
+
+A verified complete backup preceded the locked graceful update. The reviewed
+wrapper was run with its image fixed to this manifest; its installed file remains
+unchanged. Production revision, digest, server pin, one writer, one CPU, 512 MiB
+and disabled automatic updates were verified. All fourteen sibling containers
+retained their IDs, images, state and resources. Exact versioned public assets,
+security headers and live desktop/mobile, keyboard, clipboard and no-JavaScript
+checks passed. Live opt-in produced Rybbit HTTP 200 and GA4 HTTP 204 responses;
+default-off and withdrawal behavior passed with no browser errors. Dashboard
+report processing was not independently inspected. Scaffold build and create
+dry-run passed; no cloud resources or application records were changed.
+
 ## Comparison prompt readability — 4 October 2026
 
 Production runs source `1b318a6f4f2c5c6fdb7c2fe60306550d869e7ca5`, pinned to
