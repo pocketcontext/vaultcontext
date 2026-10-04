@@ -285,3 +285,7 @@ authentication, OAuth integration/client, realtime, size boundaries, deployment
 settings/wrapper and populated complete-backup recovery also passed. All fixtures
 were synthetic and databases isolated. Real Keychain/Touch ID remains a separate
 on-device check; this change preserves its existing prompting flow.
+
+Both copied standalone-launcher release tests passed against the remote package
+commit `6c383279ea2b8d5f721196b5df46e19a405ecffc`, including uv execution outside
+the checkout, survival after launcher exit, hostname requests and real expiry.
