@@ -388,6 +388,32 @@ def smoke(image, tmp, run_id):
     check_records(client, document, expected)
     text = check_logs(name)
     check('pbinstall' not in text, 'the logs contain no superuser installation link')
+    step('freeze, restart, and thaw the real container with the existing operator token')
+    token = superuser_token(base, env['VAULTCONTEXT_SUPERUSER_EMAIL'], env['VAULTCONTEXT_SUPERUSER_PASSWORD'])
+    status, _, current = http('GET', base + '/api/context/maintenance', token=token)
+    check(status == 200, 'maintenance state is available to the operator')
+    status, _, frozen = http('PUT', base + '/api/context/maintenance',
+                             {'readOnly': True, 'expectedGeneration': current['generation']}, token=token)
+    check(status == 200 and frozen['state'] == 'read_only', 'runtime freeze drains writes')
+    for identity in (token, client.token):
+        status, _, _ = http('POST', base + '/api/collections/users/records', {}, token=identity)
+        check(status == 503, 'ordinary and operator mutations are blocked')
+    check_records(client, document, expected)
+    marker = json.loads(docker('exec', name, 'cat', '/storage/pb_data/maintenance.json')[1])
+    check(marker == {'readOnly': True, 'generation': frozen['generation']}, 'private durable freeze marker matches')
+    stop(name)
+    docker('start', name)
+    base = wait_up(name)
+    client.base = base
+    status, _, current = http('GET', base + '/api/context/maintenance', token=token)
+    check(status == 200 and current['state'] == 'read_only' and current['generation'] == frozen['generation'],
+          'frozen container restart preserves state and the operator token')
+    check_records(client, document, expected)
+    status, _, thawed = http('PUT', base + '/api/context/maintenance',
+                             {'readOnly': False, 'expectedGeneration': frozen['generation']}, token=token)
+    check(status == 200 and thawed['state'] == 'writable', 'operator explicitly thaws after container restart')
+    status, _, _ = http('POST', base + '/api/collections/users/records', {}, token=token)
+    check(status == 400, 'post-thaw writes reach ordinary validation')
     stop(name)
 
 

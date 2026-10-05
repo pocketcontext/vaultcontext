@@ -26,6 +26,8 @@ jobs:
         with:
           persist-credentials: false
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Frozen container startup
+        run: python3 tests/maintenance_entrypoint.py
       - name: Build the image
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
@@ -45,6 +47,13 @@ jobs:
         run: python3 -m pip install uv==0.12.21
       - name: Install locked client package for populated recovery verification
         run: uv sync --locked
+      - name: Runtime maintenance with the built server
+        run: |
+          container=$(docker create vaultcontext:ci)
+          trap 'docker rm -f "$container" >/dev/null' EXIT
+          docker cp "$container:/usr/local/bin/pocketcontext" "$RUNNER_TEMP/pocketcontext-maintenance"
+          chmod +x "$RUNNER_TEMP/pocketcontext-maintenance"
+          uv run --locked python tests/maintenance.py --binary "$RUNNER_TEMP/pocketcontext-maintenance"
       - name: Startup errors for missing configuration
         run: uv run --locked python docker/smoke.py config --image vaultcontext:ci
       - name: Smoke test

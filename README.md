@@ -177,3 +177,26 @@ uv run --locked python tests/cli_forward.py --binary /absolute/path/to/pinned/po
 ```
 
 These checks copy only the executable into a temporary directory. The launcher intentionally has no adjacent lockfile; keep the root development lockfile separate. A copied launcher must be replaced to adopt a later client revision.
+
+## Runtime maintenance freeze
+
+Superusers use `GET /api/context/maintenance` and generation-checked
+`PUT /api/context/maintenance` with `{"readOnly":true,"expectedGeneration":N}`
+to drain and block writes without restarting. Existing authorized reads and
+protected original downloads remain available. Authentication that creates or
+updates records is blocked; preserve an existing operator token for thaw.
+Set `readOnly:false` with the returned generation to resume writes explicitly.
+
+The private durable `pb_data/maintenance.json` marker survives restart. Frozen
+startup requires the existing database, skips restore and superuser/settings
+provisioning, verifies original files, and refuses pending migrations. Malformed
+markers fail closed. Backup/Litestream supervision remains active; this is a
+managed database/API freeze, not cross-host writer fencing or byte-immutable disk.
+Keep the marker with migration snapshots and fence the source before cutover.
+
+Validate with `python3 tests/maintenance_entrypoint.py` and
+`python3 tests/maintenance.py --binary /absolute/path/to/pinned/pocketcontext`.
+
+Replicated startup waits for a private Litestream IPC synchronization before
+serving, including fresh Google-only databases. A failed initial sync refuses
+traffic; clean early shutdown therefore uses an initialized replica.

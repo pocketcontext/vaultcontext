@@ -49,6 +49,8 @@ jobs:
       - name: Build pinned server
         working-directory: pocketcontext
         run: CGO_ENABLED=1 go build -tags sqlite_math_functions -o bin/pocketcontext ./cmd/pocketcontext
+      - name: Frozen container startup
+        run: python3 vaultcontext/tests/maintenance_entrypoint.py
       - name: Crypto, client, packaging and deployment unit checks
         run: |
           uv run --locked --project vaultcontext python -m unittest discover -s vaultcontext/tests -p 'test_*.py'
@@ -56,7 +58,7 @@ jobs:
           uv run --locked --project vaultcontext python vaultcontext/tests/oauth.py
       - name: Isolated application, identity, OAuth, portable skill and deployment checks
         run: |
-          for check in integration archive_migration auth oauth_integration realtime skill cli_forward deploy backup_integration limits; do
+          for check in maintenance integration archive_migration auth oauth_integration realtime skill cli_forward deploy backup_integration limits; do
             uv run --locked --project vaultcontext python "vaultcontext/tests/$check.py" --binary "$PWD/pocketcontext/bin/pocketcontext"
           done
       - name: Copied standalone launcher and memory session

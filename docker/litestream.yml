@@ -1,3 +1,8 @@
+# Private container-local IPC for startup replica initialization.
+socket:
+  enabled: true
+  path: /run/litestream.sock
+  permissions: 0600
 # Litestream 0.5.x configuration (single `replica:` key; 0.3.x used a `replicas:` list).
 # The entrypoint validates the variables and sets the optional ones before Litestream reads
 # this file. The credentials are not written here: Litestream reads LITESTREAM_ACCESS_KEY_ID

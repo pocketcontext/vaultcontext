@@ -2,6 +2,8 @@
 import os
 from pathlib import Path
 import subprocess
+import sys
+import shlex
 import tempfile
 import unittest
 
@@ -32,6 +34,7 @@ fi
             litestream.write_text('''#!/bin/sh
 printf 'litestream %s\\n' "$1" >> "$TEST_CALLS"
 if [ "$1" = restore ]; then exit "$RESTORE_STATUS"; fi
+if [ "$1" = sync ]; then exit 0; fi
 while [ "$#" -gt 0 ]; do
   if [ "$1" = -exec ]; then shift; exec sh -c "$1"; fi
   shift
@@ -40,7 +43,7 @@ exit 96
 ''')
             litestream.chmod(0o755)
             python = bins / 'python3'
-            python.write_text("#!/bin/sh\nprintf 'backup %s\\n' \"$2\" >> \"$TEST_CALLS\"\nif [ \"$2\" = supervise ]; then shift 2; exec \"$@\"; fi\n")
+            python.write_text("#!/bin/sh\nif [ \"$1\" = - ]; then exec " + shlex.quote(sys.executable) + " \"$@\"; fi\nprintf 'backup %s\\n' \"$2\" >> \"$TEST_CALLS\"\nif [ \"$2\" = supervise ]; then shift 2; exec \"$@\"; fi\n")
             python.chmod(0o755)
             entrypoint = root / 'entrypoint.sh'
             script = (ROOT / 'docker/entrypoint.sh').read_text()
@@ -78,7 +81,7 @@ exit 96
             'VAULTCONTEXT_SUPERUSER_EMAIL': 'test@example.test', 'VAULTCONTEXT_SUPERUSER_PASSWORD': 'private-password',
         })
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(calls, ['backup restore', 'litestream restore', 'backup verify', 'superuser', 'backup supervise', 'litestream replicate', 'serve'])
+        self.assertEqual(calls, ['backup restore', 'litestream restore', 'backup verify', 'superuser', 'migrate', 'backup supervise', 'litestream replicate', 'litestream sync', 'serve'])
 
     def test_google_pair_required_before_restore(self):
         for values in ({'VAULTCONTEXT_GOOGLE_CLIENT_ID': 'test'}, {'VAULTCONTEXT_GOOGLE_CLIENT_SECRET': 'secret'}):
