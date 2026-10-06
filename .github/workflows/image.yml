@@ -166,3 +166,48 @@ jobs:
             $sources
       - name: Show what was published
         run: docker buildx imagetools inspect "$IMAGE:latest"
+
+  deploy:
+    if: vars.CONTEXT_DEPLOY_PAUSED != 'true' && vars.COLORS_PROFILE != ''
+    needs:
+      - manifest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions: {}
+    environment:
+      name: ${{ vars.COLORS_PROFILE }}
+    # Serialize rather than cancel: interrupting a deploy midway is worse than making the next one wait.
+    concurrency:
+      group: deploy-${{ vars.COLORS_PROFILE }}
+      cancel-in-progress: false
+    steps:
+      - name: Deploy via SSH
+        env:
+          # Only the key is a secret. The address and user are variables, so the logs stay readable.
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          SERVER_IP: ${{ vars.SERVER_IP }}
+          SERVER_USER: ${{ vars.SERVER_USER }}
+          SSH_KNOWN_HOSTS: ${{ vars.SSH_KNOWN_HOSTS }}
+        run: |
+          mkdir -p ~/.ssh
+          # shellcheck disable=SC2046
+          eval $(ssh-agent -s)
+          echo "$SSH_PRIVATE_KEY" | tr -d '\r' | ssh-add -
+
+          # Pinned by ONCE at provisioning time, not scanned here. Fail closed.
+          if [ -z "$SSH_KNOWN_HOSTS" ]; then
+            echo "SSH_KNOWN_HOSTS is unset; configure the once-pocketcontext-v2 deployment environment" >&2
+            exit 1
+          fi
+          printf '%s\n' "$SSH_KNOWN_HOSTS" >> ~/.ssh/known_hosts
+
+          # A ping, not a command. Connect to SERVER_IP: the pinned host key is keyed on the address.
+          # The exit status is the deploy result for every host this key owns.
+          ssh -T -o StrictHostKeyChecking=yes "$SERVER_USER@$SERVER_IP" < /dev/null
+      - name: Verify public health
+        run: |
+          # /up executes a database query, so HTTP 200 also checks database availability.
+          curl --fail --silent --show-error \
+            --connect-timeout 10 --max-time 20 \
+            --retry 12 --retry-delay 5 --retry-max-time 180 --retry-all-errors \
+            https://vault.pocketcontext.com/up

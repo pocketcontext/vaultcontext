@@ -163,7 +163,7 @@ uv run --locked python tests/deploy_workflow.py
 
 Container configuration, smoke and populated complete-restore checks gate image publication; see deployment documentation for commands. Real Google browser/provider configuration and independent security review are separate from synthetic tests. Actual verification results and remaining limitations are recorded in `docs/validation.md`.
 
-VaultContext is deployed at `https://vault.pocketcontext.com`; see [release evidence](DEPLOYMENT.md). The repository and container image are public. Image publication is enabled, but automatic production deployment is not.
+VaultContext is deployed at `https://vault.pocketcontext.com`; see [release evidence](DEPLOYMENT.md). The repository and container image are public. The image workflow supports automatic production deployment after successful publication through the `once-pocketcontext-v2` restricted dispatcher. `CONTEXT_DEPLOY_PAUSED=true` pauses deployment without pausing CI or publication; see [deployment controls](docs/deployment.md#single-writer-updates-and-rollback).
 
 Identity, OAuth and deployment patterns are adapted from RaiseContext; filtered access and complete-original backup patterns follow AccountContext. Their domain schemas and readers are not copied.
 

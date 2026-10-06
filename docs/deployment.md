@@ -67,11 +67,32 @@ A writable recovery can recreate auxiliary state, not its prior history.
 ## Single-writer updates and rollback
 
 Use the maintained `once-pocketcontext-v2` stop-first policy and its restricted
-manual deployment path. Preserve the volume and exact configuration, fence the
+shared deployment dispatcher. Preserve the volume and exact configuration, fence the
 old publisher and writer, and keep ONCE automatic updates disabled. Host-local
 locks and maintenance state do not provide cross-host fencing. Never run a recovery
-copy against the active replica. Do not enable an automatic deployment job as part
-of a runtime release.
+copy against the active replica.
+
+The image workflow deploys only after the tested multi-architecture manifest is
+published. Set `COLORS_PROFILE=once-pocketcontext-v2` to select the GitHub environment
+holding the app-specific `SSH_PRIVATE_KEY` secret and `SERVER_IP`, `SERVER_USER`,
+`SSH_KNOWN_HOSTS` variables. The job requires pinned SSH host keys and sends no remote
+command: the restricted key invokes the maintained dispatcher for VaultContext only.
+Preserve its stop-first locking, one-writer checks, graceful shutdown and guarded
+rollback. Keep ONCE's own automatic updates disabled; GitHub handles deployment.
+Deployment jobs serialize without cancelling a running update, then check
+`https://vault.pocketcontext.com/up`. That health check verifies availability, not
+the deployed image revision; verify the running revision separately when needed.
+
+Set `CONTEXT_DEPLOY_PAUSED=true` to pause deployment while CI and publication continue.
+Keep the profile intact. Resume only when deployment is intended by setting it to
+`false` or removing it. The guard affects newly evaluated jobs; finish or cancel an
+already running deployment before treating the host as fenced. The existing
+`VAULTCONTEXT_PUBLISH=true` publication gate remains required.
+
+The app-local `deploy/install.py` and `deploy/deploy-vaultcontext.py` are retired
+fail-closed stubs. Do not use them to overwrite once-v2 SSH commands, sudo rules or
+shared dispatcher policy. Provision or change those through the maintained private
+`once-pocketcontext-v2` scaffold; keep its app key scoped to VaultContext.
 
 For code rollback, first record the actual previous immutable image and verify its
 schema/startup compatibility; stop the new process and run the previous S3-capable
@@ -114,6 +135,7 @@ To reuse a trusted local MinIO fixture, `VAULTCONTEXT_TEST_MINIO_IMAGE` selects 
 full `sha256:` image ID; otherwise tests build the pinned fixture.
 
 Image CI gates publication on application and container checks; publication still
-requires `VAULTCONTEXT_PUBLISH=true`. There is no automatic deployment job. New
+requires `VAULTCONTEXT_PUBLISH=true`. The guarded deployment job follows successful
+publication. New
 release evidence belongs in `docs/validation.md`; historical results do not prove
 this changed runtime or a live deployment.
