@@ -52,7 +52,7 @@ jobs:
       - name: Primary object storage configuration
         run: python3 vaultcontext/tests/object_storage_settings.py
       - name: Frozen container startup
-        run: python3 vaultcontext/tests/maintenance_entrypoint.py
+        run: python3 vaultcontext/tests/entrypoint.py
       - name: Crypto, client, packaging and deployment unit checks
         run: |
           uv run --locked --project vaultcontext python -m unittest discover -s vaultcontext/tests -p 'test_*.py'

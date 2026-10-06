@@ -29,7 +29,7 @@ def main():
     parser.add_argument('--binary', required=True)
     args = parser.parse_args()
     binary = str(Path(args.binary).resolve())
-    backup = load('complete_backup', ROOT / 'docker/backup.py')
+    backup = load('complete_backup', ROOT / 'tests/legacy_backup.py')
     smoke = load('container_smoke', ROOT / 'docker/smoke.py')
     started = time.monotonic()
     with tempfile.TemporaryDirectory(prefix='vaultcontext-recovery-') as tmp, server(binary) as request, patch.dict(os.environ):

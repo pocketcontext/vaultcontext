@@ -11,7 +11,5 @@
 !pb_public/analytics-frame.html
 !pb_public/analytics-frame.js
 !pb_public/og-card.png
-!docker/entrypoint.sh
+!docker/entrypoint.py
 !docker/litestream.yml
-
-!docker/backup.py

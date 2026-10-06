@@ -18,16 +18,18 @@ s = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(s)
 
 
-def main():
+def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--image', required=True)
     parser.add_argument('--minio-image', default=s.MINIO_IMAGE)
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     run_id = secrets.token_hex(5)
     network = APP + '-primary-' + run_id
     minio = network + '-minio'
     failed = True
     try:
+        if not __import__('os').environ.get('VAULTCONTEXT_TEST_MINIO_IMAGE'):
+            s.docker('build', '--file', str(ROOT/'docker/minio.Dockerfile'), '--tag', args.minio_image, str(ROOT/'docker'), timeout=1200)
         s.docker('network', 'create', network); s.networks.append(network)
         root_key = s.secret('root' + run_id)
         root_secret = s.secret(secrets.token_hex(24))
@@ -72,19 +74,37 @@ def main():
             s.check(status != 0 and 'initial replica synchronization failed' in output and
                     'starting server on port 80' not in output, 'missing IPC refuses HTTP startup')
             first, second = network+'-a', network+'-b'
-            s.run_app(args.image,first,first,env,network); base=s.wait_up(first)
+            def rejected_start(volume, settings, message, mode=None):
+                s.docker('volume','create',volume); s.volumes.append(volume)
+                command=['run','--rm','--network',network,'-v',volume+':/storage']
+                for key in settings: command.extend(['-e',key])
+                status,output=s.docker(*command,args.image,*([mode] if mode else []),env=settings,ok=False,timeout=180)
+                s.check(status != 0 and 'starting server on port 80' not in output,message)
+                s.check_logs('rejected startup',output)
+                s.docker('run','--rm','-v',volume+':/storage','--entrypoint','sh',args.image,
+                         '-c','test ! -e /storage/pb_data/data.db')
+                s.check(True,'failed recovery installs no database')
+            rejected_start(network+'-empty',env,'ordinary startup refuses empty replica')
+            s.initialize(args.image,first,env,network)
+            s.run_app(args.image,first,first,env,network); s.volumes.remove(first); base=s.wait_up(first)
             admin=s.superuser_token(base,env[PREFIX+'_SUPERUSER_EMAIL'],env[PREFIX+'_SUPERUSER_PASSWORD'])
             password=s.secret(secrets.token_urlsafe(24))
             user=s.provision_user(base,admin,'recovery@example.test',password)
             s.provision_user(base,admin,'foreign@example.test',password)
             client=s.Client(base,'recovery@example.test',password,tmp/'home-a')
-            doc,meta=s.write_record(client,user); s.check_records(client,doc,meta)
+            doc,meta=s.write_record(client,user)
+            s.action(client,'archive',{'vault':meta['vault'],'document':doc,'expected_revision':1,'expected_archive_revision':0})
+            meta['archived']=True
+            s.check_records(client,doc,meta)
             s.check('initial replica synchronization complete' in s.logs(first), 'initial remote sync precedes HTTP')
             s.check(s.docker('exec',first,'sh','-c','find /storage/pb_data/storage -type f 2>/dev/null || true')[1].strip()=='',
                     'all uploaded originals are remote')
             collection,field = {'accountcontext':('documents','original'), 'chatcontext':('attachments','original'),
                                 'vaultcontext':('version_chunks','ciphertext')}[APP]
             record=client.sql('SELECT id,'+field+',sha256 FROM '+collection+' LIMIT 1')[0]
+            status,_,schema=s.http('GET',base+'/api/collections/'+collection,token=admin)
+            s.check(status==200,'synthetic file collection available to operator')
+            object_key=schema['id']+'/'+record[0]+'/'+record[1]
             def check_foreign(origin):
                 path=origin+'/api/files/'+collection+'/'+record[0]+'/'+record[1]+'?token='
                 status,_,token=s.http('POST',origin+'/api/files/token',{},token=client.token)
@@ -119,6 +139,7 @@ def main():
             s.check(s.logs(first).count('initial replica synchronization complete')>=2,'frozen startup synchronizes replica')
             s.stop(first)
             s.check('uploaded verified database and originals' not in s.logs(first),'legacy archive supervisor absent')
+            rejected_start(network+'-existing-replica',env,'init refuses existing replica',mode='init')
             s.docker('volume','create',second); s.volumes.append(second)
             restore=['run','--rm','--network',network,'-v',second+':/storage']
             for key in env: restore.extend(['-e',key])
@@ -151,13 +172,18 @@ def main():
             s.containers.remove(second); s.volumes.remove(second)
             # Ordinary disaster recovery exercises the real entrypoint from a
             # completely empty volume: no manual main/auxiliary DB or marker copy.
+            s.docker('exec','-e','MC_HOST_test',minio,'mc','mv','test/files/'+object_key,'test/files/held-synthetic-original',env=mc)
+            rejected_start(network+'-missing',env,'missing ciphertext refuses staged recovery')
+            s.docker('exec','-e','MC_HOST_test',minio,'mc','cp','/etc/hostname','test/files/'+object_key,env=mc)
+            rejected_start(network+'-corrupt',env,'corrupt ciphertext refuses staged recovery')
+            s.docker('exec','-e','MC_HOST_test',minio,'mc','mv','test/files/held-synthetic-original','test/files/'+object_key,env=mc)
             third=network+'-automatic'
             s.run_app(args.image,third,third,env,network); base=s.wait_up(third)
             recovered=s.Client(base,'recovery@example.test',password,tmp/'home-c')
             s.check_records(recovered,doc,meta); s.check_records(recovered,late_doc,late_meta)
             check_foreign(base)
             text=s.logs(third)
-            s.check('database present after the restore step' in text and
+            s.check('database restored and remote originals verified' in text and
                     'restored verified database and originals' not in text,
                     'empty-volume entrypoint restores main SQLite only through Litestream')
             s.check('initial replica synchronization complete' in text,'automatic restore synchronizes before serving')
@@ -169,7 +195,8 @@ def main():
             fresh=network+'-google-only'
             bootstrap={key:value for key,value in env.items() if not key.startswith(PREFIX+'_SUPERUSER_')}
             bootstrap['LITESTREAM_PATH']='google-only/data'
-            s.run_app(args.image,fresh,fresh,bootstrap,network); s.wait_up(fresh)
+            s.initialize(args.image,fresh,bootstrap,network)
+            s.run_app(args.image,fresh,fresh,bootstrap,network); s.volumes.remove(fresh); s.wait_up(fresh)
             s.check('initial replica synchronization complete' in s.logs(fresh),'fresh Google-only database synchronizes before HTTP')
             s.stop(fresh)
         failed=False

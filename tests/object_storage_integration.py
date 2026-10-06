@@ -36,7 +36,7 @@ def main():
         aws_access_key_id=os.environ['VAULTCONTEXT_S3_ACCESS_KEY_ID'],
         aws_secret_access_key=os.environ['VAULTCONTEXT_S3_SECRET_ACCESS_KEY'],
         config=Config(s3={'addressing_style': 'path'}))
-    backup = load('remote_backup', ROOT / 'docker/backup.py')
+    backup = load('remote_backup', ROOT / 'docker/entrypoint.py')
     smoke = load('remote_smoke', ROOT / 'docker/smoke.py')
     with tempfile.TemporaryDirectory(prefix='vaultcontext-s3-test-') as tmp, ExitStack() as stack:
         request = stack.enter_context(server(args.binary))

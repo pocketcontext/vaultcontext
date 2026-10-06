@@ -133,7 +133,7 @@ Restores require explicit paths and existing parent directories, reject symlinks
 
 Metadata reads use authenticated requester-filtered SQL. Writes use the standard REST `vault_actions` collection and transactional hooks; action payloads are not persisted. Encrypted file chunks use protected file storage and authenticated downloads so file bytes do not exhaust SQL snapshot budgets. Independent rules cover file downloads, REST and realtime. There is no implicit operator decryption access.
 
-Complete deployment backups cover the database and every referenced ciphertext file with checksums. A database-only backup is insufficient. Startup must refuse missing/corrupt originals. An ordinary data export instead decrypts accessible file versions in memory and encrypts an archive under a separately entered archive passphrase; it includes no identity private keys or live vault-key envelopes. Exports restore without the server, but cannot recover a forgotten live-vault passphrase. Export plaintext is capped at 64 MiB including base64 overhead and metadata. New exports use format v2 to retain document archive status and require an updated CLI to inspect or restore. The updated CLI also reads existing v1 exports.
+Complete recovery requires the database replica and every referenced ciphertext object, verified against its stored checksum. A database-only backup is insufficient. Startup must refuse missing/corrupt originals. An ordinary data export instead decrypts accessible file versions in memory and encrypts an archive under a separately entered archive passphrase; it includes no identity private keys or live vault-key envelopes. Exports restore without the server, but cannot recover a forgotten live-vault passphrase. Export plaintext is capped at 64 MiB including base64 overhead and metadata. New exports use format v2 to retain document archive status and require an updated CLI to inspect or restore. The updated CLI also reads existing v1 exports.
 
 ## Validation
 
@@ -190,31 +190,34 @@ Set `readOnly:false` with the returned generation to resume writes explicitly.
 The private durable `pb_data/maintenance.json` marker survives restart. Frozen
 startup requires the existing database, skips restore and superuser/settings
 provisioning, verifies original files, and refuses pending migrations. Malformed
-markers fail closed. Backup/Litestream supervision remains active; this is a
+markers fail closed. Litestream supervision remains active; this is a
 managed database/API freeze, not cross-host writer fencing or byte-immutable disk.
 Keep the marker with migration snapshots and fence the source before cutover.
 
-Validate with `python3 tests/maintenance_entrypoint.py` and
+Validate with `python3 tests/entrypoint.py` and
 `python3 tests/maintenance.py --binary /absolute/path/to/pinned/pocketcontext`.
 
 Replicated startup waits for a private Litestream IPC synchronization before
 serving, including fresh Google-only databases. A failed initial sync refuses
 traffic; clean early shutdown therefore uses an initialized replica.
 
-## Primary object storage (opt-in)
+## Container startup and primary object storage
 
 Set all of `VAULTCONTEXT_S3_BUCKET`, `VAULTCONTEXT_S3_ENDPOINT`,
 `VAULTCONTEXT_S3_REGION`, `VAULTCONTEXT_S3_ACCESS_KEY_ID`, and
 `VAULTCONTEXT_S3_SECRET_ACCESS_KEY` to use a dedicated private S3/R2 bucket
 for PocketBase uploads. `VAULTCONTEXT_S3_FORCE_PATH_STYLE` defaults to `true`.
-Partial configuration and shared primary/replica buckets or access keys fail closed. This is primary file storage, separate from
+The container requires complete S3 and Litestream configuration; `LITESTREAM_DISABLED` is rejected. Partial configuration and shared primary/replica buckets or access keys fail closed. This is primary file storage, separate from
 the `LITESTREAM_*` SQLite replica bucket and prefix. Protected downloads still
 require independent application authorization. Vault ciphertext stays encrypted.
 
-In this mode startup restores SQLite through Litestream and verifies every
-referenced immutable original by streaming its remote SHA-256; it does not
-restore or periodically create legacy database-and-file archives. Local mode
-retains complete archives. Keep object retention independent of replica retention;
+Default startup preserves an existing database or strictly restores SQLite through
+Litestream into a temporary directory. It verifies database integrity and streams
+every referenced remote file before installing the restored database. Ciphertext
+chunks must match their stored SHA-256; other file fields, including avatars, are
+checked for readability and complete responses because they have no stored hash.
+No legacy archive scheduler or restore remains in the container. Direct pinned-server
+development may still use local synthetic storage. Keep object retention independent of replica retention;
 SQLite replication alone cannot recover deleted objects. Unexpected crashes can
 lose database writes since Litestream is asynchronous.
 
@@ -233,8 +236,8 @@ Container and Litestream fresh-volume recovery validation remain release gates.
 ### Container primary-storage recovery gate
 
 After building the image, run the existing `docker/smoke.py config`, `smoke`,
-and `restore` checks, then `python3 docker/object_storage_smoke.py --image IMAGE`
-(use the locked Python environment for VaultContext). The restore check builds
+and `restore` checks (use the locked Python environment). `restore` runs
+`docker/object_storage_smoke.py`; either command executes the same populated gate. The restore check builds
 its pinned local MinIO fixture. The primary-storage check uses separate bucket-scoped
 synthetic keys, uploads real protected files, rejects unrelated-user downloads,
 and tests frozen restart plus a new destination volume. It compares every main
@@ -250,3 +253,15 @@ to create a missing auxiliary database. The main `data.db` still comes from
 Litestream. A writable disaster recovery can recreate auxiliary state, but must
 not be substituted for a deliberately frozen migration. Keep source fencing and
 this bundle explicit in migration tooling.
+
+A genuinely new installation requires one explicit container `init` invocation with
+its intended private configuration and volume, followed by ordinary startup on that
+same volume. `init` refuses existing local state or a populated replica; default
+startup refuses a missing replica. Never initialize an existing deployment or a
+recovery volume. Interrupted initialization leaves `initialization.pending` and
+blocks startup; preserve it for investigation. See [deployment commands](docs/deployment.md).
+
+The container uses one Python entrypoint, tini and Litestream; Python execs the
+supervisor and its server child after preparation. Historical archive recovery
+uses the previous pinned image in an isolated environment. Test-only legacy archive
+helpers remain under `tests/` and are excluded from the image. No old archives are deleted.

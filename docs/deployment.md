@@ -1,118 +1,119 @@
-# Deployment preparation
+# Container deployment and recovery
 
-VaultContext is deployed at `https://vault.pocketcontext.com`, with public image
-`ghcr.io/pocketcontext/vaultcontext`. See [release evidence](../DEPLOYMENT.md) for
-the deployed digest, provider checks and remaining browser verification. The prepared container serves port 80 and `/up`,
-uses `/storage/pb_data`, and runs one SQLite/Litestream writer.
+The container runs one PocketContext/SQLite writer and Litestream publisher, serves
+port 80 and `/up`, and stores SQLite under `/storage/pb_data`. Primary files are
+private S3 objects. `docker/entrypoint.py` is the sole startup program; tini and
+Litestream own normal signal forwarding and shutdown. No archive scheduler runs.
+The server remains pinned by `POCKETCONTEXT_VERSION`; no schema or ciphertext-format
+change accompanies this runtime refactor. The public onboarding assets remain included.
 
-The image pins the PocketContext commit, Go and Debian base image digests, and
-Litestream release checksums. It serves the public onboarding page from `pb_public/`; vault operations stay in
-the CLI. It contains no CLI private-key cache. Ciphertext chunks are immutable protected files. Complete backups include a
-consistent database snapshot plus every referenced ciphertext file, with checksums.
-A database-only replica cannot restore file contents.
-The user's unlock passphrase is still required. There is no recovery key.
+## Configuration
 
-## Required separate resources
+Require all of `VAULTCONTEXT_S3_BUCKET`, `VAULTCONTEXT_S3_ENDPOINT`,
+`VAULTCONTEXT_S3_REGION`, `VAULTCONTEXT_S3_ACCESS_KEY_ID` and
+`VAULTCONTEXT_S3_SECRET_ACCESS_KEY`. `VAULTCONTEXT_S3_FORCE_PATH_STYLE` defaults to
+`true` and accepts only `true` or `false`. Use private primary-file storage with
+credentials scoped to that bucket. Configure separate `LITESTREAM_BUCKET`,
+`LITESTREAM_PATH`, `LITESTREAM_ACCESS_KEY_ID` and `LITESTREAM_SECRET_ACCESS_KEY`.
+The file bucket and access key must differ from the replica bucket and access key.
+Set `LITESTREAM_REGION=auto` and the verified S3 endpoint for R2. The default sync
+interval is 10 seconds. `LITESTREAM_DISABLED` is unsupported.
 
-During separately authorized provisioning, create a dedicated private R2 bucket
-and replica prefix `once-pocketcontext/vaultcontext`, a Google OAuth Web client,
-and the application hostname. Never reuse a sibling application's bucket, client
-or credentials. For Google, use an Internal audience, `openid email profile`, and
-exact redirects `http://127.0.0.1:8765/callback` and
-`https://vault.pocketcontext.com/api/oauth2-redirect`. Real Google browser login
-must be verified separately from synthetic provider tests.
+Keep paired `VAULTCONTEXT_GOOGLE_CLIENT_ID`/`VAULTCONTEXT_GOOGLE_CLIENT_SECRET`,
+`VAULTCONTEXT_GOOGLE_WORKSPACE_DOMAIN`, optional paired operator email/password,
+`BASE_URL`, trusted proxy and SMTP configuration unchanged for an existing deployment.
+Secrets remain in the deployment scaffold's ignored private configuration. The
+server child retains primary-storage credentials but drops replica/AWS credentials
+and the bootstrap password. Errors suppress subprocess and SDK details.
 
-Configure paired `VAULTCONTEXT_GOOGLE_CLIENT_ID` and
-`VAULTCONTEXT_GOOGLE_CLIENT_SECRET`, plus `VAULTCONTEXT_GOOGLE_WORKSPACE_DOMAIN`.
-Optional initial maintenance provisioning uses paired
-`VAULTCONTEXT_SUPERUSER_EMAIL` and `VAULTCONTEXT_SUPERUSER_PASSWORD`.
-Use `VAULTCONTEXT_TRUSTED_PROXY_HEADER=X-Forwarded-For` on the existing ONCE path.
-ONCE provides `BASE_URL` and SMTP settings. The image enables rate limits.
+The WikiContext migration record dated 6 October 2026 records production on the
+`once-pocketcontext-v2` scaffold with `vaultcontext-files` and `vaultcontext-replica`,
+prefix `once-v2/vaultcontext-production`, separate bucket-scoped keys and manual
+stop-first deployment. This refactor does not attest the current live configuration.
+Older `DEPLOYMENT.md` entries remain historical evidence.
 
-Replication requires `LITESTREAM_BUCKET`, `LITESTREAM_PATH`,
-`LITESTREAM_ACCESS_KEY_ID`, and `LITESTREAM_SECRET_ACCESS_KEY`. Set
-`LITESTREAM_REGION=auto` and the bucket's verified `LITESTREAM_ENDPOINT` for R2.
-The default database sync interval is 10 seconds. Complete file snapshots run
-after startup, every `VAULTCONTEXT_BACKUP_INTERVAL` seconds (default 3600, maximum
-3600), and after graceful shutdown. The interval begins after upload completes;
-the recovery point is the latest successfully uploaded complete snapshot, even
-if a newer database-only replica exists. This is not a zero-data-loss guarantee. `LITESTREAM_DISABLED=true` is for disposable tests only.
-Keep all app-specific credentials in the deployment scaffold's ignored
-`.envrc.private` under `COLORS_PAR_APP_VAULTCONTEXT_*`.
+## Start, initialize and recover
 
-The `once-pocketcontext` scaffold contains one VaultContext entry (one CPU,
-512 MiB RAM), all 13 environment mappings and populated private settings. The
-bucket is `vaultcontext-backup`, using the existing EU R2 S3 endpoint. Operator
-credentials reference the existing shared DealContext settings at the user's
-request. The private file remains ignored and mode 0600. Build/dry-run passed;
-targeted DNS, initial deployment and a restricted-key update were then verified.
-Sibling configuration and compute guards are unchanged.
+Ordinary startup preserves an existing database. When absent, it strictly restores
+Litestream into a temporary sibling directory, checks SQLite and every referenced
+remote file, fsyncs the database, then installs it and fsyncs the directory. Missing
+replicas and partial local state fail closed. A failed verification installs no
+database. Ciphertext is streamed and compared with stored SHA-256; avatars and any
+other file fields are streamed for readability/completeness, without a hash guarantee.
 
-## Validation and publication gates
+For a genuinely new installation only, provide a private environment file and a
+new volume (these example paths/names are placeholders):
+
+```sh
+docker run --rm --env-file /absolute/private/vaultcontext.env \
+  -v new-vaultcontext:/storage ghcr.io/pocketcontext/vaultcontext:REVIEWED_TAG init
+docker run -d --env-file /absolute/private/vaultcontext.env \
+  -v new-vaultcontext:/storage -p 127.0.0.1:8090:80 ghcr.io/pocketcontext/vaultcontext:REVIEWED_TAG
+```
+
+`init` requires an empty directory and no existing replica, applies migrations and
+optional operator provisioning, verifies objects, and exits. Normal startup then
+establishes replication before HTTP. Never run `init` for upgrades, production
+restarts or recovery. Interrupted initialization leaves a durable
+`initialization.pending`; preserve the failed volume rather than deleting the marker.
+
+Frozen startup requires existing main and auxiliary databases and the private
+`maintenance.json` marker. It skips restore and provisioning, checks stored S3
+settings against configuration and verifies remote files. Pending migrations remain
+rejected by the pinned server. Litestream does not recover `maintenance.json` or
+`auxiliary.db`: carry consistent snapshots separately for a frozen host migration.
+A writable recovery can recreate auxiliary state, not its prior history.
+
+## Single-writer updates and rollback
+
+Use the maintained `once-pocketcontext-v2` stop-first policy and its restricted
+manual deployment path. Preserve the volume and exact configuration, fence the
+old publisher and writer, and keep ONCE automatic updates disabled. Host-local
+locks and maintenance state do not provide cross-host fencing. Never run a recovery
+copy against the active replica. Do not enable an automatic deployment job as part
+of a runtime release.
+
+For code rollback, first record the actual previous immutable image and verify its
+schema/startup compatibility; stop the new process and run the previous S3-capable
+image on the current volume. Do not restore an older database merely to roll back
+code. Historical pre-S3 archives remain recoverable through the old archive-capable
+image, for example the retained migration image
+`ghcr.io/pocketcontext/vaultcontext@sha256:e408d0149ef3dc5f1b17fc7116098a19a61c9498097aeb2969f7d787967d7909`,
+in an isolated environment with reviewed configuration. This refactor deletes no
+archives, remote objects, volumes or replica history.
+
+Litestream replication is asynchronous: clean exit alone does not prove final
+remote durability. Verify synchronization and an independent restore. File retention
+is independent of replica retention; a database cannot restore deleted objects.
+Full ciphertext verification can increase readiness time. No recovery key exists;
+the user's unlock passphrase is still required to decrypt files.
+
+## Validation and release gates
 
 ```sh
 uv sync --locked
+python3 tests/entrypoint.py
+python3 tests/object_storage_settings.py
+uv run --locked python -m unittest discover -s tests -p 'test_*.py'
 uv run --locked python tests/deploy_workflow.py
-uv run --locked python -m unittest discover -s tests -p test_backup.py
-uv run --locked python -m unittest discover -s tests -p test_packaging.py
-uv run --locked python tests/deploy.py --binary /absolute/path/to/pinned/pocketcontext
-uv run --locked python tests/backup_integration.py --binary /absolute/path/to/pinned/pocketcontext
+# Run all pinned-server checks listed in README.md.
 docker build -t vaultcontext:check .
 uv run --locked python docker/smoke.py config --image vaultcontext:check
 uv run --locked python docker/smoke.py smoke --image vaultcontext:check
 uv run --locked python docker/smoke.py restore --image vaultcontext:check
 ```
 
-The populated restore drill uses isolated volumes and a pinned-source MinIO
-fixture. To reuse an already built trusted local fixture, set
-`VAULTCONTEXT_TEST_MINIO_IMAGE` to its full `sha256:` image ID; the runner verifies
-that exact local digest. Without it, the runner builds the pinned fixture. It writes real encrypted multi-chunk binary files and encrypted identity
-keys, destroys the original volume, restores into an empty volume, logs in as the
-same ordinary user, decrypts and compares exact bytes. It also tests a late write
-replicated during graceful shutdown. An unreachable replica must prevent startup.
-No drill may use production credentials or the live replica.
+The smoke and populated recovery checks use synthetic MinIO with separate scoped
+file/replica identities. `restore` invokes `docker/object_storage_smoke.py`, comparing
+all main database rows before destroying the stopped source volume, retaining a
+frozen snapshot, and exercising actual empty-volume recovery and late writes.
+Unit tests exercise failed staged restores, initialization interruption, signals,
+credential stripping, all-file inventory and corruption. Legacy archive helpers
+remain test-only under `tests/legacy_backup.py` and are excluded from the image.
+To reuse a trusted local MinIO fixture, `VAULTCONTEXT_TEST_MINIO_IMAGE` selects its
+full `sha256:` image ID; otherwise tests build the pinned fixture.
 
-Image CI gates publication on application tests and container configuration,
-smoke and populated restore checks. Publication additionally requires repository
-variable `VAULTCONTEXT_PUBLISH=true`, now configured for the repository. The workflow
-contains no deployment job. The current image is public; anonymous manifest and complete layer pull access
-were verified on the deployment host.
-
-## Single-writer updates
-
-`deploy/deploy-vaultcontext.py` targets only the proposed hostname and image. It
-accepts no arguments, acquires `/run/lock/deploy-vaultcontext.lock`, requires one
-matching container, pulls the image, gracefully stops the old writer, rejects an
-unclean exit, and updates ONCE with automatic updates disabled. Recovery starts
-the old container only if it remains the sole matching container. Never use ONCE
-rolling or automatic updates for this application.
-
-After an authorized first deployment, install the root-owned wrapper using
-`deploy/install.py` from a trusted checkout. It requires a dedicated existing
-application deployment key and preserves unrelated keys. Verify restricted SSH
-access, no-argument sudo permission, known host keys, and the wrapper before
-adding any CI deployment integration. Environment changes use the same lock and
-graceful-stop discipline; do not run full scaffold convergence for routine app
-changes.
-
-## Recovery and outstanding verification
-
-Existing databases remain authoritative and referenced ciphertext is verified
-before serving. A missing database first restores the latest complete snapshot.
-Only when no complete snapshot exists does Litestream attempt database restore;
-startup then refuses any missing or corrupt ciphertext. An empty replica permits
-initialization; inaccessible or damaged replicas fail closed. Tini and Litestream forward shutdown and complete a
-final database sync and complete snapshot. Backups contain sensitive auth settings and ciphertext even though
-file plaintext is encrypted, so the replica remains private.
-
-Stop every production writer before rollback. A prior image is safe only with a
-compatible schema; otherwise restore a selected verified backup under a deliberate
-replica strategy. Never launch a restored copy against the live replica while
-production is running. Measure actual recovery time and backup age in an isolated
-drill before release. Retention configuration is an operator decision, not implied
-by version retention inside the vault.
-
-Local ARM64 container config/smoke/populated-restore checks passed; see [validation evidence](validation.md).
-Live R2 access/initial snapshot restore, DNS/TLS, public registry access and one
-writer with automatic updates off passed; see the release record. Real Google
-browser login and independent security review remain outstanding.
+Image CI gates publication on application and container checks; publication still
+requires `VAULTCONTEXT_PUBLISH=true`. There is no automatic deployment job. New
+release evidence belongs in `docs/validation.md`; historical results do not prove
+this changed runtime or a live deployment.

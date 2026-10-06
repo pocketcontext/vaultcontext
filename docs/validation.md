@@ -405,3 +405,36 @@ The standalone launcher pins published client
 `9eea4bad1e00c03435dd439da688d7fc30b68eac`. Both copied-launcher release suites
 (`skill.py` and `cli_forward.py`) passed against that remote package from unrelated
 temporary directories, including the terminal-started worker's rate-limit regression.
+
+
+## Strict container startup and recovery — 6 October 2026
+
+The production image now uses one Python entrypoint with mandatory S3/Litestream,
+explicit fresh initialization and staged recovery. No schema or server pin changed.
+The shell entrypoint and archive supervisor are removed from the image; historical
+archive fixtures live only under `tests/legacy_backup.py`.
+
+Local validation passed against server `976ddf71a4734530adefe4a56633658a0894b449`
+(confirmed in binary build metadata, clean source revision):
+
+- 42 startup tests covering configuration separation, failed staged restores,
+  interrupted initialization, signal forwarding, frozen auxiliary state, view aliases,
+  avatars/multiple file fields, transfer length and ciphertext checksums.
+- 103 client/crypto/legacy-backup/unit cases, with seven macOS-only cases skipped on Linux;
+  five object-storage settings and two recovery-equivalence checks.
+- Integration, archive migration, realtime, maximum-file limits, populated local
+  backup recovery, auth, OAuth integration/client, portable skill, terminal CLI,
+  deployment settings/workflow and runtime maintenance checks.
+- ARM64 image build and container configuration/smoke/populated S3 recovery using
+  isolated MinIO, plus direct-server S3 upload, protected-download, database-only
+  recovery and missing/corrupt-object integration.
+- Actual-image default startup refused an empty replica; `init` refused a populated
+  replica. Missing and corrupt ciphertext both prevented installation of `data.db`.
+  Frozen source/destination comparison, late writes, source-volume destruction,
+  ordinary empty-volume recovery and Google-only explicit initialization passed.
+
+OAuth integration hit a transient test-port collision during parallel validation
+and passed on retry. Existing historical archive tests remain for compatibility;
+they do not establish archive support in the new image. Native AMD64 execution,
+macOS-only checks, real R2 behavior and production deployment were not performed.
+No publication, deployment, cloud configuration or real application data changed.

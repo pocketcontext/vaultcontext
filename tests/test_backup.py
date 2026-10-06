@@ -10,7 +10,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-spec = importlib.util.spec_from_file_location('backup', Path(__file__).resolve().parents[1] / 'docker/backup.py')
+spec = importlib.util.spec_from_file_location('backup', Path(__file__).resolve().parents[1] / 'tests/legacy_backup.py')
 backup = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(backup)
 

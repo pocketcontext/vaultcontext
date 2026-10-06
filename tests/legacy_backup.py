@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-"""Complete immutable-ciphertext snapshots; never restore a DB without its originals.
+"""Historical archive regression helper, excluded from the production image.
+
+Complete immutable-ciphertext snapshots; never restore a DB without its originals.
 
 Online SQLite backup establishes the snapshot point. Version chunks are immutable and cannot
 be deleted, so copying exactly the snapshot's references afterwards is consistent. Each

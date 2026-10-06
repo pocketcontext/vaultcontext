@@ -12,7 +12,7 @@ from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 PREFIX = ROOT.name.upper() + '_S3_'
-spec = importlib.util.spec_from_file_location('backup', ROOT / 'docker/backup.py')
+spec = importlib.util.spec_from_file_location('backup', ROOT / 'docker/entrypoint.py')
 backup = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(backup)
 
@@ -27,7 +27,8 @@ class StorageTests(unittest.TestCase):
         self.payload = b'synthetic immutable original ciphertext'
         self.key = 'col/doc/synthetic.bin'
         with sqlite3.connect(self.data / 'data.db') as db:
-            db.executescript('CREATE TABLE _collections(id TEXT,name TEXT); INSERT INTO _collections VALUES("col","version_chunks"); CREATE TABLE version_chunks(id TEXT,ciphertext TEXT,sha256 TEXT); CREATE TABLE _params(id TEXT,value TEXT);')
+            db.executescript('CREATE TABLE _collections(id TEXT,name TEXT,type TEXT,fields TEXT); CREATE TABLE version_chunks(id TEXT,ciphertext TEXT,sha256 TEXT); CREATE TABLE _params(id TEXT,value TEXT);')
+            db.execute('INSERT INTO _collections VALUES(?,?,?,?)', ('col','version_chunks','base',json.dumps([{'name':'ciphertext','type':'file','maxSelect':1}])))
             db.execute('INSERT INTO version_chunks VALUES(?,?,?)', ('doc', 'synthetic.bin', backup.hashlib.sha256(self.payload).hexdigest()))
 
     def freeze(self):
@@ -37,6 +38,7 @@ class StorageTests(unittest.TestCase):
         with sqlite3.connect(self.data / 'data.db') as db:
             db.execute('INSERT INTO _params VALUES(?,?)', ('settings', json.dumps({'s3':settings})))
         (self.data / 'maintenance.json').write_text(json.dumps({'readOnly':True,'generation':1}))
+        (self.data / 'maintenance.json').chmod(0o600)
 
     def test_remote_hashes_without_local_files(self):
         objects = {self.key:self.payload}

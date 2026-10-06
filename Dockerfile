@@ -1,4 +1,4 @@
-# VaultContext image for Basecamp ONCE: HTTP on port 80, GET /up, all state under /storage.
+# VaultContext image for Basecamp ONCE: HTTP on port 80, GET /up, SQLite under /storage; primary files in private S3.
 # Build context: this repository. See .dockerignore for the files that enter it.
 #
 # Pinned inputs and how to refresh them:
@@ -8,8 +8,7 @@
 # - PocketContext: the commit in POCKETCONTEXT_VERSION; its Go modules are verified against go.sum.
 # - Litestream: version and SHA-256 of the release archives, from the release's checksums.txt
 #   (the same values as the asset digests of the GitHub release API).
-# Not pinned: the Debian packages ca-certificates and tini, which come from the stable archive
-# at build time so that certificate updates are included.
+# Debian packages are unpinned and refresh only when the cached APT layer is rebuilt.
 
 FROM golang:1.27.1-trixie@sha256:a4d1d139d0b0e7313de2fbe7cf4e27e3b934c164c5c58b33af44af2e9ba2fc4f AS build
 ARG TARGETARCH
@@ -62,8 +61,7 @@ RUN apt-get update \
 
 COPY --from=build /out/pocketcontext /out/litestream /usr/local/bin/
 COPY docker/litestream.yml /etc/litestream.yml
-COPY --chmod=0755 docker/entrypoint.sh /usr/local/bin/entrypoint.sh
-COPY docker/backup.py /usr/local/bin/vaultcontext-backup.py
+COPY --chmod=0755 docker/entrypoint.py /usr/local/bin/vaultcontext-entrypoint.py
 WORKDIR /app
 COPY POCKETCONTEXT_VERSION pocketcontext.json ./
 COPY pb_migrations/ ./pb_migrations/
@@ -75,7 +73,7 @@ COPY pb_public/ ./pb_public/
 ENV VAULTCONTEXT_RATE_LIMITS=true
 VOLUME /storage
 EXPOSE 80
-ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/entrypoint.sh"]
+ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/vaultcontext-entrypoint.py"]
 
 ARG REVISION=unknown
 LABEL org.opencontainers.image.title="VaultContext" \
