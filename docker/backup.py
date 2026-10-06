@@ -4,7 +4,7 @@
 Online SQLite backup establishes the snapshot point. Version chunks are immutable and cannot
 be deleted, so copying exactly the snapshot's references afterwards is consistent. Each
 snapshot has its own DB/file checksums. A latest pointer is published only after the archive
-upload succeeds. Nothing is automatically deleted. R2 credentials never reach the server.
+upload succeeds. Nothing is automatically deleted. Replica credentials never reach the server; primary-storage credentials do.
 """
 import argparse
 from contextlib import closing
@@ -55,11 +55,94 @@ def refs(data):
         return result
 
 
+def stored_storage_settings(data):
+    db = data / 'data.db'
+    if not db.exists():
+        return {}
+    with closing(sqlite3.connect(f'file:{db}?mode=ro', uri=True)) as conn:
+        if not conn.execute("SELECT 1 FROM sqlite_master WHERE name='_params'").fetchone():
+            return {}
+        row = conn.execute("SELECT value FROM _params WHERE id='settings'").fetchone()
+    if not row:
+        return {}
+    try:
+        settings = json.loads(row[0]).get('s3', {})
+        if not isinstance(settings, dict):
+            raise ValueError('invalid storage settings')
+        return settings
+    except (ValueError, AttributeError):
+        raise RuntimeError('cannot determine persisted storage mode') from None
+
+
+def stored_remote_storage(data):
+    return bool(stored_storage_settings(data).get('enabled'))
+
+
+def verify_frozen_storage(data):
+    """The frozen app cannot apply environment changes: verify its actual backend."""
+    marker = data / 'maintenance.json'
+    try:
+        state = json.loads(marker.read_text())
+    except FileNotFoundError:
+        return
+    except (ValueError, OSError):
+        raise RuntimeError('invalid maintenance state') from None
+    if not isinstance(state, dict) or type(state.get('readOnly')) is not bool:
+        raise RuntimeError('invalid maintenance state')
+    if not state['readOnly']:
+        return
+    fields = {'bucket': 'BUCKET', 'endpoint': 'ENDPOINT', 'region': 'REGION',
+              'accessKey': 'ACCESS_KEY_ID', 'secret': 'SECRET_ACCESS_KEY'}
+    desired = {field: os.environ.get('VAULTCONTEXT_S3_' + name, '').strip()
+               for field, name in fields.items()}
+    current = stored_storage_settings(data)
+    remote = any(desired.values())
+    if not remote and not current.get('enabled'):
+        return
+    style = os.environ.get('VAULTCONTEXT_S3_FORCE_PATH_STYLE', 'true').strip()
+    desired.update(enabled=True, forcePathStyle=style == 'true')
+    if (not remote or not all(desired[field] for field in fields)
+            or style not in ('true', 'false')
+            or any(current.get(field) != value for field, value in desired.items())):
+        raise RuntimeError('frozen object storage configuration differs from stored settings; startup refused')
+
+
 def verify(data):
+    verify_frozen_storage(data)
+    if not os.environ.get('VAULTCONTEXT_S3_BUCKET') and stored_remote_storage(data):
+        raise RuntimeError('remote storage requires explicit environment configuration')
+    if os.environ.get('VAULTCONTEXT_S3_BUCKET'):
+        return verify_remote(data)
     for name, expected in refs(data).items():
         path = data / name
         if path.is_symlink() or not path.is_file() or digest(path) != expected:
-            raise RuntimeError('missing or corrupt original ciphertext; startup refused')
+            raise RuntimeError('missing or corrupt original evidence; startup refused')
+
+
+def verify_remote(data, client=None):
+    """Verify the restored database against immutable objects, without local copies."""
+    names = ('BUCKET', 'ENDPOINT', 'REGION', 'ACCESS_KEY_ID', 'SECRET_ACCESS_KEY')
+    config = {name: os.environ.get('VAULTCONTEXT_S3_' + name, '') for name in names}
+    if not all(config.values()):
+        raise RuntimeError('incomplete object storage configuration')
+    if client is None:
+        import boto3
+        from botocore.config import Config
+        endpoint = config['ENDPOINT']
+        if '://' not in endpoint:
+            endpoint = 'https://' + endpoint
+        client = boto3.client('s3', endpoint_url=endpoint, region_name=config['REGION'],
+            aws_access_key_id=config['ACCESS_KEY_ID'], aws_secret_access_key=config['SECRET_ACCESS_KEY'],
+            config=Config(connect_timeout=10, read_timeout=60, retries={'max_attempts': 3},
+                s3={'addressing_style': 'path' if os.environ.get('VAULTCONTEXT_S3_FORCE_PATH_STYLE', 'true') == 'true' else 'virtual'}))
+    for name, expected in refs(data).items():
+        response = client.get_object(Bucket=config['BUCKET'], Key=name.removeprefix('storage/'))
+        with closing(response['Body']) as body:
+            checksum = hashlib.sha256()
+            for chunk in iter(lambda: body.read(1024 * 1024), b''):
+                checksum.update(chunk)
+        if checksum.hexdigest() != expected:
+            raise RuntimeError('missing or corrupt remote original; startup refused')
 
 
 def snapshot(data, dest):

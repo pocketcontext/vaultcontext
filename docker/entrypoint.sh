@@ -67,6 +67,29 @@ elif [ -n "${VAULTCONTEXT_GOOGLE_CLIENT_SECRET:-}" ] && [ -z "${VAULTCONTEXT_GOO
 	die "VAULTCONTEXT_GOOGLE_CLIENT_SECRET requires VAULTCONTEXT_GOOGLE_CLIENT_ID"
 fi
 
+# Validate the primary-file contract before restoring or touching the database.
+# Values are never printed; file credentials must not be shared with Litestream.
+storage_configured=false
+for suffix in BUCKET ENDPOINT REGION ACCESS_KEY_ID SECRET_ACCESS_KEY FORCE_PATH_STYLE; do
+    eval "storage_value=\${VAULTCONTEXT_S3_${suffix}:-}"
+    [ -z "$storage_value" ] || storage_configured=true
+done
+if [ "$storage_configured" = true ]; then
+    for suffix in BUCKET ENDPOINT REGION ACCESS_KEY_ID SECRET_ACCESS_KEY; do
+        eval "storage_value=\${VAULTCONTEXT_S3_${suffix}:-}"
+        [ -n "$storage_value" ] || die "incomplete primary object storage configuration"
+    done
+    case "${VAULTCONTEXT_S3_FORCE_PATH_STYLE:-true}" in
+        true|false) ;;
+        *) die "invalid primary object storage path style" ;;
+    esac
+    [ "${VAULTCONTEXT_S3_BUCKET}" != "${LITESTREAM_BUCKET:-}" ] ||
+        die "primary files and database replicas require separate buckets"
+    [ "${VAULTCONTEXT_S3_ACCESS_KEY_ID}" != "${LITESTREAM_ACCESS_KEY_ID:-}" ] ||
+        die "primary files and database replicas require separate credentials"
+fi
+unset storage_value storage_configured suffix
+
 if [ "${1:-}" = serve ]; then
 	serve
 fi
@@ -133,7 +156,9 @@ else
 fi
 
 if [ "$replicate" = true ] && [ "$frozen" != true ]; then
-	python3 /usr/local/bin/vaultcontext-backup.py restore || die "complete ciphertext restore failed"
+	if [ -z "${VAULTCONTEXT_S3_BUCKET:-}" ]; then
+		python3 /usr/local/bin/vaultcontext-backup.py restore || die "complete ciphertext restore failed"
+	fi
 	if [ -f "$DB_PATH" ]; then
 		log "database exists in the volume: no restore"
 	else
@@ -177,6 +202,9 @@ if [ "$replicate" = true ]; then
         "$SERVER" migrate up $(app_flags) || die "initial database migration failed"
     fi
 	log "starting Litestream, which starts and supervises the server"
+	if [ -n "${VAULTCONTEXT_S3_BUCKET:-}" ]; then
+		exec litestream replicate -config "$LITESTREAM_CONFIG_FILE" -exec "$SELF serve"
+	fi
 	exec python3 /usr/local/bin/vaultcontext-backup.py supervise litestream replicate -config "$LITESTREAM_CONFIG_FILE" -exec "$SELF serve"
 fi
 serve

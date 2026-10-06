@@ -41,7 +41,7 @@ jobs:
           cache-to: type=gha,mode=max,scope=amd
       - name: Show the image
         run: |
-          docker image inspect vaultcontext:ci --format '{{json .Config}}' | python3 -m json.tool
+          docker image inspect vaultcontext:ci --format 'image={{.Id}} architecture={{.Architecture}} revision={{index .Config.Labels "org.opencontainers.image.revision"}}'
           docker run --rm --entrypoint sh vaultcontext:ci -c 'set -eu; litestream version; pocketcontext --version; cat /app/POCKETCONTEXT_VERSION; find /app /usr/local/bin -type f | sort; test ! -e /app/pb_hooks/.gitkeep'
       - name: Install uv
         run: python3 -m pip install uv==0.12.21
@@ -60,6 +60,11 @@ jobs:
         run: uv run --locked python docker/smoke.py smoke --image vaultcontext:ci
       - name: Restore drill
         run: uv run --locked python docker/smoke.py restore --image vaultcontext:ci
+
+      - name: Migration database equality gate
+        run: python3 tests/test_object_storage_equivalence.py
+      - name: Primary object storage and Litestream recovery
+        run: uv run --locked python docker/object_storage_smoke.py --image vaultcontext:ci
 
   # Main only, from here on (a push, or a manual run on main). The Python tests gate the publication.
   tests:

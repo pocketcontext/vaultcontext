@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 class MaintenanceEntrypointTests(unittest.TestCase):
     def run_entrypoint(self, state=None, *, db=True, malformed=False, replicate=False,
-                       marker_mode=0o600, marker_kind='file', oversized=False, verify_fails=False, serve_child=False, sync_fails=False, provision=True):
+                       marker_mode=0o600, marker_kind='file', oversized=False, verify_fails=False, serve_child=False, sync_fails=False, provision=True, storage=None):
         with tempfile.TemporaryDirectory(prefix='vaultcontext-maintenance-entrypoint-') as tmp:
             root = Path(tmp)
             data = root / 'pb_data'
@@ -74,8 +74,29 @@ class MaintenanceEntrypointTests(unittest.TestCase):
                 env.update({f'LITESTREAM_{key}': 'synthetic' for key in ('BUCKET', 'PATH', 'ACCESS_KEY_ID', 'SECRET_ACCESS_KEY')})
             else:
                 env['LITESTREAM_DISABLED'] = 'true'
+            if storage is not None:
+                env.update({ROOT.name.upper() + '_S3_' + key: value for key, value in storage.items()})
             result = subprocess.run(['sh', str(entrypoint)] + (['serve'] if serve_child else []), env=env, capture_output=True, text=True, timeout=10)
             return result, calls.read_text().splitlines() if calls.exists() else []
+
+    def test_primary_storage_skips_legacy_archives(self):
+        storage = {key:'synthetic-primary' for key in ('BUCKET','ENDPOINT','REGION','ACCESS_KEY_ID','SECRET_ACCESS_KEY')}
+        result, calls = self.run_entrypoint(replicate=True, storage=storage)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(calls, ['litestream:restore','backup:verify','superuser','litestream:replicate'])
+        result, calls = self.run_entrypoint({'readOnly':True,'generation':1}, replicate=True, storage=storage)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(calls, ['backup:verify','litestream:replicate'])
+        result, calls = self.run_entrypoint(replicate=True, storage={'BUCKET':'synthetic'})
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(calls, [])
+
+    def test_storage_contract_rejects_shared_replica_authority(self):
+        good = {key:'synthetic-primary' for key in ('BUCKET','ENDPOINT','REGION','ACCESS_KEY_ID','SECRET_ACCESS_KEY')}
+        for storage in ({'FORCE_PATH_STYLE':'true'}, dict(good, BUCKET='synthetic'), dict(good, ACCESS_KEY_ID='synthetic')):
+            result, calls = self.run_entrypoint(replicate=True, storage=storage)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertEqual(calls, [])
 
     def test_replication_child_waits_for_sync(self):
         result, calls = self.run_entrypoint(replicate=True, serve_child=True)

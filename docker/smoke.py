@@ -582,10 +582,9 @@ def report_and_clean(failed):
             text = logs(name)
             say(f'---- logs of {name} (masked) ----')
             say(text)
-            say(docker('inspect', '-f', 'state: {{json .State}}', name, ok=False)[1])
+            say(docker('inspect', '-f', 'running={{.State.Running}} exit={{.State.ExitCode}} oom={{.State.OOMKilled}}', name, ok=False)[1])
             if os.environ.get('GITHUB_ACTIONS') == 'true':
                 say('::endgroup::')
-        say(docker('ps', '-a', ok=False)[1])
     step('cleaning up')
     for name in containers:
         docker('rm', '-f', '-v', name, ok=False)

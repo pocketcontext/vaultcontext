@@ -28,6 +28,31 @@ function up(e) {
 // Copies the environment contract into the settings. Every group is saved on its own, and only when a value
 // differs from the stored one. A group with no variables set changes nothing. Log lines carry no secret values.
 function settings(app) {
+  // Fail closed: partial remote storage settings must never silently use local disk.
+  const s3Names = ['BUCKET', 'ENDPOINT', 'REGION', 'ACCESS_KEY_ID', 'SECRET_ACCESS_KEY'];
+  const remote = [...s3Names, 'FORCE_PATH_STYLE'].some(name => env('VAULTCONTEXT_S3_' + name));
+  if (!remote && app.settings().s3.enabled)
+    throw new Error('Remote storage requires explicit VaultContext S3 configuration');
+  if (remote) {
+    if (s3Names.some(name => !env('VAULTCONTEXT_S3_' + name)))
+      throw new Error('Incomplete VaultContext object storage configuration');
+    if (env('VAULTCONTEXT_S3_BUCKET') === env('LITESTREAM_BUCKET'))
+      throw new Error('Primary files and database replicas require separate buckets');
+    if (env('VAULTCONTEXT_S3_ACCESS_KEY_ID') === env('LITESTREAM_ACCESS_KEY_ID'))
+      throw new Error('Primary files and database replicas require separate credentials');
+    const style = env('VAULTCONTEXT_S3_FORCE_PATH_STYLE') || 'true';
+    if (!['true', 'false'].includes(style)) throw new Error('Invalid object storage path style');
+    try {
+      const current = app.settings();
+      const desired = {enabled: true, bucket: env('VAULTCONTEXT_S3_BUCKET'),
+        endpoint: env('VAULTCONTEXT_S3_ENDPOINT'), region: env('VAULTCONTEXT_S3_REGION'),
+        accessKey: env('VAULTCONTEXT_S3_ACCESS_KEY_ID'), secret: env('VAULTCONTEXT_S3_SECRET_ACCESS_KEY'),
+        forcePathStyle: style === 'true'};
+      if (Object.keys(desired).some(key => current.s3[key] !== desired[key])) {
+        Object.assign(current.s3, desired);app.save(current);
+      }
+    } catch (_) { throw new Error('Could not apply VaultContext object storage configuration'); }
+  }
   const group = (name, detail, change) => {
     const current = app.settings(), changed = [];
     const set = (section, key, value) => {

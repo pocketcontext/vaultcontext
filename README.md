@@ -200,3 +200,53 @@ Validate with `python3 tests/maintenance_entrypoint.py` and
 Replicated startup waits for a private Litestream IPC synchronization before
 serving, including fresh Google-only databases. A failed initial sync refuses
 traffic; clean early shutdown therefore uses an initialized replica.
+
+## Primary object storage (opt-in)
+
+Set all of `VAULTCONTEXT_S3_BUCKET`, `VAULTCONTEXT_S3_ENDPOINT`,
+`VAULTCONTEXT_S3_REGION`, `VAULTCONTEXT_S3_ACCESS_KEY_ID`, and
+`VAULTCONTEXT_S3_SECRET_ACCESS_KEY` to use a dedicated private S3/R2 bucket
+for PocketBase uploads. `VAULTCONTEXT_S3_FORCE_PATH_STYLE` defaults to `true`.
+Partial configuration and shared primary/replica buckets or access keys fail closed. This is primary file storage, separate from
+the `LITESTREAM_*` SQLite replica bucket and prefix. Protected downloads still
+require independent application authorization. Vault ciphertext stays encrypted.
+
+In this mode startup restores SQLite through Litestream and verifies every
+referenced immutable original by streaming its remote SHA-256; it does not
+restore or periodically create legacy database-and-file archives. Local mode
+retains complete archives. Keep object retention independent of replica retention;
+SQLite replication alone cannot recover deleted objects. Unexpected crashes can
+lose database writes since Litestream is asynchronous.
+
+This configuration does not move existing files. Copy and checksum all referenced
+objects before enabling it. A frozen startup refuses any storage configuration
+change: prepare the destination settings before establishing its frozen snapshot.
+Preserve `maintenance.json`, pause CD, and fence the source before thawing a
+destination. Never point a second writable process at the live replica.
+
+Run `python3 tests/object_storage_settings.py` plus the documented backup,
+maintenance and deployment tests. Use `tests/object_storage_integration.py --binary /path/to/pinned/server
+--synthetic-bucket BUCKET` with a disposable local MinIO bucket and the S3
+environment above for real uploads, protected downloads and database-only recovery.
+Container and Litestream fresh-volume recovery validation remain release gates.
+
+### Container primary-storage recovery gate
+
+After building the image, run the existing `docker/smoke.py config`, `smoke`,
+and `restore` checks, then `python3 docker/object_storage_smoke.py --image IMAGE`
+(use the locked Python environment for VaultContext). The restore check builds
+its pinned local MinIO fixture. The primary-storage check uses separate bucket-scoped
+synthetic keys, uploads real protected files, rejects unrelated-user downloads,
+and tests frozen restart plus a new destination volume. It compares every main
+database table restored by Litestream before destroying the source volume and
+explicitly thawing the destination. A final upload and clean stop are followed
+by destruction of that volume and automatic entrypoint recovery into a third
+empty volume, with authorized and denied protected-file checks. No cloud buckets
+or live replicas are used.
+
+A **frozen handoff bundle** must also carry `maintenance.json` and a consistent
+SQLite backup of `auxiliary.db` from the stopped source: frozen startup refuses
+to create a missing auxiliary database. The main `data.db` still comes from
+Litestream. A writable disaster recovery can recreate auxiliary state, but must
+not be substituted for a deliberately frozen migration. Keep source fencing and
+this bundle explicit in migration tooling.
