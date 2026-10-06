@@ -19,7 +19,8 @@ import sys
 import tempfile
 
 APP = Path('/app')
-DATA = Path(os.environ.get('VAULTCONTEXT_DATA_DIR', '/storage/pb_data'))
+# Must match the database path in /etc/litestream.yml.
+DATA = Path('/storage/pb_data')
 SERVER = '/usr/local/bin/pocketcontext'
 LITESTREAM = '/usr/local/bin/litestream'
 SELF = '/usr/local/bin/vaultcontext-entrypoint.py'
@@ -46,6 +47,8 @@ def sync_directory(path):
 
 
 def validate_config():
+    if os.environ.get('VAULTCONTEXT_DATA_DIR', '/storage/pb_data') != '/storage/pb_data':
+        raise StartupError('VAULTCONTEXT_DATA_DIR must be /storage/pb_data to match Litestream')
     if os.environ.get('LITESTREAM_DISABLED'):
         raise StartupError('LITESTREAM_DISABLED is unsupported; replication is required')
     for prefix, names in (

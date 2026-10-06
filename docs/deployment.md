@@ -73,11 +73,11 @@ locks and maintenance state do not provide cross-host fencing. Never run a recov
 copy against the active replica.
 
 The image workflow deploys only after the tested multi-architecture manifest is
-published. Set `COLORS_PROFILE=once-pocketcontext-v2` to select the GitHub environment
+published. Set `COLORS_PROFILE=once-v2` to select the GitHub environment
 holding the app-specific `SSH_PRIVATE_KEY` secret and `SERVER_IP`, `SERVER_USER`,
 `SSH_KNOWN_HOSTS` variables. The job requires pinned SSH host keys and sends no remote
 command: the restricted key invokes the maintained dispatcher for VaultContext only.
-Preserve its stop-first locking, one-writer checks, graceful shutdown and guarded
+Preserve its stop-first locking, one-writer checks, graceful shutdown and pending-state checks; there is no automatic
 rollback. Keep ONCE's own automatic updates disabled; GitHub handles deployment.
 Deployment jobs serialize without cancelling a running update, then check
 `https://vault.pocketcontext.com/up`. That health check verifies availability, not

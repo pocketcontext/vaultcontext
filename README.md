@@ -1,5 +1,7 @@
 # VaultContext
 
+Current release controls and platform coverage: [common CI and deployment contract](docs/ci-and-deployment.md).
+
 Encrypted personal and shared file vaults for humans and coding agents, built on PocketContext. Any file type is accepted as exact opaque bytes, initially up to 8 MiB per file. Names and descriptive metadata are encrypted too. A CLI and portable skill provide the file interface. A public single-page website provides product information and a guided onboarding manual; it does not authenticate, unlock vaults or access application data. Clipperz inspired the architecture; no Clipperz code or compatibility is included.
 
 ## Access and keys
