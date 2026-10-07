@@ -39,7 +39,7 @@ vaultcontext create 'Personal'
 
 `init` runs once per account and prompts for a passphrase twice. Keep its public fingerprint for independent verification. There is no recovery key. Google callback uses port 8765; on SSH forward it with `ssh -L 8765:127.0.0.1:8765 user@host` and open the provided URL on the browser machine. This does not move vault decryption from the execution host to the browser machine. `VAULTCONTEXT_USER_PASSWORD` supports ordinary provisioned test/password accounts; it is not the vault passphrase.
 
-Application tokens and public fingerprint pins are local, privately permissioned, and scoped by server/user. Only encrypted private keys persist on the server. `change-passphrase` prompts for a new passphrase while unlocked and updates the server bundle. `lock` terminates the memory session; expiration rejects new requests, while an operation already running may finish. `logout` locks and deletes the local application token, but does not revoke copied tokens.
+Application tokens and public fingerprint pins are local, privately permissioned, and scoped by server/user. Only encrypted private keys persist on the server. `change-passphrase` prompts for a new passphrase while unlocked and updates the server bundle. Reuse an existing unlocked session across commands and tasks; do not lock or log out as end-of-task cleanup. Lock on user request or before replacing the client or clearing its runtime cache. The default 900-second lifetime runs from unlock and is not extended by activity; the user may choose `unlock --timeout 3600` for up to one hour. `lock` terminates the memory session; expiration rejects new requests, while an operation already running may finish. `logout` locks and deletes the local application token, but does not revoke copied tokens.
 
 ## Optional macOS Keychain unlock
 
@@ -48,7 +48,6 @@ Install the signed native helper using the repository's `docs/macos-keychain.md`
 ```sh
 vaultcontext keychain-enroll
 vaultcontext unlock --keychain --timeout 900
-vaultcontext lock
 # Remove this server/account's saved credential while logged in:
 vaultcontext keychain-forget
 ```
@@ -141,10 +140,9 @@ vaultcontext restore MISSING_DOCUMENT_ID --version MISSING_VERSION_ID --to /User
 vaultcontext restore DIFFERENT_DOCUMENT_ID --version DIFFERENT_VERSION_ID --to /Users/alex/code/beacon/.env --overwrite
 vaultcontext compare MISSING_DOCUMENT_ID /Users/alex/code/worker/.env --version MISSING_VERSION_ID
 vaultcontext compare DIFFERENT_DOCUMENT_ID /Users/alex/code/beacon/.env --version DIFFERENT_VERSION_ID
-vaultcontext lock
 ```
 
-Using `--version` for both restore and verification preserves the reviewed selection even if a newer version is saved meanwhile. Report success only after restore succeeds and comparison returns `same: true`; retain errors separately. Restored files have mode 0600. Never source or execute them. In particular, restoring `.envrc` or `.envrc.private` into a direnv-enabled project may cause later execution by the user's shell; restoration must not activate direnv. Finish by locking the destination session. This workflow is an explicit comparison and selected restore, not automatic synchronization.
+Using `--version` for both restore and verification preserves the reviewed selection even if a newer version is saved meanwhile. Report success only after restore succeeds and comparison returns `same: true`; retain errors separately. Restored files have mode 0600. Never source or execute them. In particular, restoring `.envrc` or `.envrc.private` into a direnv-enabled project may cause later execution by the user's shell; restoration must not activate direnv. Leave the destination session available for subsequent tasks until its configured lifetime expires, unless the user requests locking. This workflow is an explicit comparison and selected restore, not automatic synchronization.
 
 ## Private viewing by the user only
 
