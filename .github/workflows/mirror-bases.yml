@@ -30,6 +30,7 @@ jobs:
           set -euo pipefail
           authfile=$(mktemp)
           trap 'rm -f "$authfile"' EXIT
+          printf '{"auths":{}}\n' > "$authfile"
           printf '%s' "$GHCR_TOKEN" | skopeo login --authfile "$authfile" --username "$GHCR_USER" --password-stdin ghcr.io
           mirror() {
             local name="$1" version="$2" digest="$3"
