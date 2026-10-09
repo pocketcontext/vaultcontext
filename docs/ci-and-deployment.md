@@ -38,12 +38,20 @@ exactly one bounded JSON object with `revision` (40 lowercase hexadecimal digits
 and `image` (`ghcr.io/pocketcontext/vaultcontext@sha256:` plus 64 lowercase
 hexadecimal digits). The digest comes directly from the successful
 `demo_manifest` output, never from a mutable tag. No registry credentials, shell
-scripts, archives or application secrets are transferred. The host dispatcher
-validates the request, verifies the immutable image's revision and operator ABI,
-and performs the locked release before returning exactly
+scripts, archives or application secrets are transferred. The host dispatcher validates the request and uses the ONCE CLI for the fixed
+`vault-demo.pocketcontext.com` application. It prepares the running supervisor
+through `once exec`, updates to the exact digest with both `--auto-update=false`
+and `--auto-backup=false`, then validates and commits the candidate through
+`once exec`. The supervisor holds the volume writer lock and checks its baked
+revision, current generation and preservation of all three databases before
+opening public ingress. The dispatcher returns exactly
 `{"image":"<requested image>","revision":"<requested revision>","ready":true}`.
-A failed or mismatched receipt fails the workflow. Host operator helpers are
-reviewed and installed separately; this protocol does not upgrade them.
+A failed or mismatched receipt fails the workflow. The workflow sends no Docker command. Host operator helpers are reviewed and
+installed separately; this protocol does not upgrade them. ONCE owns the
+application, route and named volume. `/up` proves exclusive control readiness;
+public application traffic stays closed until configuration/adoption or release
+commit succeeds. Whole-volume automatic backups stay disabled because they
+would retain disposable vault data alongside durable contacts.
 
 The final public check requires today's UTC generation and available downloads,
 verifies all three downloadable artifacts against their manifest sizes and SHA-256
@@ -94,3 +102,18 @@ python3 tests/deploy_workflow.py
 
 Validate workflow YAML with actionlint. Actual native CI and image recovery gates
 remain required before release; local validation does not replace either platform.
+
+The native image checks also run `docker/once_smoke.py` in isolated CI containers:
+control-only bootstrap returns `/up` 200, public routes remain 503, invalid
+configuration is rejected, a second supervisor cannot take the same volume, and
+shutdown completes cleanly. These Docker calls are image tests, not deployment
+operations. Deployment operations use ONCE.
+
+`tests/test_demo_once_runtime.py` exercises state transitions and failure paths
+with real SQLite fixtures. With `VAULTCONTEXT_TEST_BINARY` and
+`VAULTCONTEXT_TEST_LITESTREAM`, it also runs the pinned server, contact service and
+three local replicas through a process adapter, restores each replica, verifies
+ciphertext equality/decryption and preserves withdrawn marketing preferences
+across a validated release. This process test does not claim to exercise the
+shipped container paths; the separate native image bootstrap check covers those
+paths. End-to-end ONCE adoption and live provider behavior remain separate checks.

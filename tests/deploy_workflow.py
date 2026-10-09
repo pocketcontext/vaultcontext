@@ -268,6 +268,8 @@ class DeploymentTests(unittest.TestCase):
         check = PUBLICATION.split('  check:', 1)[1].split('  tests:', 1)[0]
         self.assertIn('runner: ubuntu-24.04-arm', check)
         self.assertIn('runner: ubuntu-24.04', check)
+        self.assertIn('python3 docker/once_smoke.py --image vaultcontext:ci', check)
+        self.assertIn('-p test_demo_once_runtime.py', check)
         for mode in (' config --image ', ' smoke --image '):
             self.assertIn(mode, check)
         self.assertTrue(' restore --image ' in check or 'docker/object_storage_smoke.py' in check)
