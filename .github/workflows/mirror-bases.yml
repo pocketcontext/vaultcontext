@@ -34,10 +34,17 @@ jobs:
           printf '%s' "$GHCR_TOKEN" | skopeo login --authfile "$authfile" --username "$GHCR_USER" --password-stdin ghcr.io
           mirror() {
             local name="$1" version="$2" digest="$3"
-            local source="docker://docker.io/library/$name@$digest"
+            # Docker's ECR Public distribution carries the same pinned index.
+            # Alternate registries on retry; never substitute another digest.
+            local source
             local destination="docker://ghcr.io/pocketcontext/vaultcontext:base-$name-$version"
             local copied=false
             for attempt in 1 2 3 4 5 6; do
+              if (( attempt % 2 )); then
+                source="docker://public.ecr.aws/docker/library/$name@$digest"
+              else
+                source="docker://docker.io/library/$name@$digest"
+              fi
               if skopeo copy --authfile "$authfile" --all --preserve-digests --retry-times 3 "$source" "$destination"; then
                 copied=true
                 break
