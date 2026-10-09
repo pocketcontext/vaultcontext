@@ -322,12 +322,12 @@ def once_env(extra=None):
 
 def public_assets(base):
     """Check the published image, not just the checkout used by browser tests."""
-    for asset in ('index.html', 'styles.css', 'app.js', 'analytics-frame.html', 'analytics-frame.js', 'og-card.png'):
+    for asset in ('index.html', 'styles.css', 'app.js', 'terms/index.html', 'privacy/index.html', 'vendor/pocketbase.es.mjs'):
         path = '/' if asset == 'index.html' else '/' + asset
         with urllib.request.urlopen(base + path, timeout=15) as response:
             check(response.status == 200, f'public asset {asset} is served')
             check(response.read() == (ROOT / 'pb_public' / asset).read_bytes(), f'public asset {asset} matches source')
-            ancestor = "'self'" if asset == 'analytics-frame.html' else "'none'"
+            ancestor = "'none'"
             check('frame-ancestors ' + ancestor in response.headers.get('Content-Security-Policy', ''), f'frame policy for {asset}')
             check(response.headers.get('Referrer-Policy') == 'no-referrer', f'no referrer for {asset}')
 

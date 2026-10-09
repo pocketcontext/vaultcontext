@@ -5,7 +5,6 @@ import contextlib
 import concurrent.futures
 from datetime import datetime, timezone
 import importlib.util
-import hashlib
 import json
 import os
 from pathlib import Path
@@ -14,6 +13,8 @@ import shutil
 import integration
 import tempfile
 import threading
+import urllib.request
+import urllib.error
 from http.server import ThreadingHTTPServer
 from unittest.mock import patch
 from integration import server as base_server, ROOT
@@ -49,37 +50,41 @@ def contacts():
         try:yield f'http://127.0.0.1:{http.server_port}',token,store
         finally:http.shutdown();http.server_close();thread.join()
 
-def check_download_metadata(binary):
+def check_installation_metadata(binary):
     today=datetime.now(timezone.utc).date().isoformat()
-    public_origin='https://vault-demo.example.test'
-    release='0.1.0-'+'a'*20
-    with tempfile.TemporaryDirectory(prefix='demo-public-metadata-') as temporary, contacts() as (contact_url,contact_token,_):
+    with tempfile.TemporaryDirectory(prefix='demo-installation-') as temporary, contacts() as (contact_url,contact_token,_):
         cwd=Path(temporary);shutil.copyfile(ROOT/'pocketcontext.json',cwd/'pocketcontext.json')
-        downloads=cwd/'pb_public/demo/downloads';(downloads/release).mkdir(parents=True)
-        contents={'wheel':('vaultcontext_client-0.1.0-py3-none-any.whl',bytes([0,255,128,42])),
-                  'skill':('vaultcontext-skill.tar.gz',b'synthetic archive'), 'launcher':('vaultcontext',b'synthetic launcher')}
-        artifacts={}
-        for key,(name,data) in contents.items():
-            (downloads/release/name).write_bytes(data)
-            artifacts[key]={'path':'/demo/downloads/'+release+'/'+name,'sha256':hashlib.sha256(data).hexdigest(),'size':len(data)}
-        manifest={'schema':1,'package':'vaultcontext-client','version':'0.1.0','release':release,'origin':public_origin,'artifacts':artifacts}
-        (downloads/'manifest.json').write_text(json.dumps(manifest))
+        shutil.copytree(ROOT/'pb_public',cwd/'pb_public')
+        launcher=cwd/'skills/vaultcontext/vaultcontext';launcher.parent.mkdir(parents=True)
+        launcher.write_bytes((ROOT/'skills/vaultcontext/vaultcontext').read_bytes())
         env={'VAULTCONTEXT_DEMO_MODE':'true','VAULTCONTEXT_DEMO_GENERATION':today,
-             'VAULTCONTEXT_DEMO_CONTACT_URL':contact_url,'VAULTCONTEXT_DEMO_CONTACT_TOKEN':contact_token,'BASE_URL':public_origin}
+             'VAULTCONTEXT_DEMO_CONTACT_URL':contact_url,'VAULTCONTEXT_DEMO_CONTACT_TOKEN':contact_token}
         with patch.dict(os.environ,env),server(binary,cwd=cwd) as request:
             result=request('GET','/api/demo/status')
-            assert result['clientReady'] is True and result['downloads']==manifest,result
-        # Same-sized corruption must fail SHA verification, not pass a size check.
-        (downloads/release/contents['wheel'][0]).write_bytes(bytes([0,255,128,43]))
+            assert result['clientReady'] is True and 'downloads' not in result,result
+            assert result['installation']['method']=='skills',result
+            assert result['installation']['clientRevision'] in launcher.read_text(),result
+            for path in ('/', '/?source=synthetic', '/terms/', '/privacy/'):
+                with urllib.request.urlopen(request.base_url+path) as response:
+                    assert response.status==200 and response.url==request.base_url+path,response.url
+                    assert b'<!doctype html>' in response.read().lower()
+            for path in ('/demo','/demo/','/demo/downloads/old.whl','/downloads/manifest.json'):
+                try:
+                    urllib.request.urlopen(request.base_url+path)
+                except urllib.error.HTTPError as error:
+                    assert error.code==404,(path,error.code)
+                else:
+                    raise AssertionError('Removed route remains available: '+path)
+
+        launcher.write_text('invalid unpinned launcher')
         with patch.dict(os.environ,env),server(binary,cwd=cwd) as request:
-            assert request('GET','/api/demo/status')['clientReady'] is False
-        (downloads/release/contents['wheel'][0]).write_bytes(contents['wheel'][1])
-        with patch.dict(os.environ,{**env,'BASE_URL':'https://wrong-demo.example.test'}),server(binary,cwd=cwd) as request:
-            assert request('GET','/api/demo/status')['clientReady'] is False
+            result=request('GET','/api/demo/status')
+            assert result['clientReady'] is False and result['installation'] is None,result
+
 
 def main():
     parser=argparse.ArgumentParser();parser.add_argument('--binary',required=True);args=parser.parse_args()
-    check_download_metadata(args.binary)
+    check_installation_metadata(args.binary)
     today=datetime.now(timezone.utc).date().isoformat()
     with contacts() as (contact_url,contact_token,store), google_fixture() as (url,codes), patch.dict(os.environ,{
         'VAULTCONTEXT_DEMO_MODE':'true','VAULTCONTEXT_DEMO_GENERATION':today,
@@ -89,7 +94,7 @@ def main():
         admin=request('POST','/api/collections/_superusers/auth-with-password',{'identity':'admin@example.com','password':'SyntheticAdminPassword123!'})['token']
         provider={'name':'google','clientId':'synthetic-client','clientSecret':'synthetic-secret','authURL':url+'/authorize','tokenURL':url+'/token','userInfoURL':url+'/userinfo'}
         request('PATCH','/api/collections/users',{'oauth2':{'enabled':True,'providers':[provider]}},admin)
-        status=request('GET','/api/demo/status');assert status['enabled'] and status['generation']==today and status['clientReady'] is False
+        status=request('GET','/api/demo/status');assert status['enabled'] and status['generation']==today and status['clientReady'] is True
         def exchange(email,verified=True,subject=None,expected=200):
             meta=request('GET','/api/collections/users/auth-methods')['oauth2']['providers'][0]
             code=secrets.token_urlsafe(24)

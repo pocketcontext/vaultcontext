@@ -8,9 +8,9 @@
 !pb_public/index.html
 !pb_public/styles.css
 !pb_public/app.js
-!pb_public/analytics-frame.html
-!pb_public/analytics-frame.js
-!pb_public/og-card.png
+!pb_public/vendor/**
+!pb_public/terms/index.html
+!pb_public/privacy/index.html
 !docker/entrypoint.py
 !docker/litestream.yml
 
@@ -19,20 +19,13 @@
 !pb_hooks/vendor/tweetnacl-LICENSE
 !pb_hooks/vendor/README.txt
 !pb_hooks/vendor/provenance.json
-!pb_public/demo/**
 !deploy/demo/retention.py
 !deploy/demo/contact_replica.py
 !deploy/demo/contact-litestream.yml
 
-# Rebuild approved public downloads; never import generated local binaries.
-pb_public/demo/downloads/
-!pyproject.toml
-!src/vaultcontext_client/*.py
-!src/vaultcontext_client/schema.json
-!skills/vaultcontext/SKILL.md
-!skills/vaultcontext/references/schema.md
-!skills/vaultcontext/references/workflows.md
-!scripts/build-demo-downloads.py
+# Package only the public launcher as the installation-contract source.
+!skills/vaultcontext/vaultcontext
+pb_public/downloads/
 
 !deploy/demo/once_runtime.py
 !deploy/demo/reset.py

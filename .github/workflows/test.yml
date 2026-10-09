@@ -68,10 +68,9 @@ jobs:
         run: |
           uv run --locked --project vaultcontext python vaultcontext/tests/skill.py --binary "$PWD/pocketcontext/bin/pocketcontext" --client vaultcontext/skills/vaultcontext/vaultcontext
           uv run --locked --project vaultcontext python vaultcontext/tests/cli_forward.py --binary "$PWD/pocketcontext/bin/pocketcontext" --client vaultcontext/skills/vaultcontext/vaultcontext
-      - name: Offline onboarding analytics browser checks
+      - name: Offline demo browser checks
         if: runner.os == 'Linux'
         working-directory: vaultcontext
         run: |
           uv run --with playwright==1.60.0 python -m playwright install --with-deps chromium
-          uv run --with playwright==1.60.0 python tests/website_analytics.py
           uv run --with playwright==1.60.0 python tests/demo_website.py

@@ -9,16 +9,19 @@ import hashlib
 import base64
 from urllib.parse import urlsplit
 import os
-ROOT=Path(__file__).resolve().parents[1]/'pb_public'/'demo'
+ROOT=Path(__file__).resolve().parents[1]/'pb_public'
 BROWSER=os.environ.get('PLAYWRIGHT_EXECUTABLE_PATH')
 def synthetic_token(exp=4070995200):
  def segment(value):return base64.urlsafe_b64encode(json.dumps(value).encode()).decode().rstrip('=')
  return segment({'alg':'HS256','typ':'JWT'})+'.'+segment({'id':'synthetic','exp':exp,'type':'auth','collectionId':'_pb_users_auth_'})+'.synthetic-signature'
 AUTH={'token':synthetic_token(),'record':{'id':'synthetic','collectionName':'users','email':'demo@example.com','name':'Synthetic Visitor','verified':True}}
 OAUTH_BROWSER_SCRIPT='''class FakeEventSource { constructor(){window.fakeStream=this;this.listeners={};setTimeout(()=>this.listeners.PB_CONNECT?.({data:JSON.stringify({clientId:'synthetic-state'})}),20);}addEventListener(n,cb){this.listeners[n]=cb;}close(){}}window.EventSource=FakeEventSource;window.open=()=>({closed:true,close(){},location:{set href(value){const stream=window.fakeStream;setTimeout(()=>stream.listeners['@oauth2']({data:JSON.stringify({state:'synthetic-state',code:'synthetic-code'})}),1000);}}});'''
-for asset in ('styles.css','app.js'):
- digest=hashlib.sha256((ROOT/asset).read_bytes()).hexdigest()[:12]
- assert f'{asset}?v={digest}' in (ROOT/'index.html').read_text(),f'Stale asset hash: {asset}'
+for document,assets in [('index.html',('styles.css','app.js')),('terms/index.html',('styles.css',)),('privacy/index.html',('styles.css',))]:
+ markup=(ROOT/document).read_text()
+ for asset in assets:
+  digest=hashlib.sha256((ROOT/asset).read_bytes()).hexdigest()[:12]
+  assert f'{asset}?v={digest}' in markup,f'Stale asset hash: {document}: {asset}'
+ assert '/demo/' not in markup, f'Obsolete page path in {document}'
 with sync_playwright() as p:
  b=p.chromium.launch(**({'executable_path':BROWSER} if BROWSER else {}))
  page=b.new_page(viewport={'width':390,'height':844})
@@ -33,18 +36,19 @@ with sync_playwright() as p:
  assert page.locator('#onboarding').is_visible()
  assert not page.locator('#commercial').is_checked() and not page.locator('#newsletter').is_checked()
  assert page.evaluate('document.documentElement.scrollWidth<=innerWidth')
- page.locator('[data-method="agent"]').click();assert page.locator('#agent-note').is_visible()
+ assert page.locator('#agent-note').is_visible()
+ assert page.locator('[data-method]').count()==0
  for d in page.locator('.guide-steps details').all():d.evaluate('(el)=>el.open=true')
  for c in page.locator('.step-done').all():c.check()
  assert page.locator('#guide-complete').is_visible();page.locator('#reset-progress').click();assert not page.locator('#guide-complete').is_visible()
  page.locator('a[href="#privacy-details"]').click();assert page.locator('#privacy-details').get_attribute('open') is not None
  page.close()
- page=b.new_page(viewport={'width':1440,'height':1000});calls=[];errors=[];pending_enroll=[];fail_preferences=False;client_ready=False;public_downloads=None
+ page=b.new_page(viewport={'width':1440,'height':1000});calls=[];errors=[];pending_enroll=[];fail_preferences=False;client_ready=False;installation=None
  page.on('pageerror',lambda error:errors.append(str(error)))
  def route(r):
   path=urlsplit(r.request.url).path;calls.append((path,r.request.post_data))
   def result(x,status=200):r.fulfill(status=status,content_type='application/json',body=json.dumps(x))
-  if path=='/api/demo/status':return result({'enabled':True,'generation':'2099-01-01','resetAt':'2099-01-02T00:00:00Z','termsVersion':'v1','clientReady':client_ready,'downloads':public_downloads})
+  if path=='/api/demo/status':return result({'enabled':True,'generation':'2099-01-01','resetAt':'2099-01-02T00:00:00Z','termsVersion':'v1','clientReady':client_ready,'installation':installation})
   if path=='/api/collections/users/auth-methods':return result({'oauth2':{'providers':[{'name':'google','authURL':'https://accounts.google.com/o/oauth2/auth?client_id=synthetic&redirect_uri=','codeVerifier':'synthetic-verifier'}]}})
   if path=='/api/realtime':return r.fulfill(status=204)
   if path=='/api/collections/users/auth-with-oauth2':return result(AUTH)
@@ -119,21 +123,19 @@ with sync_playwright() as p:
  page.wait_for_function('!document.querySelector("#google-button").disabled && document.querySelector("#form-status").textContent.includes("unavailable")')
  assert page.locator('.continue-button').is_disabled()
  assert not page.locator('#identity').is_visible()
- # Backend readiness alone cannot bypass validated demo distribution metadata.
- # Keep the local distribution gate closed even if an old backend says ready.
+ # Backend readiness alone cannot bypass the explicit installation contract.
  client_ready=True;fail_preferences=False
  page.evaluate('localStorage.clear()')
  page.goto('http://demo.test/');page.wait_for_function('document.querySelector("#mode-pill").textContent === "Daily reset"')
  install=page.locator('#install-code').text_content()
- assert 'Public downloads are not connected' in install
+ assert 'unavailable' in install
  assert 'github.com' not in install and 'uv tool install' not in install
  page.locator('#google-button').click();page.wait_for_selector('#identity:visible');page.locator('#terms').check();page.locator('.continue-button').click()
  page.wait_for_function('document.querySelector("#signout").disabled')
  pending_enroll.pop().fulfill(status=200,content_type='application/json',body=json.dumps({'enrolled':True,'generation':'2099-01-01','contact':{'revision':1,'unsubscribeToken':'synthetic-withdrawal'}}))
  page.wait_for_selector('#onboarding:visible')
  assert 'example.invalid' in page.locator('#connect-code').text_content()
- page.locator('[data-method="agent"]').click()
- assert 'Public downloads are not connected' in page.locator('#install-code').text_content()
+ assert 'unavailable' in page.locator('#install-code').text_content()
  assert 'npx skills add' not in page.locator('#install-code').text_content()
  assert not errors,errors
  # A preference-conflict refresh failure must invalidate the previously loaded revision.
@@ -148,14 +150,11 @@ with sync_playwright() as p:
  page.wait_for_timeout(100)
  assert sum(path=='/api/demo/enroll' for path,_ in calls)==enrollment_count, 'A programmatic submit must also reject stale preferences'
  fail_preferences=False
- # Same-origin checked metadata enables public, hash-pinned distribution.
- release='0.1.0-'+'a'*20
- public_downloads={'schema':1,'package':'vaultcontext-client','version':'0.1.0','release':release,'origin':'http://demo.test','artifacts':{}}
- for key,name in [('wheel','vaultcontext_client-0.1.0-py3-none-any.whl'),('skill','vaultcontext-skill.tar.gz'),('launcher','vaultcontext')]:
-  public_downloads['artifacts'][key]={'path':'/demo/downloads/'+release+'/'+name,'sha256':'b'*64,'size':128}
+ # The allowlisted public skill source and tested client revision enable setup.
+ installation={'method':'skills','source':'https://github.com/pocketcontext/vaultcontext/tree/vaultcontext-demo/skills/vaultcontext','skill':'vaultcontext','clientRevision':'78e0308abed01c21ffee5ec6b35a2d037c3f6280'}
  page.evaluate('localStorage.clear()')
  page.goto('http://demo.test/');page.wait_for_function('document.querySelector("#install-code").textContent.includes("npx skills add")')
- assert page.locator('[data-method="agent"]').get_attribute('aria-pressed')=='true'
+ assert page.locator('[data-method]').count()==0
  assert page.locator('#agent-note').get_attribute('hidden') is None
  install=page.locator('#install-code').text_content()
  assert 'https://github.com/pocketcontext/vaultcontext/tree/vaultcontext-demo/skills/vaultcontext --skill vaultcontext --yes' in install
@@ -167,10 +166,8 @@ with sync_playwright() as p:
  pending_enroll.pop().fulfill(status=200,content_type='application/json',body=json.dumps({'enrolled':True,'generation':'2099-01-01','contact':{'revision':1,'unsubscribeToken':'synthetic-withdrawal'}}))
  page.wait_for_selector('#onboarding:visible')
  assert "VAULTCONTEXT_URL='http://demo.test'" in page.locator('#connect-code').text_content()
- page.locator('[data-method="cli"]').click()
- assert 'uv tool install --force' in page.locator('#install-code').text_content()
- assert '#sha256='+'b'*64 in page.locator('#install-code').text_content()
- assert 'github.com' not in page.locator('#install-code').text_content()
+ assert 'uv tool install' not in page.locator('#install-code').text_content()
+ assert not any('/downloads/' in path for path,_ in calls)
  # A connected, ready demo must not show design-preview or future-launch wording,
  # including policy disclosures and the expanded onboarding instructions.
  for disclosure in page.locator('details').all():disclosure.evaluate('(element)=>element.open=true')
@@ -201,22 +198,30 @@ with sync_playwright() as p:
   headline=page.locator('h1').evaluate('(element)=>({height:element.getBoundingClientRect().height,line:parseFloat(getComputedStyle(element).lineHeight)})')
   assert headline['height']<=headline['line']*3+1, f'Headline wraps beyond three lines at {width}px'
  page.set_viewport_size({'width':1440,'height':1000})
- page.locator('[data-method="agent"]').click()
  install=page.locator('#install-code').text_content()
  assert 'npx skills add https://github.com/pocketcontext/vaultcontext/tree/vaultcontext-demo/skills/vaultcontext' in install
  assert 'tar -xzf' not in install
  assert '\n\nnpx skills add' in install and r'\n' not in install
  assert page.locator('#install-code').locator('xpath=../..').locator('.copy').inner_text()=='Copy instructions'
- # Invalid checksum/path/origin metadata must fail closed even with ready=true.
- for field,value in [('sha256','invalid'),('path','/private/download.whl')]:
-  previous=public_downloads['artifacts']['wheel'][field]
-  public_downloads['artifacts']['wheel'][field]=value
+ # Copying sends the literal agent prompt only to the clipboard; failures stay visible.
+ page.evaluate("Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText:async text=>{window.copiedInstructions=text}}})")
+ page.locator('#install-code').locator('xpath=../..').locator('.copy').click()
+ assert page.evaluate('window.copiedInstructions')==install
+ assert 'No commands have been run' in page.locator('#copy-status').inner_text()
+ page.evaluate("Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText:async()=>{throw new Error('blocked')}}})")
+ page.locator('#install-code').locator('xpath=../..').locator('.copy').click()
+ assert 'Clipboard unavailable' in page.locator('#copy-status').inner_text()
+ # Invalid installation contracts cannot inject a command, URL or revision.
+ for field,value in [('method','shell'),('source','https://untrusted.example/skill'),('skill','other-skill'),('clientRevision','invalid'),('clientRevision','a'*40+';echo injected')]:
+  previous=installation[field];installation[field]=value
   page.goto('http://demo.test/');page.wait_for_function('document.querySelector("#mode-pill").textContent === "Daily reset"')
-  assert 'uv tool install' not in page.locator('#install-code').text_content()
-  public_downloads['artifacts']['wheel'][field]=previous
- public_downloads['origin']='https://untrusted.example'
+  assert 'npx skills add' not in page.locator('#install-code').text_content()
+  assert 'untrusted.example' not in page.content() and 'echo injected' not in page.content()
+  installation[field]=previous
+ # Readiness remains independently required even with a valid contract.
+ client_ready=False
  page.goto('http://demo.test/');page.wait_for_function('document.querySelector("#mode-pill").textContent === "Daily reset"')
- assert 'uv tool install' not in page.locator('#install-code').text_content()
+ assert 'npx skills add' not in page.locator('#install-code').text_content()
  page.close()
  # A capability link remains useful after reset/account deletion. Merely opening
  # the page must never invoke the state-changing POST, and failures are retryable.
@@ -360,5 +365,5 @@ with sync_playwright() as p:
  assert blocked.locator('#identity').is_hidden() and blocked.locator('#google-button').is_visible()
  assert blocked.locator('.continue-button').is_disabled() and not blocked_errors,blocked_errors
  context.close()
- print('PASS: static mobile preview/terms/optional consent/progress; live Google mock SSE/204/auth; preference revision enrollment; pending-release guide; withdrawal; signout; authentication-only localStorage; no page errors; pending-enrollment signout race; withdrawal across reset; fragment scrubbing/explicit confirmation/retry without login; coding-agent skill prompt and secondary SHA-pinned CLI installation; invalid/stale metadata rejected; continuation state and failed preference refresh; live copy and SVG icons; compact mobile headline/banner/touch targets; persisted session server validation; cross-tab signout; invalid sessions and reset clear auth; blocked storage fallback; late refresh/enrollment after cross-tab signout.')
+ print('PASS: static mobile preview/terms/optional consent/progress; live Google mock SSE/204/auth; preference revision enrollment; pending-release guide; withdrawal; signout; authentication-only localStorage; no page errors; pending-enrollment signout race; withdrawal across reset; fragment scrubbing/explicit confirmation/retry without login; sole coding-agent skill installation; invalid installation contracts rejected; continuation state and failed preference refresh; live copy and SVG icons; compact mobile headline/banner/touch targets; persisted session server validation; cross-tab signout; invalid sessions and reset clear auth; blocked storage fallback; late refresh/enrollment after cross-tab signout.')
  b.close()

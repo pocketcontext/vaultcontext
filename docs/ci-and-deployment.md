@@ -53,10 +53,10 @@ public application traffic stays closed until configuration/adoption or release
 commit succeeds. Whole-volume automatic backups stay disabled because they
 would retain disposable vault data alongside durable contacts.
 
-The final public check requires today's UTC generation and available downloads,
-verifies all three downloadable artifacts against their manifest sizes and SHA-256
-hashes, and compares the served HTML, JavaScript and CSS with the workflow's checked
-out revision. Together with the host's digest/revision receipt, this attests the
+The final public check requires today's UTC generation and the exact public skill
+installation contract, including the client pin from the packaged launcher. It
+compares root HTML, JavaScript, CSS, legal pages and the vendored SDK with the
+workflow checkout and requires retired demo/download routes to return 404. Together with the host's digest/revision receipt, this attests the
 requested image and public assets. It does not perform Google sign-in or prove
 backup durability. No automatic rollback occurs after deployment or attestation
 failure; investigate the host's durable state before retrying.

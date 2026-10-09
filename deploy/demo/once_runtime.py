@@ -165,8 +165,7 @@ class Backend:
         except Exception:return False
     def gate(self,opened):
         self.stop('gate')
-        route='''location = / { return 302 /demo/; }
-location / { proxy_pass http://127.0.0.1:8081; proxy_http_version 1.1;
+        route='''location / { proxy_pass http://127.0.0.1:8081; proxy_http_version 1.1;
 proxy_set_header Host $host; proxy_set_header X-Forwarded-Proto https;
 proxy_set_header X-Forwarded-For $http_x_forwarded_for; proxy_set_header Connection "";
 proxy_buffering off; proxy_request_buffering off; proxy_read_timeout 300s; }''' if opened else 'location / { return 503; }'

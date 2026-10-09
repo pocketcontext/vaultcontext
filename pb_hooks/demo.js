@@ -92,53 +92,25 @@ function checkConfig() {
  config.tables.demo_policy || config.tables.demo_enrollments || (config.tables.users))
   throw new Error('Demo requires its private directory SQL policy');
 }
-function publicDownloads(app) {
- // Artifacts are immutable for the lifetime of this server image. Validate only
- // allowlisted public paths and cache the result; never inspect private files.
- const cached=app.store().get('demoPublicDownloads');
- if(cached!==undefined && cached!==null)return cached;
+function publicInstallation(app) {
+ // The packaged repository launcher is the single source of the tested client pin.
+ // Read only this fixed public source file; never execute it or inspect credentials.
  let result=false;
  try {
-  const file='pb_public/demo/downloads/manifest.json';
-  const bytes=$os.readFile(file);
-  if(bytes.length>16384)throw new Error('manifest too large');
-  const manifest=JSON.parse(toString(bytes));
-  if(manifest.schema!==1 || manifest.package!=='vaultcontext-client' ||
-     !/^[0-9]+\.[0-9]+\.[0-9]+$/.test(manifest.version) ||
-     manifest.release.indexOf(manifest.version+'-')!==0 || !/^[0-9]+\.[0-9]+\.[0-9]+-[a-f0-9]{20}$/.test(manifest.release) ||
-     typeof manifest.origin!=='string' || manifest.origin!==($os.getenv('BASE_URL')||'').replace(/\/$/,'') ||
-     !manifest.artifacts || Object.keys(manifest.artifacts).sort().join(',')!=='launcher,skill,wheel')throw new Error('invalid manifest');
-  const prefix='/demo/downloads/'+manifest.release+'/';
-  const names={wheel:'vaultcontext_client-'+manifest.version+'-py3-none-any.whl',skill:'vaultcontext-skill.tar.gz',launcher:'vaultcontext'};
-  const paths=[];
-  for(const key of ['wheel','skill','launcher']) {
-   const item=manifest.artifacts[key];
-   if(item.path!==prefix+names[key] || !/^[a-f0-9]{64}$/.test(item.sha256) ||
-      !Number.isInteger(item.size) || item.size<1 || item.size>4194304)throw new Error('invalid artifact');
-   const path='pb_public'+item.path;
-   if($os.readFile(path).length!==item.size)throw new Error('artifact size mismatch');
-   paths.push(path);
-  }
-  // Fixed system hash tools read only allowlisted public artifacts. macOS uses
-  // shasum; both tools hash raw bytes and capture output in process memory.
-  let output;
-  try { output=$os.cmd('/usr/bin/sha256sum',...paths).output(); }
-  catch(_) { output=$os.cmd('/usr/bin/shasum','-a','256',...paths).output(); }
-  const lines=toString(output).trim().split('\n');
-  if(lines.length!==3)throw new Error('artifact verification failed');
-  ['wheel','skill','launcher'].forEach((key,index)=>{
-   if(lines[index].slice(0,64)!==manifest.artifacts[key].sha256)throw new Error('artifact checksum mismatch');
-  });
-  result=manifest;
+  const bytes=$os.readFile('skills/vaultcontext/vaultcontext');
+  if(bytes.length>4096)throw new Error('launcher too large');
+  const matches=toString(bytes).match(/vaultcontext-client @ git\+https:\/\/github\.com\/pocketcontext\/vaultcontext\.git@([a-f0-9]{40})"/g);
+  if(!matches || matches.length!==1)throw new Error('invalid client pin');
+  const revision=matches[0].match(/@([a-f0-9]{40})"$/)[1];
+  result={method:'skills',source:'https://github.com/pocketcontext/vaultcontext/tree/vaultcontext-demo/skills/vaultcontext',skill:'vaultcontext',clientRevision:revision};
  } catch(_) { result=false; }
- app.store().set('demoPublicDownloads',result);
  return result;
 }
 function status(e) {
  e.response.header().set('Cache-Control','no-store');
  if(!enabled())return e.json(200,{enabled:false});
- const day=current(e.app),downloads=publicDownloads(e.app);
- return e.json(200,{enabled:true,clientReady:!!downloads,downloads:downloads||null,generation:day,resetAt:new Date(Date.parse(day+'T00:00:00Z')+86400000).toISOString(),termsVersion:TERMS,consentVersion:TERMS,limits:LIMITS});
+ const day=current(e.app),installation=publicInstallation(e.app);
+ return e.json(200,{enabled:true,clientReady:!!installation,installation:installation||null,generation:day,resetAt:new Date(Date.parse(day+'T00:00:00Z')+86400000).toISOString(),termsVersion:TERMS,consentVersion:TERMS,limits:LIMITS});
 }
 function actor(e) {
  if(!enabled())throw new NotFoundError('Demo unavailable.');

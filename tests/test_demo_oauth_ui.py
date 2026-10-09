@@ -12,7 +12,7 @@ class OAuthPopup(unittest.TestCase):
     def test_callback_cancellation_and_cleanup(self):
         program = r"""
 const vm = require('node:vm'), fs = require('node:fs'), assert = require('node:assert/strict');
-const source = fs.readFileSync('pb_public/demo/app.js', 'utf8');
+const source = fs.readFileSync('pb_public/app.js', 'utf8');
 const login = source.slice(source.indexOf('function googleLogin('), source.indexOf('function showOnboarding('));
 const tick = () => new Promise(resolve => setImmediate(resolve));
 async function fixture() {

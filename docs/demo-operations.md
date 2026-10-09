@@ -200,6 +200,9 @@ explicit branch/skill URL; it does not run installation itself. Node.js/npm and 
 are prerequisites. The agent loads the installed skill, uses its pinned launcher,
 and guides the user through browser enrollment, Google login and private terminal
 initialization/unlock. Installation never counts as enrollment or unlock.
-The verified wheel remains the secondary CLI path. Keep all three generated
-artifacts and their readiness/attestation checks; this UX change does not remove
-the public download or deployment recovery contract.
+The page is served directly at `/`; legal pages use `/terms/` and `/privacy/`.
+Old `/demo` and hosted download paths return 404 without compatibility redirects.
+Status installation metadata identifies the public skill and launcher client pin.
+Missing/invalid metadata keeps setup unavailable. This does not probe upstream
+GitHub availability. Existing wheel-backed launchers require replacement.
+The API paths, OAuth callback and three-database recovery contract are unchanged.

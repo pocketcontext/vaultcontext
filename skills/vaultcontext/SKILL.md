@@ -65,8 +65,9 @@ The demo website's coding-agent instructions install this skill with `npx skills
 from the explicit `vaultcontext-demo` branch. The repository default branch may
 carry a different release; use the demo branch for demo setup. Read the installed
 launcher for the exact pinned client revision rather than assuming the branch
-head is the runtime version. A SHA-256-verified wheel and standalone skill bundle
-remain available on the demo website as alternative installation methods.
+head is the runtime version. Check the installed launcher pin against the
+client revision advertised by the demo setup prompt; stop if they differ. The
+demo does not host wheels, launchers or skill archives.
 For setup, check Node.js/npm and uv availability, load this skill and its workflows,
 then configure `VAULTCONTEXT_URL=https://vault-demo.pocketcontext.com` and the
 user's chosen Google email. Have the user complete browser enrollment with that

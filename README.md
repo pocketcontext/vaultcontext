@@ -3,7 +3,7 @@
 The `vaultcontext-demo` branch adds an opt-in disposable public demo. See
 [demo operations](docs/demo-operations.md) for its separate persistent contact
 service, reset controls and deployment prerequisites. The UI lives in
-`pb_public/demo/`; serving that directory alone provides a clearly labelled
+`pb_public/`; serving that directory alone provides a clearly labelled
 interactive preview with no authentication or enrollment storage. The live UI
 activates only after a valid `/api/demo/status` response from an enabled backend.
 Demo users authenticate with any verified Google account, accept the current
@@ -20,51 +20,26 @@ changes. Old clients fail closed on that operation; install the updated package
 before adopting this server change. This branch's repository launcher pins tested
 client commit `78e0308abed01c21ffee5ec6b35a2d037c3f6280`; that Git-based installation
 uses the public repository without GitHub credentials. Demo visitors install the
-skill from the explicit demo branch with `npx skills`, or use the SHA-256-verified
-wheel or standalone skill bundle. Dependencies come from public PyPI.
+skill from the explicit demo branch with `npx skills`. Dependencies come from public PyPI.
 The public Docker deployment image includes the server, hooks, frontend, retention
-service and these approved static download artifacts. Client dependencies are
+service and the public skill launcher used to identify the tested client revision. Client dependencies are
 installed on the visitor's machine, not into the server runtime.
 See [demo validation evidence](docs/demo-validation.md) for the checks and remaining
 provider/deployment gates.
 Use `uv sync --locked` and `uv run --locked vaultcontext` for this checkout.
 
-Public downloads are built from allowlisted source and contain no checkout, Git
-metadata, deployment configuration or credentials. Build locally with:
+The public demo is served directly at `/`, with `/terms/` and `/privacy/`.
+Retired `/demo` and hosted download paths return 404; no compatibility redirects
+or installation archives remain. Existing wheel-backed launchers must be replaced
+with the Git-backed skill. Lock active sessions before replacing their launcher.
 
-```sh
-python3 scripts/build-demo-downloads.py \
-  --output .local/public/demo/downloads \
-  --origin https://vault-demo.pocketcontext.com
-```
-
-The builder uses `uv build`, fixed archive timestamps, a version/content-addressed
-directory, and a `manifest.json` containing artifact paths, byte sizes and SHA-256
-hashes. It also writes `SHA256SUMS`, a standalone launcher and the complete skill
-bundle. Rebuilding identical source for the same origin produces identical bytes.
-Generated binaries are not committed. Docker runs the same builder in a separate
-stage and copies only its output into `pb_public/demo/downloads/`.
-
-The launcher runs `uv run --no-project --with PUBLIC_WHEEL_URL#sha256=HASH`; it never
-fetches a Git repository. The UI uses `npx skills` for agent setup and
-`uv tool install --force` for the CLI. The verified skill archive remains
-available as a standalone alternative. Lock active
-sessions before replacing either client or skill; installation never unlocks.
-
-`/api/demo/status` advertises client readiness only after validating the local
-manifest, exact `BASE_URL` origin, all three artifact sizes and SHA-256 checksums.
-The Linux image uses `/usr/bin/sha256sum` on those fixed public artifact paths and
-caches the result for its lifetime. Missing, corrupt or mismatched downloads keep
-installation unavailable. The browser independently validates the same-origin
-manifest structure before displaying commands. A static preview never enables
-installation from its own simulated sign-in.
-
-For isolated installation tests, a loopback HTTP `--origin` is allowed. Place
-output under a temporary web root's `demo/downloads/` and serve that web root;
-remote builds require HTTPS. The image build argument `DEMO_PUBLIC_ORIGIN` defaults
-to `https://vault-demo.pocketcontext.com` and must match the deployment's `BASE_URL`.
-Publishing a wheel or bundle is an intentional public client release, independent
-of repository visibility; it does not change repository visibility or deploy a server.
+`/api/demo/status` advertises `installation` with method `skills`, the public
+branch-specific skill source, skill name, and `clientRevision`. The revision is
+read from the packaged repository launcher. Missing or malformed launcher metadata
+keeps `clientReady` false; the browser validates the contract before showing setup.
+This is a configured installation contract, not a live probe of GitHub or npm.
+The coding agent checks the installed launcher pin against the advertised revision.
+Installation requires Node.js/npm, uv and public GitHub/PyPI connectivity.
 
 Additional isolated validation:
 
@@ -72,13 +47,13 @@ Additional isolated validation:
 uv run --locked python -m unittest discover -s tests -p 'test_demo_*.py'
 uv run --locked python tests/demo_backend.py --binary /path/to/pinned/pocketcontext
 uv run --locked python tests/identity_rewrap.py --binary /path/to/pinned/pocketcontext
-uv run --locked python -m unittest discover -s tests -p test_demo_downloads.py
+uv run --locked python -m unittest discover -s tests -p test_demo_installation.py
 uv run --with playwright==1.60.0 python tests/demo_website.py
 ```
 
 Current release controls and platform coverage: [common CI and deployment contract](docs/ci-and-deployment.md).
 
-Encrypted personal and shared file vaults for humans and coding agents, built on PocketContext. Any file type is accepted as exact opaque bytes, initially up to 8 MiB per file. Names and descriptive metadata are encrypted too. A CLI and portable skill provide the file interface. A public single-page website provides product information and a guided onboarding manual; it does not authenticate, unlock vaults or access application data. Clipperz inspired the architecture; no Clipperz code or compatibility is included.
+Encrypted personal and shared file vaults for humans and coding agents, built on PocketContext. Any file type is accepted as exact opaque bytes, initially up to 8 MiB per file. Names and descriptive metadata are encrypted too. A CLI and portable skill provide the file interface. The public demo page provides Google authentication, enrollment and a coding-agent onboarding prompt; encrypted file operations and unlocking stay in the client. Clipperz inspired the architecture; no Clipperz code or compatibility is included.
 
 ## Access and keys
 
@@ -92,56 +67,20 @@ See [implementation brief](docs/implementation-brief.md), [data and trust model]
 
 ## Onboarding page
 
-The hand-maintained static page lives in `pb_public/` and is served at `/` by the application-owned `pb_hooks/frontend.pb.js` hook. The container includes these assets. No frontend build is required. Optional production-only analytics are described below. Open Graph and Twitter large-image metadata reference the public `pb_public/og-card.png` (1730 × 909); its URL and the canonical page URL use the production origin. The built-in image generator created the card; its prompt is recorded in `docs/social-card-prompt.txt`.
+The hand-maintained demo page in `pb_public/` is served at `/` by the
+application-owned frontend hook. Legal pages are `/terms/` and `/privacy/`.
+No frontend build is required. Serve `pb_public` with a local static HTTP server
+for a disconnected, synthetic preview. The page activates live authentication
+only after validating `/api/demo/status`.
 
-For a page-only local preview, run `python3 -m http.server 8769 --bind 127.0.0.1 --directory pb_public`. Expose only this public directory when sharing a temporary preview.
-
-Keep onboarding commands aligned with the portable client and `skills/vaultcontext/references/workflows.md`. After edits, check desktop/mobile layout, keyboard disclosures, installation method switching and clipboard success/failure. Validate routing and security headers with the pinned server in an isolated temporary database before release. The “Bring your files to another computer” guide demonstrates explicit prefix mapping, comparison reports, selected version-pinned restores and verification with synthetic examples. Company-specific onboarding stays in WikiContext.
-
-## Public website analytics
-
-Tracking runs only on the exact origin `https://vault.pocketcontext.com` and root
-page `/`, after the visitor chooses **Allow analytics**. Localhost, forks,
-previews, alternate ports and self-hosted deployments load no analytics services,
-even with a remembered choice. **Analytics settings** in the footer lets visitors
-withdraw; the browser stores only the choice until analytics is accepted.
-
-The page reuses PocketContext's public GA4 measurement ID `G-1X0FZLTWGE` and
-Rybbit site ID `d8b36ba4a63f`. These are public routing identifiers, not credentials.
-Rybbit receives explicit `/api/track` requests, without loading its script or
-session recorder. GA4 loads in an empty same-origin frame only after acceptance;
-its automatic capture operates on a blank document instead of the guide. Ads storage,
-ad personalization and Google signals are disabled. Google analytics cookies use
-a VaultContext-specific prefix and host. Withdrawal removes the frame and those
-cookies, and stops new application events; it cannot recall already sent events.
-
-Explicit events are `page_view`, `onboarding_open`, `onboarding_method` and
-`onboarding_copy`. The shared GA4 property can also emit automatic scroll or
-engagement events for the empty frame; filter to the explicit event names when
-measuring guide use. The frame isolates automatic capture, not untrusted scripts. Custom events contain only an allowlisted `target` such as
-`compare_prompt` or `restore_commands`. Copy events mean a successful clipboard
-write, not a completed CLI operation. Requests use a fixed root page URL/title
-and omit query strings, fragments and referrers. No contents, local paths,
-clipboard text, identities or vault operations enter analytics. Providers still
-receive ordinary network metadata; browser blocking can reduce reported counts.
-
-Filter both dashboards by **Hostname equals `vault.pocketcontext.com`**.
-In Rybbit, use the site dashboard filter and save a segment where supported.
-In GA4, create a Free form exploration, import Hostname, then apply the exact
-hostname filter. These are reporting filters; the origin guard controls collection.
-Existing marketing-site tracking settings are not changed by this integration.
-
-Public JS/CSS references include a `v` query containing the first 12 characters
-of that asset's SHA-256. Update the HTML reference whenever its asset changes;
-the browser check verifies these versions. The container smoke gate verifies
-all public assets, including both analytics-frame files, match source exactly.
-
-Run the offline browser checks (all provider traffic is intercepted):
+The root page has one coding-agent setup prompt and no installation-method switch.
+It loads no analytics or third-party scripts. The vendored PocketBase SDK is
+same-origin. JavaScript and CSS URLs carry SHA-256 cache versions; refresh their
+HTML references after edits. Check mobile layout, keyboard disclosures, clipboard
+success/failure, auth restoration, consent and daily reset with:
 
 ```sh
-uv run --with playwright==1.60.0 python -m playwright install chromium
-uv run --with playwright==1.60.0 python tests/website_analytics.py
-# With an installed Chrome instead: PLAYWRIGHT_CHANNEL=chrome uv run --with playwright==1.60.0 python tests/website_analytics.py
+uv run --with playwright==1.60.0 python tests/demo_website.py
 ```
 
 ## Local server
@@ -174,7 +113,7 @@ selects the demo-compatible instructions; the short `pocketcontext/vaultcontext`
 source currently selects a different default-branch release. The repository is
 public and installation needs no GitHub credentials. Enrollment and Google login
 are separate from installation; passphrases stay in the user's private terminal.
-The demo still offers a verified wheel and standalone bundle for manual installs.
+The demo does not host client downloads; use the installed skill launcher.
 
 To use a launcher from a checkout directly, install [uv](https://docs.astral.sh/uv/getting-started/installation/)
 and copy it onto PATH:
@@ -259,7 +198,7 @@ uv run --locked python tests/deploy_workflow.py
 
 Container configuration, smoke and populated complete-restore checks gate image publication; see deployment documentation for commands. Real Google browser/provider configuration and independent security review are separate from synthetic tests. Actual verification results and remaining limitations are recorded in `docs/validation.md`.
 
-VaultContext is deployed at `https://vault.pocketcontext.com`; see [release evidence](DEPLOYMENT.md). The source repository and Docker deployment image are public. This demo branch also packages the approved client wheel and skill bundle as public static downloads, without installing the client into the server runtime. The image workflow supports automatic production deployment after successful publication through the `once-pocketcontext-v2` restricted dispatcher. `CONTEXT_DEPLOY_PAUSED=true` pauses deployment without pausing CI or publication; see [deployment controls](docs/deployment.md#single-writer-updates-and-rollback).
+VaultContext is deployed at `https://vault.pocketcontext.com`; see [release evidence](DEPLOYMENT.md). The source repository and Docker deployment image are public. This demo branch advertises the public Git-backed skill; it does not host client downloads or install the client into the server runtime. The image workflow supports automatic production deployment after successful publication through the `once-pocketcontext-v2` restricted dispatcher. `CONTEXT_DEPLOY_PAUSED=true` pauses deployment without pausing CI or publication; see [deployment controls](docs/deployment.md#single-writer-updates-and-rollback).
 
 Identity, OAuth and deployment patterns are adapted from RaiseContext; filtered access and complete-original backup patterns follow AccountContext. Their domain schemas and readers are not copied.
 

@@ -7,4 +7,3 @@ __pycache__/
 *.log
 dist/
 .local/
-pb_public/demo/downloads/

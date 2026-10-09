@@ -76,39 +76,41 @@ class DeploymentTests(unittest.TestCase):
                     self.assertEqual(call['args'],['-T','-o','BatchMode=yes','-o','StrictHostKeyChecking=yes','-o','ConnectTimeout=15','deploy@192.0.2.1'])
                     self.assertEqual(call['request'],{'revision':'c'*40,'image':'ghcr.io/pocketcontext/vaultcontext@sha256:'+'a'*64})
 
-    def test_public_attestation_rejects_stale_corrupt_and_foreign_artifacts(self):
-        import hashlib
+    def test_public_attestation_rejects_stale_assets_contracts_and_old_routes(self):
         import io
+        import re
         from unittest.mock import patch
         from datetime import datetime, timezone
-        program=demo_script('Attest public demo assets and downloads',DEMO_DEPLOY).split("python3 - <<'PY'\n",1)[1].rsplit('\nPY',1)[0]
+        from urllib.error import HTTPError
+        program=demo_script('Attest root demo assets and installation',DEMO_DEPLOY).split("python3 - <<'PY'\n",1)[1].rsplit('\nPY',1)[0]
         origin='https://vault-demo.pocketcontext.com'
-        release='0.1.0-'+'a'*20
-        for mode in ('success','generation','asset','artifact','foreign','unready'):
+        pin=re.search(r'vaultcontext\.git@([0-9a-f]{40})',(ROOT/'skills/vaultcontext/vaultcontext').read_text()).group(1)
+        for mode in ('success','generation','asset','pin','foreign','unready','legacy'):
             with self.subTest(mode=mode):
-                manifest={'schema':1,'origin':origin,'package':'vaultcontext-client','version':'0.1.0','release':release,'artifacts':{}}
+                installation={'method':'skills','skill':'vaultcontext',
+                    'source':'https://github.com/pocketcontext/vaultcontext/tree/vaultcontext-demo/skills/vaultcontext',
+                    'clientRevision':pin}
+                if mode=='foreign':installation['source']='https://foreign.example/skill'
+                if mode=='pin':installation['clientRevision']='0'*40
                 responses={}
-                for key,name in {'wheel':'vaultcontext_client-0.1.0-py3-none-any.whl','skill':'vaultcontext-skill.tar.gz','launcher':'vaultcontext'}.items():
-                    body=b'synthetic-'+key.encode(); path='/demo/downloads/'+release+'/'+name
-                    manifest['artifacts'][key]={'path':path,'sha256':hashlib.sha256(body).hexdigest(),'size':len(body)}
-                    responses[path]=body
-                if mode=='foreign':manifest['artifacts']['wheel']['path']='https://foreign.example/wheel'
-                if mode=='artifact':responses[manifest['artifacts']['wheel']['path']]=b'corrupt'
-                for name in ('index.html','app.js','styles.css'):
-                    responses['/demo/'+name]=(ROOT/'pb_public/demo'/name).read_bytes()
-                if mode=='asset':responses['/demo/app.js']=b'stale'
-                status={'enabled':True,'clientReady':mode!='unready','generation':'2000-01-01' if mode=='generation' else datetime.now(timezone.utc).date().isoformat(),'downloads':manifest}
+                for path,name in (('/','index.html'),('/app.js','app.js'),('/styles.css','styles.css'),
+                                  ('/terms/','terms/index.html'),('/privacy/','privacy/index.html'),
+                                  ('/vendor/pocketbase.es.mjs','vendor/pocketbase.es.mjs')):
+                    responses[path]=(ROOT/'pb_public'/name).read_bytes()
+                if mode=='asset':responses['/app.js']=b'stale'
+                if mode=='legacy':responses['/demo/']=b'old'
+                status={'enabled':True,'clientReady':mode!='unready','generation':'2000-01-01' if mode=='generation' else datetime.now(timezone.utc).date().isoformat(),'installation':installation}
                 responses['/api/demo/status']=json.dumps(status).encode()
                 def fetch(request,timeout):
                     self.assertEqual(request.get_header('User-agent'),'VaultContext-Demo-Release-Check/1.0')
                     url=request.full_url
                     self.assertTrue(url.startswith(origin+'/'))
-                    data=io.BytesIO(responses[url.removeprefix(origin)])
-                    data.status=200;data.geturl=lambda:url
+                    path=url.removeprefix(origin)
+                    if path not in responses:raise HTTPError(url,404,'Not found',{},None)
+                    data=io.BytesIO(responses[path]);data.status=200;data.geturl=lambda:url
                     return data
                 with patch('urllib.request.urlopen',side_effect=fetch),patch('time.sleep'),patch('builtins.print'):
-                    original=os.getcwd()
-                    os.chdir(ROOT)
+                    original=os.getcwd();os.chdir(ROOT)
                     try:
                         if mode=='success':exec(program,{})
                         else:

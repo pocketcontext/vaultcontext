@@ -71,3 +71,12 @@ This was not a comprehensive secret audit: deployment/credential paths,
 untracked files, remote-only history and organization settings were excluded.
 PR workflows have read-only permissions and do not publish or deploy. No
 project-level license has been selected; vendor licenses remain unchanged.
+
+## Root-path / skill-only release
+
+This release supersedes the hosted-wheel and archive installation evidence above.
+The demo is served at `/` with root legal pages. Old `/demo` and download routes
+return 404, including direct old asset URLs. Installation is advertised through
+the public skill source and a client revision derived from the packaged launcher.
+No hosted client artifacts are built or served. API access control and the
+three-database reset/recovery boundaries are unchanged.
