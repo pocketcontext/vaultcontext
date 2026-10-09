@@ -183,7 +183,7 @@ def main(argv=None):
             s.check_records(recovered,doc,meta); s.check_records(recovered,late_doc,late_meta)
             check_foreign(base)
             text=s.logs(third)
-            s.check('database restored and remote originals verified' in text and
+            s.check('databases restored and remote originals verified' in text and
                     'restored verified database and originals' not in text,
                     'empty-volume entrypoint restores main SQLite only through Litestream')
             s.check('initial replica synchronization complete' in text,'automatic restore synchronizes before serving')
