@@ -72,8 +72,8 @@ def environment(path):
         raise ResetError('dedicated durable contact replica bucket required')
     if len({values[key] for key in ('VAULTCONTEXT_S3_BUCKET','LITESTREAM_BUCKET','CONTACTS_LITESTREAM_BUCKET')})!=3 or len({values[key] for key in ('VAULTCONTEXT_S3_ACCESS_KEY_ID','LITESTREAM_ACCESS_KEY_ID','CONTACTS_LITESTREAM_ACCESS_KEY_ID')})!=3:
         raise ResetError('all three storage buckets and credential identities must be distinct')
-    hours=values.get('CONTACTS_LITESTREAM_RETENTION_HOURS','720')
-    if not hours.isdigit() or not 1<=int(hours)<=720:raise ResetError('contact snapshot retention must be 1..720 hours')
+    hours=values.get('CONTACTS_LITESTREAM_RETENTION_HOURS','672')
+    if not hours.isdigit() or not 1<=int(hours)<=672:raise ResetError('contact snapshot retention must be 1..672 hours')
     if len(values['VAULTCONTEXT_DEMO_CONTACT_TOKEN']) < 32:
         raise ResetError('strong private contact token required')
     return values

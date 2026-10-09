@@ -44,7 +44,7 @@ class ResetTests(unittest.TestCase):
         (self.root / 'persistent/contacts.db').write_bytes(b'keep-synthetic')
         self.cfg = {'deployment': 'vaultcontext-demo', 'origin': 'http://127.0.0.1:8769',
                     'root': str(self.root), 'storage': {'kind': 'local'},
-                    'hooks': {name: ['/bin/true'] for name in ('fence','stop','assert_stopped','initialize','start','health','unfence')}}
+                    'hooks': {name: [sys.executable, '-c', 'raise SystemExit(0)'] for name in ('fence','stop','assert_stopped','initialize','start','health','unfence')}}
         self.config = self.root / 'config.json'
         self.config.write_text(json.dumps(self.cfg))
         self.config.chmod(0o600)
@@ -59,17 +59,17 @@ class ResetTests(unittest.TestCase):
         self.assertFalse((self.root / 'control/reset-pending.json').exists())
 
     def test_failure_retains_fence_and_resume(self):
-        self.cfg['hooks']['health'] = ['/bin/false']
+        self.cfg['hooks']['health'] = [sys.executable, '-c', 'raise SystemExit(1)']
         with self.assertRaises(reset.ResetError):
             reset.reset(self.cfg, '2026-10-10')
         self.assertTrue((self.root / 'control/reset-pending.json').exists())
         with self.assertRaises(reset.ResetError):
             reset.reset(self.cfg, '2026-10-11')
-        self.cfg['hooks']['health'] = ['/bin/true']
+        self.cfg['hooks']['health'] = [sys.executable, '-c', 'raise SystemExit(0)']
         self.assertTrue(reset.reset(self.cfg, '2026-10-10')['reset'])
 
     def test_stop_failure_never_deletes(self):
-        self.cfg['hooks']['assert_stopped'] = ['/bin/false']
+        self.cfg['hooks']['assert_stopped'] = [sys.executable, '-c', 'raise SystemExit(1)']
         with self.assertRaises(reset.ResetError):
             reset.reset(self.cfg, '2026-10-10')
         self.assertTrue((self.root / 'runtime/pb_data/data.db').exists())

@@ -2,6 +2,7 @@
 """Replicate and restore the isolated durable demo contact database with Litestream."""
 import argparse
 import ctypes
+from datetime import datetime
 from contextlib import closing
 import fcntl
 import hashlib
@@ -92,9 +93,9 @@ class Replica:
         self.socket=self.root/'litestream.sock';self.fence=self.root/'migration-fenced.json'
         self.manifest=self.root/'contact-handoff.json'
         self.env=child_environment(os.environ)
-        hours=self.env.get('CONTACTS_LITESTREAM_RETENTION_HOURS','720')
-        if not re.fullmatch(r'[0-9]+',hours) or not 1<=int(hours)<=720:
-            raise ReplicaError('contact replica retention must be finite, from 1 to 720 hours')
+        hours=self.env.get('CONTACTS_LITESTREAM_RETENTION_HOURS','672')
+        if not re.fullmatch(r'[0-9]+',hours) or not 1<=int(hours)<=672:
+            raise ReplicaError('contact replica retention must be finite, from 1 to 672 hours')
         self.env['CONTACTS_LITESTREAM_RETENTION_HOURS']=hours
         self.env.setdefault('CONTACTS_LITESTREAM_SYNC_INTERVAL','1s')
         if not re.fullmatch(r'[1-9][0-9]?[sm]',self.env['CONTACTS_LITESTREAM_SYNC_INTERVAL']):
@@ -243,6 +244,31 @@ class Replica:
         if actual!=expected:raise ReplicaError('contact final replica does not match local state')
         return expected
 
+    def audit_replica_age(self,now=None):
+        # Native LTX metadata only: no object names/credentials enter output or logs.
+        # This checks current Litestream files, not provider versions or hidden backups.
+        now=time.time() if now is None else now
+        try:
+            result=subprocess.run([self.litestream,'ltx','-config',self.config,'-level','all','-json',str(self.database)],
+                env=self.env,stdin=subprocess.DEVNULL,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,timeout=90)
+            if result.returncode or len(result.stdout)>16*1024*1024:raise ValueError()
+            rows=json.loads(result.stdout)
+            if not isinstance(rows,list) or not rows:raise ValueError()
+            ages=[(row['level'],now-datetime.fromisoformat(row['timestamp'].replace('Z','+00:00')).timestamp()) for row in rows]
+            if any(age < -300 or age > 29*86400 for _,age in ages):raise ValueError()
+            if not any(level==9 and -300<=age<=300 for level,age in ages):raise ValueError()
+        except Exception:
+            raise ReplicaError('contact replica age or fresh snapshot verification failed') from None
+        return {'checkedAt':int(now),'oldestListedAgeSeconds':int(max(age for _,age in ages))}
+
+    def refresh_replica(self):
+        # Caller drains HTTP and stops its daemon first. The pinned binary rewrites
+        # even an unchanged snapshot; scheduled snapshots alone skip idle databases.
+        self.command(['replicate','-config',self.config,'-once','-force-snapshot','-enforce-retention'],timeout=180)
+        self.verify_remote()
+        report=self.audit_replica_age()
+        atomic(self.root/'replica-retention-check.json',report)
+
     def run(self,mode):
         fd=os.open(self.root/'replication.lock',os.O_RDWR|os.O_CREAT|os.O_NOFOLLOW,0o600)
         with os.fdopen(fd,'w') as lock:
@@ -253,6 +279,7 @@ class Replica:
             previous={sig:signal.signal(sig,lambda _s,_f:self.shutdown.set()) for sig in (signal.SIGTERM,signal.SIGINT)}
             manifest_value=None
             try:
+                self.refresh_replica()
                 self.replicate()
                 if mode in ('init','adopt-handoff'):
                     self.verify_remote()
@@ -266,9 +293,19 @@ class Replica:
                 self.application=subprocess.Popen([sys.executable,self.service,'--database',str(self.database),'--port',str(self.port)],
                     env=app_env,stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,
                     preexec_fn=lambda:parent_death_guard(parent))
+                next_refresh=time.monotonic()+86400
                 while not self.shutdown.wait(.1):
                     if self.replication.poll() is not None or self.application.poll() is not None:
                         raise ReplicaError('contact service or replication process exited')
+                    if time.monotonic()>=next_refresh:
+                        self.stop(self.application);self.application=None
+                        self.stop(self.replication);self.replication=None
+                        self.refresh_replica()
+                        self.replicate()
+                        self.application=subprocess.Popen([sys.executable,self.service,'--database',str(self.database),'--port',str(self.port)],
+                            env=app_env,stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,
+                            preexec_fn=lambda:parent_death_guard(parent))
+                        next_refresh=time.monotonic()+86400
                 self.stop(self.application);self.application=None
                 self.sync()
                 digest=self.verify_remote()

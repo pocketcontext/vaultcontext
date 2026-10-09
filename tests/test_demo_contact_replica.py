@@ -13,7 +13,7 @@ import time
 import unittest
 from urllib.error import HTTPError, URLError
 from urllib.request import Request,urlopen
-from unittest.mock import patch
+from unittest.mock import patch, Mock
 
 ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT/'deploy/demo'))
@@ -66,9 +66,35 @@ class ContactReplicaTests(unittest.TestCase):
                 proc.stderr.close()
 
     def test_retention_bound(self):
-        with tempfile.TemporaryDirectory() as tmp,patch.dict(os.environ,{'CONTACTS_LITESTREAM_RETENTION_HOURS':'721'}):
+        with tempfile.TemporaryDirectory() as tmp,patch.dict(os.environ,{'CONTACTS_LITESTREAM_RETENTION_HOURS':'673'}):
             with self.assertRaises(replica.ReplicaError):
                 replica.Replica(Path(tmp)/'state/contacts.db','unused','unused','unused',local_replica=Path(tmp)/'replica')
+
+    def test_age_audit_rejects_old_missing_or_unreadable_snapshot(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            value=replica.Replica(Path(tmp)/'state/contacts.db','unused','unused','unused',local_replica=Path(tmp)/'remote')
+            now=1800000000
+            def row(level,age):
+                from datetime import datetime,timezone
+                return {'level':level,'timestamp':datetime.fromtimestamp(now-age,timezone.utc).isoformat()}
+            for rows,ok in [([row(9,0),row(0,28*86400)],True),([row(9,0),row(0,29*86400+1)],False),
+                            ([row(9,301)],False),([row(0,0)],False),([],False),([row(9,-301)],False)]:
+                result=Mock(returncode=0,stdout=json.dumps(rows).encode())
+                with patch.object(replica.subprocess,'run',return_value=result):
+                    if ok:self.assertEqual(value.audit_replica_age(now)['oldestListedAgeSeconds'],28*86400)
+                    else:
+                        with self.assertRaises(replica.ReplicaError):value.audit_replica_age(now)
+
+    def test_refresh_orders_snapshot_restore_age_before_success_marker(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            value=replica.Replica(Path(tmp)/'state/contacts.db','unused','unused','unused',local_replica=Path(tmp)/'remote')
+            events=[]
+            with patch.object(value,'command',side_effect=lambda *a,**kw:events.append('snapshot')), \
+                 patch.object(value,'verify_remote',side_effect=lambda:events.append('restore')), \
+                 patch.object(value,'audit_replica_age',side_effect=replica.ReplicaError('synthetic')):
+                with self.assertRaises(replica.ReplicaError):value.refresh_replica()
+            self.assertEqual(events,['snapshot','restore'])
+            self.assertFalse((value.root/'replica-retention-check.json').exists())
 
 class RealContactReplicaTests(unittest.TestCase):
     @unittest.skipUnless((os.environ.get('VAULTCONTEXT_DEMO_TEST_LITESTREAM') or os.environ.get('VAULTCONTEXT_TEST_LITESTREAM')),'set verified pinned Litestream binary')
@@ -101,6 +127,15 @@ class RealContactReplicaTests(unittest.TestCase):
                     time.sleep(.1)
                 proc.terminate();proc.wait(timeout=60);self.fail('service not ready')
             once('init',source)
+            # Refresh an idle unchanged snapshot; the scheduled snapshot path skips
+            # unchanged TXIDs, but explicit -force-snapshot must rewrite it.
+            value=replica.Replica(source/'contacts.db','unused',binary,service,local_replica=remote)
+            old_snapshots=list(remote.glob('**/9/**/*.ltx'))
+            self.assertTrue(old_snapshots)
+            for snapshot in old_snapshots:os.utime(snapshot,(time.time()-31*86400,)*2)
+            value.refresh_replica()
+            self.assertTrue(all(time.time()-snapshot.stat().st_mtime<300 for snapshot in old_snapshots))
+            self.assertTrue((source/'replica-retention-check.json').exists())
             proc=launch(source)
             try:
                 body={'subject':'synthetic-google','email':'synthetic@example.test','salesContact':True,'newsletter':True,

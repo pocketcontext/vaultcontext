@@ -1,3 +1,4 @@
+# Native horizon capped at 28 days; supervisor refreshes idle snapshots daily.
 # Dedicated durable contact replica. Never shares daily-reset storage or credentials.
 socket:
   enabled: true

@@ -24,7 +24,7 @@ External VM snapshots, provider backups, monitoring exports, caches and prior ma
 
 The application entrypoint generates a two-database Litestream configuration only in demo mode. Production retains its existing configuration. Startup requires both demo databases, checks their integrity and stored UTC generation, and waits for both replicas before serving. Restores stage both databases before installation; interrupted installation leaves a durable fence. Restoring yesterday's generation cannot extend its deadline. Uploaded ciphertext remains in the primary object bucket and is verified independently; Litestream replicates SQLite, not those files.
 
-The contact supervisor is `deploy/demo/contact_replica.py`, using `contact-litestream.yml`. Its `CONTACTS_LITESTREAM_*` variables cover `BUCKET`, `ENDPOINT`, `REGION`, `PATH`, `ACCESS_KEY_ID`, and `SECRET_ACCESS_KEY`. The default sync interval is `1s`; snapshot retention defaults to `720` hours and cannot exceed that limit. Contacts use their own Litestream process and private control socket. Neither contact credentials nor the database belong in the application container's disposable storage.
+The contact supervisor is `deploy/demo/contact_replica.py`, using `contact-litestream.yml`. Its `CONTACTS_LITESTREAM_*` variables cover `BUCKET`, `ENDPOINT`, `REGION`, `PATH`, `ACCESS_KEY_ID`, and `SECRET_ACCESS_KEY`. The default sync interval is `1s`; snapshot retention defaults to `672` hours and cannot exceed that limit. Contacts use their own Litestream process and private control socket. Neither contact credentials nor the database belong in the application container's disposable storage.
 
 Replication is asynchronous and does not supply an atomic snapshot across databases. A planned migration must stop all writers, synchronize and verify all three replicas, and preserve an explicit handoff before the destination accepts traffic. It must also preserve primary-object access and the current generation. A disk failure can lose writes that have not reached a replica.
 
@@ -163,3 +163,16 @@ The manifests attest verified final database state; they are not a distributed f
 ## Operator details for the test
 
 The user supplied Alberto Miorin (an individual, not an incorporated company), alberto.miorin@pocketcontext.com, and the correspondence address c/o Engelnest Coworking Space and Event Venue, Wilhelm-Kabus-Straße 24, 10829 Berlin, Germany. The user authorized proceeding with the test after stating that permission to publish/use the venue address has not been confirmed. This is an unresolved address verification issue, not an attestation of a registered office or legal compliance.
+
+Contact replica retention checks use pinned Litestream 0.5.17: native snapshot
+retention is capped at 672 hours (28 days). Before serving, and daily while
+running, the supervisor drains its HTTP writer, stops replication, forces an
+idle-safe snapshot, enforces native retention, restores and compares the logical
+database digest, and checks listed LTX timestamps. A missing fresh snapshot or
+listed file older than 29 days stops the contact service. The private
+`replica-retention-check.json` records only check time and maximum listed age.
+This is a monitored release safeguard, not proof of provider physical deletion:
+unknown objects, provider copies, long outages, and conservative native retention
+floors require operator review. No blanket provider TTL may destroy the last
+recoverable baseline. Daily refresh briefly makes contact endpoints unavailable;
+clients can retry. Failure needs recovery review before restarting.
