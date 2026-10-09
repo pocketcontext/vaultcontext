@@ -234,7 +234,10 @@ jobs:
           test "$#" -eq 2
           sources=()
           for digest in "$@"; do
-            [[ "$digest" =~ ^[0-9a-f]{64}$ ]]
+            if [[ ! "$digest" =~ ^[0-9a-f]{64}$ ]]; then
+              echo 'Invalid platform image digest.' >&2
+              exit 1
+            fi
             sources+=("$IMAGE@sha256:$digest")
           done
           docker buildx imagetools create \
@@ -243,7 +246,10 @@ jobs:
             --tag "$IMAGE:demo-sha-$GITHUB_SHA" \
             "${sources[@]}"
           digest=$(jq -er '."containerimage.descriptor".digest' "$RUNNER_TEMP/demo-manifest.json")
-          [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+          if [[ ! "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo 'Invalid multi-platform image digest.' >&2
+            exit 1
+          fi
           printf 'digest=%s\n' "$digest" >> "$GITHUB_OUTPUT"
           printf 'Demo image: %s@%s\n' "$IMAGE" "$digest" >> "$GITHUB_STEP_SUMMARY"
       - name: Show the immutable demo image
