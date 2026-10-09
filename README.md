@@ -18,7 +18,7 @@ and bounded security logs live outside the daily reset.
 This branch also requires identity-key signatures for non-demo passphrase
 changes. Old clients fail closed on that operation; install the updated package
 before adopting this server change. This branch's repository launcher pins tested
-client commit `eadfcf601d522690cee1d68b616294ce27c390de`; that Git-based installation
+client commit `78e0308abed01c21ffee5ec6b35a2d037c3f6280`; that Git-based installation
 requires authorized access to the private repository. Public demo visitors instead
 install a versioned wheel or skill bundle from the demo website, with SHA-256
 verification and public PyPI dependencies. Repository visibility is unchanged.
