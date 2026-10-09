@@ -100,6 +100,8 @@ class DockerDemoTests(unittest.TestCase):
         config=(self.root/'control/nginx.conf').read_text()
         self.assertIn('proxy_set_header X-Forwarded-For $http_x_forwarded_for;',config)
         self.assertNotIn('$proxy_add_x_forwarded_for',config)
+        self.assertIn('location = / { return 302 /demo/; }',config)
+        self.assertIn('location / {\n   proxy_pass http://127.0.0.1:80;',config)
         self.assertIn('proxy_set_header X-Forwarded-Proto https;',config)
         for module_name in ('client_body','proxy','fastcgi','uwsgi','scgi'):
             self.assertRegex(config, module_name+r'_temp_path /tmp/[a-z]+;')

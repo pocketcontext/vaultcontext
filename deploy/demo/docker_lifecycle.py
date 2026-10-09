@@ -509,6 +509,7 @@ http {
  server {
   listen 8080;
   client_max_body_size 14m;
+  location = / { return 302 /demo/; }
   location / {
    proxy_pass http://127.0.0.1:80;
    proxy_http_version 1.1;
