@@ -269,13 +269,19 @@ class Replica:
         report=self.audit_replica_age()
         atomic(self.root/'replica-retention-check.json',report)
 
+    def startup_maintenance(self,mode):
+        # The ONCE supervisor owns 00:05 maintenance after baseline validation.
+        # Candidate/adoption startup must not expire rows before that comparison.
+        if mode=='start' and self.env.get('VAULTCONTEXT_DEMO_ONCE_CHILD')!='contacts':
+            self.store().maintenance()
+
     def run(self,mode):
         fd=os.open(self.root/'replication.lock',os.O_RDWR|os.O_CREAT|os.O_NOFOLLOW,0o600)
         with os.fdopen(fd,'w') as lock:
             try:fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
             except BlockingIOError:raise ReplicaError('another contact replica process is active') from None
             self.prepare(mode)
-            if mode=='start':self.store().maintenance()
+            self.startup_maintenance(mode)
             previous={sig:signal.signal(sig,lambda _s,_f:self.shutdown.set()) for sig in (signal.SIGTERM,signal.SIGINT)}
             manifest_value=None
             try:

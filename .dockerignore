@@ -33,3 +33,6 @@ pb_public/demo/downloads/
 !skills/vaultcontext/references/schema.md
 !skills/vaultcontext/references/workflows.md
 !scripts/build-demo-downloads.py
+
+!deploy/demo/once_runtime.py
+!deploy/demo/reset.py

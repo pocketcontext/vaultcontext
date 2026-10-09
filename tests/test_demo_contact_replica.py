@@ -65,6 +65,20 @@ class ContactReplicaTests(unittest.TestCase):
                 if proc.poll() is None:proc.terminate();proc.wait(timeout=5)
                 proc.stderr.close()
 
+    def test_once_start_preserves_expired_rows_until_supervisor_maintenance(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp)/'state';root.mkdir(mode=0o700)
+            value=replica.Replica(root/'contacts.db','unused','unused',ROOT/'deploy/demo/retention.py',local_replica=Path(tmp)/'replica')
+            store=retention.Store(root/'contacts.db')
+            store.enroll({'subject':'synthetic-expired','email':'synthetic@example.test','salesContact':False,'newsletter':False,
+                          'termsVersion':'test','consentVersion':'test','expectedRevision':0},now=1)
+            value.env['VAULTCONTEXT_DEMO_ONCE_CHILD']='contacts'
+            value.startup_maintenance('start')
+            self.assertEqual(store.preferences('synthetic-expired')['revision'],1)
+            value.env.pop('VAULTCONTEXT_DEMO_ONCE_CHILD')
+            value.startup_maintenance('start')
+            self.assertEqual(store.preferences('synthetic-expired')['revision'],0)
+
     def test_retention_bound(self):
         with tempfile.TemporaryDirectory() as tmp,patch.dict(os.environ,{'CONTACTS_LITESTREAM_RETENTION_HOURS':'673'}):
             with self.assertRaises(replica.ReplicaError):

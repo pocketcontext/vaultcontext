@@ -27,3 +27,24 @@ class DemoFenceTests(unittest.TestCase):
     def test_fence_must_live_outside_disposable_database(self):
         with patch.dict(os.environ,{'VAULTCONTEXT_DEMO_MODE':'true','VAULTCONTEXT_DEMO_RESET_FENCE':str(runtime.DATA/'fence')},clear=True), self.assertRaises(runtime.StartupError):
             runtime.demo_fence('start')
+
+class OnceEntrypointTests(unittest.TestCase):
+    def test_once_child_uses_isolated_pair_and_loopback(self):
+        with tempfile.TemporaryDirectory() as tmp, patch.dict(os.environ,{'VAULTCONTEXT_DEMO_ONCE':'true','VAULTCONTEXT_DEMO_ONCE_CHILD':'app','VAULTCONTEXT_DEMO_ONCE_ROOT':tmp,'VAULTCONTEXT_DEMO_MODE':'true','LITESTREAM_PATH':'demo/data'},clear=True):
+            child=importlib.util.module_from_spec(spec);spec.loader.exec_module(child)
+            self.assertEqual(child.DATA,Path(tmp)/'runtime/pb_data')
+            child.CONFIG=str(Path(__file__).resolve().parents[1]/'docker/litestream.yml')
+            child.DEMO_CONFIG=str(Path(tmp)/'config.yml')
+            child.configure_replication()
+            generated=Path(child.DEMO_CONFIG).read_text()
+            self.assertIn(str(child.DATA/'data.db'),generated)
+            self.assertIn(str(child.DATA/'auxiliary.db'),generated)
+            self.assertNotIn('/storage/pb_data/',generated)
+            with patch.object(child,'validate_config'),patch.object(child,'verify_auxiliary'),patch.object(child,'verify_demo_generation'),patch.object(child,'run_command'),patch.object(child.os,'execve') as execute:
+                child.serve()
+            self.assertIn('--http=127.0.0.1:8081',execute.call_args.args[1])
+
+    def test_once_bootstrap_does_not_require_private_bindings(self):
+        with patch.dict(os.environ,{'VAULTCONTEXT_DEMO_ONCE':'true'},clear=True),patch.object(runtime,'ONCE_CHILD',False),patch.object(runtime.os,'execv',side_effect=SystemExit) as execute:
+            with self.assertRaises(SystemExit):runtime.main([])
+            self.assertEqual(execute.call_args.args[1][-2:],['/usr/local/bin/vaultcontext-demo-once.py','run'])

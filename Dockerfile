@@ -72,7 +72,7 @@ RUN python3 scripts/build-demo-downloads.py --uv /build-env/bin/uv --output /pub
 
 FROM debian:trixie-20260918-slim@sha256:a99cfc517144bc59b1978475ec53b46ecabec7e43635402ee5b77cc54cd1b20a
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates tini python3 python3-boto3 \
+    && apt-get install -y --no-install-recommends ca-certificates tini python3 python3-boto3 nginx \
     && rm -rf /var/lib/apt/lists/* \
     && test -x /usr/bin/tini
 
@@ -81,6 +81,8 @@ COPY docker/litestream.yml /etc/litestream.yml
 COPY --chmod=0755 docker/entrypoint.py /usr/local/bin/vaultcontext-entrypoint.py
 COPY --chmod=0755 deploy/demo/retention.py /usr/local/bin/vaultcontext-demo-retention.py
 COPY --chmod=0755 deploy/demo/contact_replica.py /usr/local/bin/vaultcontext-demo-contact-replica.py
+COPY --chmod=0755 deploy/demo/once_runtime.py /usr/local/bin/vaultcontext-demo-once.py
+COPY deploy/demo/reset.py /usr/local/lib/vaultcontext-demo/reset.py
 COPY deploy/demo/contact-litestream.yml /etc/vaultcontext-demo-contacts-litestream.yml
 WORKDIR /app
 COPY POCKETCONTEXT_VERSION pocketcontext.json ./
@@ -97,6 +99,7 @@ EXPOSE 80
 ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/vaultcontext-entrypoint.py"]
 
 ARG REVISION=unknown
+RUN printf '%s\n' "${REVISION}" > /usr/local/share/vaultcontext-revision
 LABEL org.opencontainers.image.title="VaultContext" \
       org.opencontainers.image.description="Encrypted files operated through a coding agent: PocketContext server, vault migrations and hooks, Litestream replication" \
       org.opencontainers.image.source="https://github.com/pocketcontext/vaultcontext" \

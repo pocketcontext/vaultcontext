@@ -23,7 +23,8 @@ import tempfile
 
 APP = Path('/app')
 # Must match the database path in /etc/litestream.yml.
-DATA = Path('/storage/pb_data')
+ONCE_CHILD = os.environ.get('VAULTCONTEXT_DEMO_ONCE') == 'true' and os.environ.get('VAULTCONTEXT_DEMO_ONCE_CHILD') == 'app'
+DATA = Path(os.environ.get('VAULTCONTEXT_DEMO_ONCE_ROOT', '/storage')) / 'runtime/pb_data' if ONCE_CHILD else Path('/storage/pb_data')
 SERVER = '/usr/local/bin/pocketcontext'
 LITESTREAM = '/usr/local/bin/litestream'
 SELF = '/usr/local/bin/vaultcontext-entrypoint.py'
@@ -191,7 +192,10 @@ def configure_replication():
     with tempfile.NamedTemporaryFile(mode='w', prefix='.demo-litestream-', dir=target.parent, delete=False) as stream:
         temporary = Path(stream.name)
         try:
-            stream.write(Path(CONFIG).read_text() + addition)
+            template = Path(CONFIG).read_text()
+            if ONCE_CHILD:
+                template = template.replace('/storage/pb_data/data.db', str(DATA / 'data.db'))
+            stream.write(template + addition)
             stream.flush()
             os.fsync(stream.fileno())
         except BaseException:
@@ -611,7 +615,8 @@ def serve():
                 'AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY', 'AWS_SESSION_TOKEN',
                 'VAULTCONTEXT_SUPERUSER_PASSWORD'):
         env.pop(key, None)
-    args = [SERVER, 'serve', '--http=0.0.0.0:80', *app_flags(DATA)]
+    address = '127.0.0.1:8081' if ONCE_CHILD else '0.0.0.0:80'
+    args = [SERVER, 'serve', '--http=' + address, *app_flags(DATA)]
     origin = env.get('BASE_URL', '').rstrip('/')
     if origin:
         args.append('--origins=' + origin)
@@ -622,6 +627,8 @@ def serve():
 
 
 def main(argv=None):
+    if os.environ.get('VAULTCONTEXT_DEMO_ONCE') == 'true' and not ONCE_CHILD:
+        os.execv(sys.executable, [sys.executable, '/usr/local/bin/vaultcontext-demo-once.py', 'run'])
     os.umask(0o077)
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('mode', choices=('start', 'init', 'serve', 'verify', 'handoff', 'adopt-handoff'), nargs='?', default='start')
