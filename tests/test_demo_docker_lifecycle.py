@@ -90,9 +90,19 @@ class DockerDemoTests(unittest.TestCase):
         self.assertIn(str(self.root/'control/contact.env'),retention)
         self.assertNotIn(str(self.env_file),retention)
         app=next(cmd for cmd in creates if module.PREFIX+'app' in cmd)
+        self.assertIn('VAULTCONTEXT_TRUSTED_PROXY_HEADER=X-Forwarded-For',app)
+        self.assertNotIn('VAULTCONTEXT_TRUSTED_PROXY_HEADER=X-Forwarded-For',retention)
         self.assertIn('VAULTCONTEXT_DEMO_RESET_PHASE=start',app)
         self.assertIn('VAULTCONTEXT_DEMO_RESET_FENCE=/demo-control/reset-pending.json',app)
         self.assertTrue(all('--restart=no' in cmd and '--log-driver=none' in cmd for cmd in creates))
+
+    def test_gate_preserves_proxy_client_ip_without_appending_its_peer(self):
+        config=(self.root/'control/nginx.conf').read_text()
+        self.assertIn('proxy_set_header X-Forwarded-For $http_x_forwarded_for;',config)
+        self.assertNotIn('$proxy_add_x_forwarded_for',config)
+        self.assertIn('proxy_set_header X-Forwarded-Proto https;',config)
+        for module_name in ('client_body','proxy','fastcgi','uwsgi','scgi'):
+            self.assertRegex(config, module_name+r'_temp_path /tmp/[a-z]+;')
 
     def test_stop_gate_precedes_writer_absence(self):
         self.life.ensure_services();self.life.create('app',[],'start');self.life.create('gate',['-g','daemon off;'])

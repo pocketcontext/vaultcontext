@@ -253,7 +253,8 @@ class Lifecycle:
             values={'VAULTCONTEXT_DEMO_MODE':'true','VAULTCONTEXT_DEMO_GENERATION':os.environ['VAULTCONTEXT_DEMO_GENERATION'],
                     'VAULTCONTEXT_DEMO_RESET_FENCE':'/demo-control/reset-pending.json','VAULTCONTEXT_DEMO_RESET_PHASE':phase,
                     'VAULTCONTEXT_DEMO_CONTACT_URL':'http://127.0.0.1:8781','BASE_URL':self.config['origin'],
-                    'VAULTCONTEXT_RATE_LIMITS':'true'}
+                    'VAULTCONTEXT_RATE_LIMITS':'true',
+                    'VAULTCONTEXT_TRUSTED_PROXY_HEADER':'X-Forwarded-For'}
             for key,value in values.items():args+=['--env',key+'='+value]
         elif role=='retention':
             # Durable contact replica credentials and token only; never ephemeral or OAuth credentials.
@@ -502,6 +503,9 @@ http {
  access_log off;
  client_body_temp_path /tmp/client;
  proxy_temp_path /tmp/proxy;
+ fastcgi_temp_path /tmp/fastcgi;
+ uwsgi_temp_path /tmp/uwsgi;
+ scgi_temp_path /tmp/scgi;
  server {
   listen 8080;
   client_max_body_size 14m;
@@ -510,6 +514,7 @@ http {
    proxy_http_version 1.1;
    proxy_set_header Host DEMO_ORIGIN_HOST;
    proxy_set_header X-Forwarded-Proto https;
+   proxy_set_header X-Forwarded-For $http_x_forwarded_for;
    proxy_set_header Connection "";
    proxy_buffering off;
    proxy_request_buffering off;
