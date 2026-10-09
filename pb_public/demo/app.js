@@ -1,9 +1,49 @@
 'use strict';
 // Preview is the default. Live mode requires an explicit, valid same-origin status.
-// Tokens and choices stay in memory; no localStorage, analytics, or third-party SDK.
+// Live browser authentication uses the vendored PocketBase default LocalAuthStore.
+// Preview choices, withdrawal capabilities and vault secrets are never persisted here.
 const byId = id => document.getElementById(id);
 let signedIn = false, live = null, token = '', account = null, revision = null, unsubscribeToken = '', busy = false, resetNoticeShown = false;
 let linkWithdrawalToken = '';
+let PocketBase, BaseAuthStore;
+let pb = null, authEpoch = 0, writingAuth = false;
+function saveAuth(value, record) {
+  writingAuth = true;
+  try { value ? pb.authStore.save(value, record) : pb.authStore.clear(); }
+  catch {
+    pb = new PocketBase(location.origin, new BaseAuthStore());
+    if (value) pb.authStore.save(value, record);
+  } finally { writingAuth = false; }
+}
+function clearIdentity(clearStored = true) {
+  authEpoch++; token = ''; account = null; revision = null; signedIn = false;
+  if (clearStored && pb) saveAuth('');
+  byId('identity').hidden = true; googleButton.hidden = false; byId('signout').hidden = true;
+  byId('preferences-status').hidden = true; byId('onboarding').hidden = true;
+  byId('enrollment-form').reset(); byId('connect-code').textContent = connectExample;
+  syncContinue();
+}
+async function restoreSession() {
+  if (!pb.authStore.token) return;
+  if (!pb.authStore.isValid || Date.now() >= Date.parse(live.resetAt)) { clearIdentity(); return; }
+  const epoch = authEpoch;
+  // Refresh in an isolated store: a late response must never revive a signed-out tab.
+  const validator = new PocketBase(location.origin, new BaseAuthStore());
+  validator.authStore.save(pb.authStore.token, pb.authStore.record);
+  setBusy(true); googleButton.disabled = true; message('Checking your saved session…');
+  try {
+    const result = await validator.collection('users').authRefresh();
+    if (epoch !== authEpoch) return;
+    if (result.record?.collectionName !== 'users' || !result.record.email || !validator.authStore.isValid) throw new Error('Invalid saved session');
+    token = result.token; account = result.record;
+    await refreshPreferences();
+    if (epoch !== authEpoch || Date.now() >= Date.parse(live.resetAt)) return;
+    saveAuth(token, account); setIdentity(account.email, account.name || 'Google account');
+    message('Signed in. Review the terms and your optional choices.');
+  } catch {
+    if (epoch === authEpoch) { clearIdentity(); message('Your saved session could not be verified. Sign in again.'); }
+  } finally { setBusy(false); googleButton.disabled = false; }
+}
 // Fragments never reach the HTTP server. Remove the capability from visible/history
 // URLs before any discovery requests; confirmation is always a separate user action.
 {
@@ -60,18 +100,29 @@ let cancelGoogleLogin = null;
 cancelGoogleButton.addEventListener('click', () => cancelGoogleLogin?.());
 function canContinue() {
   return !busy && signedIn && byId('terms').checked && (!live ||
-    (Number.isInteger(revision) && revision >= 0 && !!token && !!account && Date.now() < Date.parse(live.resetAt)));
+    (Number.isInteger(revision) && revision >= 0 && !!token && !!account && pb.authStore.isValid && Date.now() < Date.parse(live.resetAt)));
 }
 function syncContinue() { document.querySelector('.continue-button').disabled = !canContinue(); }
 function setBusy(value) { busy = value; byId('signout').disabled = value; syncContinue(); }
 byId('terms').addEventListener('change', syncContinue);
 function message(value) { byId('form-status').textContent = value; }
 async function api(path, body, authenticated = false) {
+  const epoch = authEpoch;
   const response = await fetch(path, {method: body === undefined ? 'GET' : 'POST', cache:'no-store', credentials:'omit',
     headers: {'Accept':'application/json', ...(body === undefined ? {} : {'Content-Type':'application/json'}), ...(authenticated ? {'Authorization':token} : {})},
     ...(body === undefined ? {} : {body:JSON.stringify(body)})});
+  if (authenticated && epoch !== authEpoch) throw new Error('Your session changed. Sign in again.');
+  if (authenticated && (response.status === 401 || response.status === 403)) {
+    clearIdentity();
+    const error = new Error('Your session expired. Sign in again.'); error.status = response.status; throw error;
+  }
+  if (authenticated && response.status === 503) { revision = null; syncContinue(); }
   if (response.status === 204) return {};
   let data; try { data = await response.json(); } catch { throw new Error('Service unavailable. Please try again later.'); }
+  if (authenticated && epoch !== authEpoch) throw new Error('Your session changed. Sign in again.');
+  if (authenticated && Date.now() >= Date.parse(live.resetAt)) {
+    clearIdentity(); throw new Error('The daily reset is due. Refresh before continuing.');
+  }
   if (!response.ok) {
     const error = new Error(response.status === 409 ? 'Preferences changed. Review the latest choices and submit again.' : response.status === 503 ? 'The demo is resetting or temporarily unavailable. Please try again later.' : response.status === 401 ? 'Your session expired. Sign in again.' : 'The request could not be completed. Please try again.');
     error.status = response.status; throw error;
@@ -82,12 +133,14 @@ function validStatus(data) {
   return data?.enabled === true && /^\d{4}-\d{2}-\d{2}$/.test(data.generation) && typeof data.termsVersion === 'string' && Number.isFinite(Date.parse(data.resetAt));
 }
 function updateCountdown() {
+  if (signedIn && live && pb && !pb.authStore.isValid) { clearIdentity(); message('Your session expired. Sign in again.'); }
   syncContinue();
   const now = new Date();
   const midnight = live ? Date.parse(live.resetAt) : Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1);
   const seconds = Math.max(0, Math.floor((midnight - now.getTime()) / 1000));
   byId('countdown').textContent = [Math.floor(seconds / 3600), Math.floor(seconds % 3600 / 60), seconds % 60].map(n => String(n).padStart(2, '0')).join(' : ');
   if (live && seconds === 0) {
+    if (token || pb?.authStore.token) clearIdentity();
     byId('countdown-note').textContent = 'Reset due. Refresh to start a new session.';
     document.querySelector('.continue-button').disabled = true;
     if (!resetNoticeShown) message('The daily reset is due. Refresh this page before continuing.');
@@ -104,13 +157,9 @@ function setIdentity(email, name) {
 }
 function signout() {
   if (busy) return;
-  token = ''; account = null; revision = null; signedIn = false; unsubscribeToken = '';
-  byId('identity').hidden = true; googleButton.hidden = false; byId('signout').hidden = true;
-  byId('preferences-status').hidden = true; byId('onboarding').hidden = true;
-  byId('enrollment-form').reset(); byId('connect-code').textContent = connectExample;
+  clearIdentity(); unsubscribeToken = '';
   const withdraw = byId('withdraw'); if (withdraw) withdraw.hidden = true;
-  syncContinue();
-  message('Signed out of this page. Existing CLI sessions are unchanged.');
+  message('Signed out of this browser. Existing CLI sessions are unchanged.');
 }
 async function refreshPreferences() {
   revision = null; syncContinue();
@@ -179,11 +228,16 @@ googleButton.addEventListener('click', async () => {
   const popup = window.open('about:blank', '_blank', 'popup,width=520,height=720');
   if (!popup) { message('Allow the sign-in popup, then try again.'); return; }
   setBusy(true); googleButton.disabled = true; message('Complete Google sign-in in the popup, or cancel here to try again.');
+  const epoch = authEpoch;
   try {
-    const result = await googleLogin(popup); token = result.token; account = result.record;
-    await refreshPreferences(); setIdentity(account.email, account.name || 'Google account');
+    const result = await googleLogin(popup);
+    if (epoch !== authEpoch) return;
+    token = result.token; account = result.record;
+    await refreshPreferences();
+    if (epoch !== authEpoch || Date.now() >= Date.parse(live.resetAt)) { if (epoch === authEpoch) clearIdentity(); return; }
+    saveAuth(token, account); setIdentity(account.email, account.name || 'Google account');
     message('Signed in. Review the terms and your optional choices.'); byId('terms').focus();
-  } catch (error) { token = ''; account = null; revision = null; message(error.message); }
+  } catch (error) { if (epoch === authEpoch) clearIdentity(); message(error.message); }
   finally { setBusy(false); googleButton.disabled = false; }
 });
 byId('signout').addEventListener('click', signout);
@@ -255,8 +309,29 @@ async function discoverLive() {
   if (!/^https?:$/.test(location.protocol)) return;
   try {
     const data = await api('/api/demo/status'); if (!validStatus(data)) return;
+    ({default: PocketBase, BaseAuthStore} = await import('./vendor/pocketbase.es.mjs?v=0.28.1'));
     if (signedIn) signout();
     live = data;
+    // Default LocalAuthStore where available; private/blocked storage stays usable in memory.
+    try {
+      const probe = 'vaultcontext_storage_probe';
+      localStorage.setItem(probe, '1'); localStorage.removeItem(probe);
+      pb = new PocketBase(location.origin);
+    } catch { pb = new PocketBase(location.origin, new BaseAuthStore()); }
+    window.addEventListener('storage', event => {
+      if (event.key === null) {
+        clearIdentity(false); unsubscribeToken = '';
+        const withdraw = byId('withdraw'); if (withdraw) withdraw.hidden = true;
+        message('Browser storage cleared. Sign in again.');
+      }
+    });
+    pb.authStore.onChange(() => {
+      if (writingAuth) return;
+      cancelGoogleLogin?.();
+      clearIdentity(false); unsubscribeToken = '';
+      const withdraw = byId('withdraw'); if (withdraw) withdraw.hidden = true;
+      message(pb.authStore.token ? 'Your session changed in another tab. Refresh to continue.' : 'Signed out in another tab.');
+    });
     document.title = 'Try VaultContext · Public demo';
     document.querySelector('meta[name="description"]').content = 'Try client-encrypted file storage with your Google account. Demo vaults reset daily at 00:00 UTC.';
     byId('audience-description').textContent = 'Try the demo with a verified Google account, including personal Gmail and Google Workspace accounts.';
@@ -280,6 +355,7 @@ async function discoverLive() {
     byId('countdown-note').textContent = 'Reset time supplied by the demo server';
     byId('reset-description').textContent = 'Demo vault data clears every day at 00:00 UTC. Use sample files only.';
     message('Sign in with Google to continue.'); updateCountdown();
+    await restoreSession();
   } catch { /* Unconnected static preview intentionally remains useful. */ }
 }
 updateCountdown(); setInterval(updateCountdown,1000); discoverLive();

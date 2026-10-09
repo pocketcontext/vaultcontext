@@ -6,10 +6,16 @@ from playwright.sync_api import sync_playwright
 from pathlib import Path
 import json
 import hashlib
+import base64
 from urllib.parse import urlsplit
 import os
 ROOT=Path(__file__).resolve().parents[1]/'pb_public'/'demo'
 BROWSER=os.environ.get('PLAYWRIGHT_EXECUTABLE_PATH')
+def synthetic_token(exp=4070995200):
+ def segment(value):return base64.urlsafe_b64encode(json.dumps(value).encode()).decode().rstrip('=')
+ return segment({'alg':'HS256','typ':'JWT'})+'.'+segment({'id':'synthetic','exp':exp,'type':'auth','collectionId':'_pb_users_auth_'})+'.synthetic-signature'
+AUTH={'token':synthetic_token(),'record':{'id':'synthetic','collectionName':'users','email':'demo@example.com','name':'Synthetic Visitor','verified':True}}
+OAUTH_BROWSER_SCRIPT='''class FakeEventSource { constructor(){window.fakeStream=this;this.listeners={};setTimeout(()=>this.listeners.PB_CONNECT?.({data:JSON.stringify({clientId:'synthetic-state'})}),20);}addEventListener(n,cb){this.listeners[n]=cb;}close(){}}window.EventSource=FakeEventSource;window.open=()=>({closed:true,close(){},location:{set href(value){const stream=window.fakeStream;setTimeout(()=>stream.listeners['@oauth2']({data:JSON.stringify({state:'synthetic-state',code:'synthetic-code'})}),1000);}}});'''
 for asset in ('styles.css','app.js'):
  digest=hashlib.sha256((ROOT/asset).read_bytes()).hexdigest()[:12]
  assert f'{asset}?v={digest}' in (ROOT/'index.html').read_text(),f'Stale asset hash: {asset}'
@@ -41,7 +47,8 @@ with sync_playwright() as p:
   if path=='/api/demo/status':return result({'enabled':True,'generation':'2099-01-01','resetAt':'2099-01-02T00:00:00Z','termsVersion':'v1','clientReady':client_ready,'downloads':public_downloads})
   if path=='/api/collections/users/auth-methods':return result({'oauth2':{'providers':[{'name':'google','authURL':'https://accounts.google.com/o/oauth2/auth?client_id=synthetic&redirect_uri=','codeVerifier':'synthetic-verifier'}]}})
   if path=='/api/realtime':return r.fulfill(status=204)
-  if path=='/api/collections/users/auth-with-oauth2':return result({'token':'synthetic-token','record':{'id':'synthetic','collectionName':'users','email':'demo@example.com','name':'Synthetic Visitor'}})
+  if path=='/api/collections/users/auth-with-oauth2':return result(AUTH)
+  if path=='/api/collections/users/auth-refresh':return result(AUTH)
   if path=='/api/demo/preferences':
    if fail_preferences:return result({'message':'resetting'},503)
    return result({'revision':0,'salesContact':False,'newsletter':False})
@@ -54,7 +61,7 @@ with sync_playwright() as p:
   if target.is_file():return r.fulfill(path=str(target))
   r.fulfill(status=404,body='Not found')
  page.route('**/*',route)
- page.add_init_script('''class FakeEventSource { constructor(){window.fakeStream=this;this.listeners={};setTimeout(()=>this.listeners.PB_CONNECT?.({data:JSON.stringify({clientId:'synthetic-state'})}),20);}addEventListener(n,cb){this.listeners[n]=cb;}close(){}}window.EventSource=FakeEventSource;window.open=()=>({closed:true,close(){},location:{set href(value){const stream=window.fakeStream;setTimeout(()=>stream.listeners['@oauth2']({data:JSON.stringify({state:'synthetic-state',code:'synthetic-code'})}),1000);}}});''')
+ page.add_init_script(OAUTH_BROWSER_SCRIPT)
  page.goto('http://demo.test/');page.wait_for_function('document.querySelector("#mode-pill").textContent === "Daily reset"')
  assert page.locator('.continue-button').is_disabled()
  page.locator('#terms').check();assert page.locator('.continue-button').is_disabled()
@@ -90,7 +97,9 @@ with sync_playwright() as p:
  pending_enroll.pop().fulfill(status=200,content_type='application/json',body=json.dumps({'enrolled':True,'generation':'2099-01-01','contact':{'revision':1,'unsubscribeToken':'synthetic-withdrawal'}}))
  page.wait_for_selector('#onboarding:visible')
  assert 'example.invalid' in page.locator('#connect-code').text_content();assert 'distribution pending' in page.locator('#guide-intro').inner_text();assert 'Demo enrollment saved' in page.locator('#form-status').inner_text()
- assert not page.evaluate('localStorage.length')
+ stored=page.evaluate("JSON.parse(localStorage.getItem('pocketbase_auth'))")
+ assert stored['token']==AUTH['token'] and stored['record']['id']=='synthetic'
+ assert page.evaluate('Object.keys(localStorage)')==['pocketbase_auth'], 'Only browser authentication may persist'
  fail_preferences=True
  page.evaluate("live.resetAt = new Date(Date.now() - 1000).toISOString(); updateCountdown();")
  assert page.locator('.continue-button').is_disabled(), 'Reset-due demo must not offer enrollment'
@@ -99,7 +108,8 @@ with sync_playwright() as p:
  page.wait_for_timeout(1100)
  assert 'withdrawn' in page.locator('#form-status').inner_text(), 'Reset timer must not overwrite withdrawal success'
  assert not page.locator('#commercial').is_checked() and not page.locator('#newsletter').is_checked()
- page.locator('#signout').click();assert not page.locator('#identity').is_visible()
+ assert not page.locator('#identity').is_visible(), 'Daily reset clears browser identity'
+ assert page.locator('#google-button').is_visible()
  assert page.locator('.continue-button').is_disabled()
  assert not errors,errors
  assert any(x[0]=='/api/demo/enroll' for x in calls)
@@ -112,6 +122,7 @@ with sync_playwright() as p:
  # A backend readiness flag cannot make private source publicly installable.
  # Keep the local distribution gate closed even if an old backend says ready.
  client_ready=True;fail_preferences=False
+ page.evaluate('localStorage.clear()')
  page.goto('http://demo.test/');page.wait_for_function('document.querySelector("#mode-pill").textContent === "Daily reset"')
  install=page.locator('#install-code').text_content()
  assert 'Public downloads are not connected' in install
@@ -142,6 +153,7 @@ with sync_playwright() as p:
  public_downloads={'schema':1,'package':'vaultcontext-client','version':'0.1.0','release':release,'origin':'http://demo.test','artifacts':{}}
  for key,name in [('wheel','vaultcontext_client-0.1.0-py3-none-any.whl'),('skill','vaultcontext-skill.tar.gz'),('launcher','vaultcontext')]:
   public_downloads['artifacts'][key]={'path':'/demo/downloads/'+release+'/'+name,'sha256':'b'*64,'size':128}
+ page.evaluate('localStorage.clear()')
  page.goto('http://demo.test/');page.wait_for_function('document.querySelector("#install-code").textContent.includes("uv tool install --force")')
  assert '#sha256='+'b'*64 in page.locator('#install-code').text_content()
  assert 'github.com' not in page.locator('#install-code').text_content()
@@ -228,5 +240,114 @@ with sync_playwright() as p:
   page.wait_for_function('document.querySelector("#withdrawal-status").textContent.includes("request processed")')
   assert len(withdrawals)==1 and page.locator('#confirm-withdrawal').is_disabled()
   page.close()
- print('PASS: static mobile preview/terms/optional consent/progress; live Google mock SSE/204/auth; preference revision enrollment; pending-release guide; withdrawal; signout; no localStorage; no page errors; pending-enrollment signout race; withdrawal across reset; fragment scrubbing/explicit confirmation/retry without login; public same-origin SHA-pinned installation; invalid/stale metadata rejected; continuation state and failed preference refresh; live copy and SVG icons; compact mobile headline/banner/touch targets.')
+ # Restored authentication must be checked by the server before it enables any
+ # account UI. This context shares real LocalAuthStore storage between tabs.
+ context=b.new_context();session_requests=[];refresh_status=200;reset_at='2099-01-02T00:00:00Z';refresh_pending=[];hold_refresh=False;hold_enrollment=False;session_enrollments=[]
+ def session_route(r):
+  path=urlsplit(r.request.url).path;session_requests.append(path)
+  def result(data,status=200):r.fulfill(status=status,content_type='application/json',body=json.dumps(data))
+  if path=='/api/demo/status':return result({'enabled':True,'generation':'2099-01-01','resetAt':reset_at,'termsVersion':'v1','clientReady':False})
+  if path=='/api/collections/users/auth-refresh':
+   assert r.request.method=='POST' and r.request.headers.get('authorization')==AUTH['token']
+   if hold_refresh:refresh_pending.append(r);return
+   return result(AUTH if refresh_status==200 else {'message':'Invalid session'},refresh_status)
+  if path=='/api/demo/preferences':return result({'revision':0,'salesContact':False,'newsletter':False})
+  if path=='/api/demo/enroll':
+   if hold_enrollment:session_enrollments.append(r);return
+   return result({'message':'Session expired'},401)
+  target=ROOT/('index.html' if path=='/' else path.lstrip('/'))
+  if target.is_file():return r.fulfill(path=str(target))
+  return r.fulfill(status=404,body='Not found')
+ context.route('**/*',session_route)
+ first=context.new_page();first.goto('http://session.test/')
+ first.wait_for_function('document.querySelector("#mode-pill").textContent === "Daily reset"')
+ first.evaluate('(auth)=>localStorage.setItem("pocketbase_auth",JSON.stringify(auth))',AUTH)
+ hold_refresh=True;first.reload()
+ first.wait_for_timeout(150)
+ assert refresh_pending, 'Reload must validate stored auth with authRefresh'
+ first.locator('#terms').check()
+ assert first.locator('#identity').is_hidden() and first.locator('.continue-button').is_disabled(), 'Unvalidated localStorage must never imply authentication'
+ refresh_pending.pop().fulfill(status=200,content_type='application/json',body=json.dumps(AUTH));hold_refresh=False
+ first.wait_for_selector('#identity:visible')
+ first.wait_for_function('!document.querySelector(".continue-button").disabled')
+ assert first.locator('#identity-email').inner_text()=='demo@example.com'
+ assert not first.locator('#onboarding').is_visible(), 'Restoring login must not fabricate enrollment'
+ first.reload();first.wait_for_selector('#identity:visible')
+ assert not first.locator('#terms').is_checked() and first.locator('.continue-button').is_disabled(), 'Restoring auth must not restore terms acceptance'
+ assert not first.locator('#commercial').is_checked() and not first.locator('#newsletter').is_checked()
+ second=context.new_page();second.goto('http://session.test/');second.wait_for_selector('#identity:visible')
+ second.locator('#terms').check();second.wait_for_function('!document.querySelector(".continue-button").disabled')
+ first.locator('#signout').click()
+ second.wait_for_selector('#identity',state='hidden')
+ assert second.locator('#google-button').is_visible() and second.locator('.continue-button').is_disabled()
+ assert not second.locator('#onboarding').is_visible()
+ assert not second.evaluate('JSON.parse(localStorage.getItem("pocketbase_auth") || "{}").token'), 'Signout must clear stored auth across tabs'
+ second.close()
+ # Invalid/deleted accounts clear the restored credential and expose sign-in.
+ refresh_status=403;first.evaluate('(auth)=>localStorage.setItem("pocketbase_auth",JSON.stringify(auth))',AUTH);first.reload()
+ first.wait_for_function('!JSON.parse(localStorage.getItem("pocketbase_auth") || "{}").token')
+ assert first.locator('#identity').is_hidden() and first.locator('#google-button').is_visible()
+ assert first.locator('.continue-button').is_disabled()
+ # Expired JWTs are rejected locally without forwarding stale credentials.
+ expired={**AUTH,'token':synthetic_token(1)};refreshes=session_requests.count('/api/collections/users/auth-refresh')
+ first.evaluate('(auth)=>localStorage.setItem("pocketbase_auth",JSON.stringify(auth))',expired);first.reload()
+ first.wait_for_function('!JSON.parse(localStorage.getItem("pocketbase_auth") || "{}").token')
+ assert session_requests.count('/api/collections/users/auth-refresh')==refreshes
+ assert first.locator('#identity').is_hidden() and first.locator('.continue-button').is_disabled()
+ # A server 401 after successful restoration clears misleading signed-in UI too.
+ refresh_status=200;first.evaluate('(auth)=>localStorage.setItem("pocketbase_auth",JSON.stringify(auth))',AUTH);first.reload()
+ first.wait_for_selector('#identity:visible');first.locator('#terms').check();first.locator('.continue-button').click()
+ first.wait_for_selector('#identity',state='hidden')
+ assert first.locator('#google-button').is_visible() and first.locator('.continue-button').is_disabled()
+ assert not first.evaluate('JSON.parse(localStorage.getItem("pocketbase_auth") || "{}").token')
+ # A refresh response arriving after another tab signs out must not resurrect
+ # either the local identity or the shared persisted credential.
+ first.evaluate('(auth)=>localStorage.setItem("pocketbase_auth",JSON.stringify(auth))',AUTH);first.reload()
+ first.wait_for_selector('#identity:visible')
+ hold_refresh=True;second=context.new_page();second.goto('http://session.test/')
+ second.wait_for_timeout(150);assert refresh_pending
+ first.locator('#signout').click()
+ second.wait_for_function('!JSON.parse(localStorage.getItem("pocketbase_auth") || "{}").token')
+ refresh_pending.pop().fulfill(status=200,content_type='application/json',body=json.dumps(AUTH));hold_refresh=False
+ second.wait_for_timeout(150)
+ assert second.locator('#identity').is_hidden() and second.locator('.continue-button').is_disabled()
+ assert not second.evaluate('JSON.parse(localStorage.getItem("pocketbase_auth") || "{}").token'), 'Late auth refresh revived a signed-out session'
+ second.close()
+ # Cross-tab signout also invalidates a successful enrollment already in flight.
+ first.evaluate('(auth)=>localStorage.setItem("pocketbase_auth",JSON.stringify(auth))',AUTH);first.reload()
+ first.wait_for_selector('#identity:visible')
+ second=context.new_page();second.goto('http://session.test/');second.wait_for_selector('#identity:visible')
+ hold_enrollment=True;second.locator('#terms').check();second.locator('.continue-button').click()
+ second.wait_for_timeout(150);assert session_enrollments
+ first.locator('#signout').click();second.wait_for_selector('#identity',state='hidden')
+ session_enrollments.pop().fulfill(status=200,content_type='application/json',body=json.dumps({'enrolled':True,'generation':'2099-01-01','contact':{'revision':1,'unsubscribeToken':'synthetic-withdrawal'}}));hold_enrollment=False
+ second.wait_for_timeout(150)
+ assert second.locator('#identity').is_hidden() and second.locator('#onboarding').is_hidden()
+ assert second.locator('.continue-button').is_disabled()
+ assert not second.evaluate('JSON.parse(localStorage.getItem("pocketbase_auth") || "{}").token')
+ second.close()
+ # A persisted login cannot cross a reset deadline even if auth-refresh would
+ # accept it. No enrollment request may escape, including a scripted submission.
+ reset_at='2000-01-01T00:00:00Z';enrollments=session_requests.count('/api/demo/enroll')
+ first.evaluate('(auth)=>localStorage.setItem("pocketbase_auth",JSON.stringify(auth))',AUTH);first.reload()
+ first.wait_for_function('document.querySelector("#countdown-note").textContent.includes("Reset")')
+ first.locator('#terms').check();first.locator('#enrollment-form').evaluate('(form)=>form.requestSubmit()');first.wait_for_timeout(100)
+ assert first.locator('.continue-button').is_disabled() and session_requests.count('/api/demo/enroll')==enrollments
+ assert not first.evaluate('JSON.parse(localStorage.getItem("pocketbase_auth") || "{}").token')
+ context.close()
+ # Browsers blocking storage may still use a memory-only session. No SDK or
+ # storage exception may break sign-in, and reload must require sign-in again.
+ context=b.new_context();blocked=context.new_page();blocked_errors=[]
+ blocked.on('pageerror',lambda error:blocked_errors.append(str(error)))
+ blocked.route('**/*',route)
+ blocked.add_init_script(OAUTH_BROWSER_SCRIPT)
+ blocked.add_init_script("Object.defineProperty(window,'localStorage',{get(){throw new DOMException('Storage blocked','SecurityError')}})")
+ blocked.goto('http://blocked.test/');blocked.wait_for_function('document.querySelector("#mode-pill").textContent === "Daily reset"')
+ blocked.locator('#google-button').click();blocked.wait_for_selector('#identity:visible')
+ blocked.locator('#terms').check();assert blocked.locator('.continue-button').is_enabled()
+ blocked.reload();blocked.wait_for_function('document.querySelector("#mode-pill").textContent === "Daily reset"')
+ assert blocked.locator('#identity').is_hidden() and blocked.locator('#google-button').is_visible()
+ assert blocked.locator('.continue-button').is_disabled() and not blocked_errors,blocked_errors
+ context.close()
+ print('PASS: static mobile preview/terms/optional consent/progress; live Google mock SSE/204/auth; preference revision enrollment; pending-release guide; withdrawal; signout; authentication-only localStorage; no page errors; pending-enrollment signout race; withdrawal across reset; fragment scrubbing/explicit confirmation/retry without login; public same-origin SHA-pinned installation; invalid/stale metadata rejected; continuation state and failed preference refresh; live copy and SVG icons; compact mobile headline/banner/touch targets; persisted session server validation; cross-tab signout; invalid sessions and reset clear auth; blocked storage fallback; late refresh/enrollment after cross-tab signout.')
  b.close()

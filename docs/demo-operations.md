@@ -176,3 +176,18 @@ unknown objects, provider copies, long outages, and conservative native retentio
 floors require operator review. No blanket provider TTL may destroy the last
 recoverable baseline. Daily refresh briefly makes contact endpoints unavailable;
 clients can retry. Failure needs recovery review before restarting.
+
+## Browser authentication
+
+The live page uses vendored PocketBase JS SDK 0.28.1 and default LocalAuthStore
+(`pocketbase_auth`). Reload restores authentication only after server auth-refresh
+and preference validation. Terms acceptance and enrollment UI are never restored.
+Refresh uses an isolated memory store and an attempt generation guard so a late
+response cannot resurrect a signed-out or replaced session. Cross-tab changes
+clear the visible identity; refresh the page to validate an account selected in
+another tab. Blocked browser storage falls back to memory-only authentication.
+The existing explicit OAuth popup/SSE wrapper preserves COOP and cancellation
+handling. Website sign-out clears browser auth, not CLI auth or server tokens.
+The daily reset guard clears browser auth when observed; closed browsers can
+retain stale tokens until their next visit. Vault secrets and withdrawal
+capabilities are not persisted in browser storage.
