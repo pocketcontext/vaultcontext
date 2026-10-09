@@ -86,10 +86,10 @@ def spec(value):
         raise RuntimeErrorSafe('exact image and revision required')
     return value
 
-def database_snapshot(path,columns=None):
+def database_snapshot(path,columns=None,immutable=False):
     if path.is_symlink() or not path.is_file():raise RuntimeErrorSafe('all existing databases are required')
     quote=lambda s:'"'+s.replace('"','""')+'"'
-    with closing(sqlite3.connect(path.as_uri()+'?mode=ro',uri=True)) as db:
+    with closing(sqlite3.connect(path.as_uri()+'?mode=ro'+('&immutable=1' if immutable else ''),uri=True)) as db:
         db.execute('PRAGMA query_only=ON')
         if db.execute('PRAGMA quick_check').fetchone()!=('ok',):raise RuntimeErrorSafe('database integrity failed')
         if columns is None:
@@ -355,7 +355,9 @@ class Runtime:
                 with path.open('rb') as stream:
                     for chunk in iter(lambda:stream.read(65536),b''):digest.update(chunk)
                 if digest.hexdigest()!=info['sha256']:raise RuntimeErrorSafe('adoption file checksum differs')
-                database_snapshot(path)
+                # Imported files are verified self-contained SQLite backups. An
+                # immutable reader must not create WAL/SHM beside staging files.
+                database_snapshot(path,immutable=True)
             self.generation=header['generation'];self.image=header['image']
             (self.root/'runtime/pb_data').mkdir(mode=0o700,exist_ok=True)
             for name,path in zip(DATABASES,self.paths()):os.replace(stage/name,path);path.chmod(0o600)
