@@ -14,6 +14,13 @@ APP = 'vaultcontext'  # Repository identity must not depend on a worktree direct
 RETIRED = APP in {'accountcontext', 'chatcontext', 'observecontext', 'peoplecontext', 'raisecontext'}
 HOST = {'dealcontext': 'crm', 'taskcontext': 'tasks', 'accountcontext': 'accounts'}.get(APP, APP.removesuffix('context'))
 PUBLICATION, DEPLOYMENT = WORKFLOW.split('  deploy:\n', 1)
+DEMO = PUBLICATION.split('  demo_manifest:\n', 1)[1]
+
+
+def demo_script(step):
+    section = DEMO.split('      - name: ' + step + '\n', 1)[1].split('      - ', 1)[0]
+    body = section.split('        run: |\n', 1)[1]
+    return '\n'.join(line[10:] for line in body.splitlines() if line.startswith('          '))
 
 
 def script(step):
@@ -24,6 +31,59 @@ def script(step):
 
 
 class DeploymentTests(unittest.TestCase):
+    def test_demo_publication_is_separate_from_main_and_deployment(self):
+        build = PUBLICATION.split('  build:\n', 1)[1].split('  manifest:\n', 1)[0]
+        self.assertIn("if: github.event_name != 'pull_request' && ((github.ref == 'refs/heads/main' && vars.VAULTCONTEXT_PUBLISH == 'true') || (github.ref == 'refs/heads/vaultcontext-demo' && vars.VAULTCONTEXT_DEMO_PUBLISH == 'true'))", build)
+        self.assertIn("  manifest:\n    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'", PUBLICATION)
+        self.assertEqual(DEMO.splitlines()[0].strip(), "if: github.ref == 'refs/heads/vaultcontext-demo' && github.event_name != 'pull_request' && vars.VAULTCONTEXT_DEMO_PUBLISH == 'true'")
+        self.assertIn('    needs:\n      - build\n', DEMO)
+        self.assertNotIn('demo_manifest', DEPLOYMENT)
+        self.assertNotIn(':latest', DEMO)
+        self.assertLess(DEMO.index('Require current demo revision'), DEMO.index('Create and push'))
+        self.assertIn('digest: ${{ steps.publish.outputs.digest }}', DEMO)
+
+    def test_demo_guard_rejects_stale_or_failed_lookup(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            gh = root / 'gh'
+            gh.write_text('#!/bin/sh\n[ "$2" = "repos/example/app/git/ref/heads/vaultcontext-demo" ] || exit 12\nprintf "%s\\n" "$SYNTHETIC_HEAD"\nexit "$SYNTHETIC_EXIT"\n')
+            gh.chmod(0o700)
+            for head, status, success in [('a'*40, '0', True), ('b'*40, '0', False), ('', '0', False), ('bad', '0', False), ('a'*40, '1', False)]:
+                with self.subTest(head=head, status=status):
+                    env = dict(os.environ, PATH=str(root)+':'+os.environ['PATH'], GITHUB_SHA='a'*40,
+                               GITHUB_REPOSITORY='example/app', SYNTHETIC_HEAD=head, SYNTHETIC_EXIT=status)
+                    result = subprocess.run(['bash', '-c', demo_script('Require current demo revision')], env=env, capture_output=True, text=True)
+                    self.assertEqual(result.returncode == 0, success, result.stderr)
+
+    def test_demo_tags_and_digest_output_and_invalid_inputs(self):
+        for files, success in [(['a'*64, 'b'*64], True), (['a'*64], False), (['a'*64, 'invalid'], False), (['a'*64, 'b'*64, 'c'*64], False)]:
+            with self.subTest(files=files), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                inputs = root / 'digests'
+                inputs.mkdir()
+                for name in files:
+                    (inputs / name).touch()
+                docker = root / 'docker'
+                docker.write_text('#!' + sys.executable + '\n'
+                    'import json, os, sys\nfrom pathlib import Path\n'
+                    'Path(os.environ["SYNTHETIC_CALLS"]).write_text(json.dumps(sys.argv[1:]))\n'
+                    'Path(sys.argv[sys.argv.index("--metadata-file")+1]).write_text(json.dumps({"containerimage.descriptor":{"digest":"sha256:"+"c"*64}}))\n')
+                docker.chmod(0o700)
+                env = dict(os.environ, PATH=str(root)+':'+os.environ['PATH'], IMAGE='ghcr.io/example/vaultcontext',
+                           GITHUB_SHA='d'*40, RUNNER_TEMP=str(root), GITHUB_OUTPUT=str(root/'output'),
+                           GITHUB_STEP_SUMMARY=str(root/'summary'), SYNTHETIC_CALLS=str(root/'calls'))
+                result = subprocess.run(['bash', '-c', demo_script('Create and push the demo manifest')], cwd=inputs, env=env, capture_output=True, text=True)
+                self.assertEqual(result.returncode == 0, success, result.stderr)
+                if not success:
+                    self.assertFalse((root/'calls').exists())
+                    continue
+                args = json.loads((root/'calls').read_text())
+                self.assertEqual([args[i+1] for i, arg in enumerate(args) if arg == '--tag'],
+                                 [env['IMAGE']+':demo', env['IMAGE']+':demo-sha-'+env['GITHUB_SHA']])
+                self.assertEqual(args[-2:], [env['IMAGE']+'@sha256:'+name for name in files])
+                self.assertEqual((root/'output').read_text(), 'digest=sha256:'+'c'*64+'\n')
+                self.assertIn(env['IMAGE']+'@sha256:'+'c'*64, (root/'summary').read_text())
+
     def test_publication_and_deployment_gates_are_independent(self):
         self.assertEqual(DEPLOYMENT.splitlines()[0].strip(),
                          "if: " + ("false && " if RETIRED else "") + "github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && vars.CONTEXT_DEPLOY_PAUSED != 'true' && vars.COLORS_PROFILE != ''")

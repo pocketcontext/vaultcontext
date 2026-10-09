@@ -12,6 +12,16 @@ architecture is built on its native runner and published by digest; the manifest
 uses exactly those two digests. All external actions are pinned to full commits.
 VaultContext and NotifyContext retain their separate publication-enable variables.
 
+The dedicated `vaultcontext-demo` branch may publish after the same application
+and native container gates when `VAULTCONTEXT_DEMO_PUBLISH=true`. Its manifest job
+checks the current demo branch revision and publishes only `demo` and
+`demo-sha-<full commit>` tags. It records the immutable multi-platform index digest
+in the job output, summary and `demo-image-metadata` artifact. Demo deployment must
+use that digest; neither tag is itself immutable. This path never updates `latest`
+or production commit tags and cannot enter the main-only production deploy job.
+Pull requests and other branches cannot publish through either path. The existing
+`VAULTCONTEXT_PUBLISH` variable continues to control main publication independently.
+
 Before promoting `latest`, the workflow queries the current main revision and
 refuses stale, malformed or failed lookups. A second check runs before deployment.
 The image receives full and short commit tags alongside `latest`. These checks

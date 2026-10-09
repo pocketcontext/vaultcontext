@@ -62,12 +62,13 @@ def environment(path):
         values[key] = value
     if not REQUIRED <= values.keys():
         raise ResetError('incomplete dedicated demo environment file')
-    for key in ('VAULTCONTEXT_S3_BUCKET','LITESTREAM_BUCKET'):
-        if not re.fullmatch(r'vaultcontext-demo-[a-z0-9][a-z0-9-]{1,40}',values[key]):
+    for key, chosen in (('VAULTCONTEXT_S3_BUCKET','once-v2-vaultcontext-demo-files'),
+                        ('LITESTREAM_BUCKET','once-v2-vaultcontext-demo-replica')):
+        if values[key] != chosen and not re.fullmatch(r'vaultcontext-demo-[a-z0-9][a-z0-9-]{1,40}',values[key]):
             raise ResetError('only dedicated demo storage is accepted')
     if values['VAULTCONTEXT_S3_BUCKET'] == values['LITESTREAM_BUCKET'] or values['VAULTCONTEXT_S3_ACCESS_KEY_ID'] == values['LITESTREAM_ACCESS_KEY_ID']:
         raise ResetError('primary and replica storage must be independent')
-    if not re.fullmatch(r'vaultcontext-demo-contacts-[a-z0-9][a-z0-9-]{1,32}',values['CONTACTS_LITESTREAM_BUCKET']):
+    if values['CONTACTS_LITESTREAM_BUCKET'] != 'once-v2-vaultcontext-demo-contacts-replica' and not re.fullmatch(r'vaultcontext-demo-contacts-[a-z0-9][a-z0-9-]{1,32}',values['CONTACTS_LITESTREAM_BUCKET']):
         raise ResetError('dedicated durable contact replica bucket required')
     if len({values[key] for key in ('VAULTCONTEXT_S3_BUCKET','LITESTREAM_BUCKET','CONTACTS_LITESTREAM_BUCKET')})!=3 or len({values[key] for key in ('VAULTCONTEXT_S3_ACCESS_KEY_ID','LITESTREAM_ACCESS_KEY_ID','CONTACTS_LITESTREAM_ACCESS_KEY_ID')})!=3:
         raise ResetError('all three storage buckets and credential identities must be distinct')

@@ -86,7 +86,7 @@ jobs:
   # Each architecture is built on its own runner and pushed by digest, under no tag, so that two runs
   # close together cannot mix their halves in one manifest.
   build:
-    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && vars.VAULTCONTEXT_PUBLISH == 'true'
+    if: github.event_name != 'pull_request' && ((github.ref == 'refs/heads/main' && vars.VAULTCONTEXT_PUBLISH == 'true') || (github.ref == 'refs/heads/vaultcontext-demo' && vars.VAULTCONTEXT_DEMO_PUBLISH == 'true'))
     needs:
       - check
       - tests
@@ -142,6 +142,7 @@ jobs:
 
   # One imagetools call creates both tags from the digests of this run.
   manifest:
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
     needs:
       - build
     runs-on: ubuntu-24.04
@@ -189,6 +190,72 @@ jobs:
             $sources
       - name: Show what was published
         run: docker buildx imagetools inspect "$IMAGE:latest"
+
+  # The demo branch publishes only its own tags. It never enters production deployment.
+  demo_manifest:
+    if: github.ref == 'refs/heads/vaultcontext-demo' && github.event_name != 'pull_request' && vars.VAULTCONTEXT_DEMO_PUBLISH == 'true'
+    needs:
+      - build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      digest: ${{ steps.publish.outputs.digest }}
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          path: /tmp/digests
+          pattern: digests-*
+          merge-multiple: true
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Require current demo revision
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          head=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/vaultcontext-demo" --jq '.object.sha')
+          if [[ ! "$head" =~ ^[0-9a-f]{40}$ || "$head" != "$GITHUB_SHA" ]]; then
+            echo 'Refusing stale demo release: workflow revision is not current vaultcontext-demo.' >&2
+            exit 1
+          fi
+      - name: Create and push the demo manifest
+        id: publish
+        working-directory: /tmp/digests
+        run: |
+          set -euo pipefail
+          set -- *
+          test "$#" -eq 2
+          sources=()
+          for digest in "$@"; do
+            [[ "$digest" =~ ^[0-9a-f]{64}$ ]]
+            sources+=("$IMAGE@sha256:$digest")
+          done
+          docker buildx imagetools create \
+            --metadata-file "$RUNNER_TEMP/demo-manifest.json" \
+            --tag "$IMAGE:demo" \
+            --tag "$IMAGE:demo-sha-$GITHUB_SHA" \
+            "${sources[@]}"
+          digest=$(jq -er '."containerimage.descriptor".digest' "$RUNNER_TEMP/demo-manifest.json")
+          [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+          printf 'digest=%s\n' "$digest" >> "$GITHUB_OUTPUT"
+          printf 'Demo image: %s@%s\n' "$IMAGE" "$digest" >> "$GITHUB_STEP_SUMMARY"
+      - name: Show the immutable demo image
+        env:
+          PUBLISHED_DIGEST: ${{ steps.publish.outputs.digest }}
+        run: docker buildx imagetools inspect "$IMAGE@$PUBLISHED_DIGEST"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: demo-image-metadata
+          path: ${{ runner.temp }}/demo-manifest.json
+          if-no-files-found: error
+          retention-days: 30
 
   deploy:
     if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && vars.CONTEXT_DEPLOY_PAUSED != 'true' && vars.COLORS_PROFILE != ''

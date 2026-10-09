@@ -10,7 +10,7 @@ Use one dedicated private root named `vaultcontext-demo`, for example `/var/lib/
 - `control/`: durable reset lock, pending fence, and last completed generation. Never mount this inside disposable `runtime/`.
 - `persistent/`: separately protected contact/preferences database; never inside disposable `pb_data`. The contact service account owns this directory, mode 0700, and its SQLite file, mode 0600. The parent traversal permission must permit that service account (use an explicit ACL or run the lifecycle under the same dedicated identity).
 
-Use distinct dedicated buckets for primary files and replica generations, with exact names beginning `vaultcontext-demo-`. Credentials must be bucket-scoped and distinct from production and each other. The reset deletes the **whole two buckets**, not just a current generation prefix. This is intentional: old ciphertext, orphaned objects and old database generations cannot remain restorable after a daily reset. Do not place durable contact backups in either bucket. Use a third dedicated bucket, named `vaultcontext-demo-contacts-<suffix>`, with its own credentials for contact replicas. The daily reset must never receive those credentials or delete that bucket.
+Use the role-specific dedicated buckets `once-v2-vaultcontext-demo-files` for primary files and `once-v2-vaultcontext-demo-replica` for disposable database replicas. Existing dedicated names beginning `vaultcontext-demo-` remain accepted for isolated installations; arbitrary `once-v2-` names and swapped deployment roles are rejected. Credentials must be bucket-scoped and distinct from production and each other. The reset deletes the **whole two buckets**, not just a current generation prefix. This is intentional: old ciphertext, orphaned objects and old database generations cannot remain restorable after a daily reset. Do not place durable contact backups in either bucket. Use a third dedicated bucket, named `once-v2-vaultcontext-demo-contacts-replica` (or an existing `vaultcontext-demo-contacts-<suffix>`), with its own credentials for contact replicas. The daily reset must never receive those credentials or delete that bucket.
 
 External VM snapshots, provider backups, monitoring exports, caches and prior manually exported copies are not discoverable by this script. Do not enable them for ephemeral demo data unless their deletion is integrated into the fenced lifecycle. The reset cannot erase downloaded copies on a visitor's device. Provider physical media erasure is not verified by an application API delete.
 
@@ -41,9 +41,9 @@ The private, operator-owned JSON configuration has this shape (these are placeho
   "root": "/var/lib/vaultcontext-demo",
   "storage": {
     "kind": "r2",
-    "primary_bucket": "vaultcontext-demo-files",
-    "replica_bucket": "vaultcontext-demo-replicas",
-    "durable_bucket": "vaultcontext-demo-contacts-persistent"
+    "primary_bucket": "once-v2-vaultcontext-demo-files",
+    "replica_bucket": "once-v2-vaultcontext-demo-replica",
+    "durable_bucket": "once-v2-vaultcontext-demo-contacts-replica"
   },
   "hooks": {
     "fence": ["/opt/vaultcontext-demo-operator/fence"],
@@ -159,3 +159,7 @@ Planned migration uses these lifecycle actions with `--root /var/lib/vaultcontex
 Crossing 00:00 UTC does not grant another day to the old demo. An expired generation must remain unavailable and be purged through a coordinated reset on the designated active host; its contact store survives. Complete the public route change only after resolving which host owns the reset. Both hosts must never write the same replica paths concurrently.
 
 The manifests attest verified final database state; they are not a distributed fencing service. Operator control of both hosts, load balancing, automatic restarts, timers and replicas remains necessary. Provider-backed migration, ingress isolation, image startup and populated recovery must pass before calling this deployment ready.
+
+## Operator details for the test
+
+The user supplied Alberto Miorin (an individual, not an incorporated company), alberto.miorin@pocketcontext.com, and the correspondence address c/o Engelnest Coworking Space and Event Venue, Wilhelm-Kabus-Straße 24, 10829 Berlin, Germany. The user authorized proceeding with the test after stating that permission to publish/use the venue address has not been confirmed. This is an unresolved address verification issue, not an attestation of a registered office or legal compliance.

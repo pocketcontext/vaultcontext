@@ -77,10 +77,11 @@ def configuration(path):
     else:
         if set(data['storage']) != {'kind', 'primary_bucket', 'replica_bucket', 'durable_bucket'} or data['storage']['kind'] not in ('s3', 'r2'):
             raise ResetError('invalid remote storage settings')
-        for field in ('primary_bucket', 'replica_bucket'):
-            if not re.fullmatch(r'vaultcontext-demo-[a-z0-9][a-z0-9-]{1,40}', data['storage'][field]):
+        for field, chosen in (('primary_bucket', 'once-v2-vaultcontext-demo-files'),
+                              ('replica_bucket', 'once-v2-vaultcontext-demo-replica')):
+            if data['storage'][field] != chosen and not re.fullmatch(r'vaultcontext-demo-[a-z0-9][a-z0-9-]{1,40}', data['storage'][field]):
                 raise ResetError('only dedicated vaultcontext-demo buckets are accepted')
-        if not re.fullmatch(r'vaultcontext-demo-contacts-[a-z0-9][a-z0-9-]{1,32}',data['storage']['durable_bucket']):
+        if data['storage']['durable_bucket'] != 'once-v2-vaultcontext-demo-contacts-replica' and not re.fullmatch(r'vaultcontext-demo-contacts-[a-z0-9][a-z0-9-]{1,32}',data['storage']['durable_bucket']):
             raise ResetError('durable contact exclusion binding is required')
         if len({data['storage'][key] for key in ('primary_bucket','replica_bucket','durable_bucket')})!=3:
             raise ResetError('reset storage may never overlap durable contact storage')

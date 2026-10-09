@@ -41,7 +41,8 @@ function storageBoundary(app) {
  for(const prefix of prefixes) {
   const required=prefix==='LITESTREAM_'?['BUCKET','ENDPOINT','REGION']:fields;
   if(required.some(field=>!$os.getenv(prefix+field)))throw new Error('Demo requires complete dedicated primary and replica storage configuration');
-  if(!/^vaultcontext-demo-[a-z0-9][a-z0-9-]{1,40}$/.test($os.getenv(prefix+'BUCKET')))
+  const chosen=prefix==='VAULTCONTEXT_S3_'?'once-v2-vaultcontext-demo-files':'once-v2-vaultcontext-demo-replica';
+  if($os.getenv(prefix+'BUCKET')!==chosen && !/^vaultcontext-demo-[a-z0-9][a-z0-9-]{1,40}$/.test($os.getenv(prefix+'BUCKET')))
    throw new Error('Demo storage requires dedicated vaultcontext-demo buckets');
  }
  if($os.getenv('VAULTCONTEXT_S3_BUCKET')===$os.getenv('LITESTREAM_BUCKET') ||

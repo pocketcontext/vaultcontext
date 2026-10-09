@@ -116,7 +116,7 @@ class Replica:
             required=['BUCKET','ENDPOINT','REGION','PATH','ACCESS_KEY_ID','SECRET_ACCESS_KEY']
             if any(not self.env.get('CONTACTS_LITESTREAM_'+key) for key in required):
                 raise ReplicaError('dedicated contact replica configuration required')
-            if not re.fullmatch(r'vaultcontext-demo-contacts-[a-z0-9][a-z0-9-]{1,32}',self.env['CONTACTS_LITESTREAM_BUCKET']):
+            if self.env['CONTACTS_LITESTREAM_BUCKET'] != 'once-v2-vaultcontext-demo-contacts-replica' and not re.fullmatch(r'vaultcontext-demo-contacts-[a-z0-9][a-z0-9-]{1,32}',self.env['CONTACTS_LITESTREAM_BUCKET']):
                 raise ReplicaError('dedicated durable contact bucket required')
             if not self.env['CONTACTS_LITESTREAM_ENDPOINT'].startswith('https://'):
                 raise ReplicaError('contact replica requires HTTPS')
