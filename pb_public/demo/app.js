@@ -66,7 +66,7 @@ async function restoreSession() {
 const connectExample = byId('connect-code').textContent;
 const installExample = byId('install-code').textContent;
 // Readiness requires checked, same-origin public artifacts; a boolean alone
-// cannot turn a private repository release into an installable client.
+// cannot establish that this server has a usable public client release.
 function checkedDownloads(data) {
   const downloads = data?.downloads;
   if (data?.clientReady !== true || downloads?.schema !== 1 || downloads.origin !== location.origin || downloads.package !== 'vaultcontext-client' || !/^[0-9]+\.[0-9]+\.[0-9]+$/.test(downloads.version) || !downloads.release?.startsWith(downloads.version + '-') || !/^[0-9]+\.[0-9]+\.[0-9]+-[a-f0-9]{20}$/.test(downloads.release)) return null;
@@ -83,16 +83,20 @@ function renderInstallation() {
   if (!downloads) {
     byId('install-code').textContent = installExample;
     byId('install-intro').textContent = 'Public installation will appear when this server has a verified client wheel and skill bundle. These blocks currently describe the planned workflow; do not use production credentials.';
-    byId('install-note').textContent = 'No checked public downloads are available on this origin. The source repository remains private; no repository credentials are needed or requested.';
+    byId('install-note').textContent = 'No checked public downloads are available on this origin. Live setup is unavailable; no repository credentials are needed or requested.';
     return;
   }
   const agent = document.querySelector('[data-method=agent]').getAttribute('aria-pressed') === 'true';
-  const wheel = downloads.artifacts.wheel, skill = downloads.artifacts.skill;
-  byId('install-intro').textContent = agent ? 'Install uv, then download and verify the skill into your workspace. It includes a standalone client launcher; no GitHub access is required.' : 'Install uv, then install this verified public client wheel. Linux and macOS are supported; dependencies come from public PyPI.';
+  const wheel = downloads.artifacts.wheel;
+  const copy = byId('install-code').closest('.codebox').querySelector('.copy');
+  copy.textContent = agent ? 'Copy instructions' : 'Copy';
+  byId('install-code').closest('.codebox').classList.toggle('agent-prompt', agent);
+  byId('install-intro').textContent = agent ? 'Copy these instructions into your coding agent. It will install and load the public VaultContext skill, then guide you through setup. Node.js/npm and uv are required.' : 'Install uv, then install this verified public client wheel. Linux and macOS are supported; dependencies come from public PyPI.';
   byId('install-code').textContent = agent
-    ? `curl --fail --location '${downloads.origin}${skill.path}' --output vaultcontext-skill.tar.gz &&\nprintf '%s  %s\\n' '${skill.sha256}' 'vaultcontext-skill.tar.gz' | shasum -a 256 -c - &&\nmkdir -p .agents/skills &&\ntar -xzf vaultcontext-skill.tar.gz -C .agents/skills &&\nexport PATH="$PWD/.agents/skills/vaultcontext:$PATH" &&\nvaultcontext --help`
+    ? `Install the VaultContext skill in this workspace with:\n\nnpx skills add https://github.com/pocketcontext/vaultcontext/tree/vaultcontext-demo/skills/vaultcontext --skill vaultcontext --yes\n\nUse the appropriate --agent option if needed (codex or claude-code), then load the installed skill and follow its instructions. Check that Node.js/npm and uv are available first. Preserve any local skill changes and lock existing VaultContext sessions before upgrading.\n\nHelp me connect to ${downloads.origin}. Browser enrollment is required first: I must sign in on the website and accept the terms using the same Google account as the CLI. Use vaultcontext login for Google sign-in; on a remote host, guide me through the callback port forwarding described in the skill.\n\nGuide me through checking access, initializing only if I have no identity, and unlocking. I will enter my vault passphrase only in my private terminal, never in chat, commands, environment variables or pipes. Do not ask for it.\n\nHelp me save, compare and restore a harmless synthetic file without inspecting its contents. The demo resets at 00:00 UTC; after a reset, repeat enrollment and sign-in and create a fresh identity. The unlocked host and coding agent are trusted.`
     : `uv tool install --force '${downloads.origin}${wheel.path}#sha256=${wheel.sha256}' &&\nexport PATH="$HOME/.local/bin:$PATH" &&\nvaultcontext --help`;
-  byId('install-note').textContent = 'Before replacing a client or skill, lock its active sessions. These commands download the exact published build; the page never runs them or unlocks a vault. Keep your existing skill changes before extracting an update.';
+  byId('install-note').textContent = agent ? 'The public skill comes from the demo branch and includes a launcher pinned to a tested client commit. Installing it does not sign in or unlock your vault. No GitHub credentials are required.' : 'Before replacing a client, lock its active sessions. This command installs the exact published wheel; the page never runs it or unlocks a vault.';
+
 }
 const googleButton = byId('google-button');
 const cancelGoogleButton = byId('cancel-google');
@@ -374,7 +378,7 @@ document.querySelectorAll('.step-done').forEach(input => input.addEventListener(
 byId('reset-progress').addEventListener('click',()=>{ document.querySelectorAll('.step-done').forEach(input=>{input.checked=false;});updateProgress(); });
 document.querySelectorAll('.copy').forEach(button=>button.addEventListener('click',async()=>{
   const code=button.nextElementSibling.querySelector('code');
-  try { if(!navigator.clipboard)throw new Error(); await navigator.clipboard.writeText(code.textContent);button.textContent='Copied';byId('copy-status').textContent='Commands copied. No commands have been run.';setTimeout(()=>{button.textContent='Copy';},2000); }
-  catch { const selection=window.getSelection(),range=document.createRange();range.selectNodeContents(code);selection.removeAllRanges();selection.addRange(range);button.textContent='Select & copy';byId('copy-status').textContent='Clipboard unavailable. Commands selected; copy them manually.'; }
+  try { if(!navigator.clipboard)throw new Error(); await navigator.clipboard.writeText(code.textContent);button.textContent='Copied';byId('copy-status').textContent='Instructions copied. No commands have been run.';setTimeout(()=>{button.textContent=code.id === 'install-code' && document.querySelector('[data-method=agent]').getAttribute('aria-pressed') === 'true' ? 'Copy instructions' : 'Copy';},2000); }
+  catch { const selection=window.getSelection(),range=document.createRange();range.selectNodeContents(code);selection.removeAllRanges();selection.addRange(range);button.textContent='Select & copy';byId('copy-status').textContent='Clipboard unavailable. Instructions selected; copy them manually.'; }
 }));
 document.querySelectorAll('a[href="#terms-details"],a[href="#privacy-details"]').forEach(link=>link.addEventListener('click',()=>{document.querySelector(link.getAttribute('href')).open=true;}));

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build deterministic public demo artifacts without exposing the private checkout.
+"""Build deterministic public demo artifacts from allowlisted source.
 
 Only the wheel, an allowlisted skill bundle, a launcher, and their public metadata
 are copied to --output. No credentials or Git metadata belong in the result.
@@ -80,7 +80,7 @@ description: Store, compare, version and restore encrypted files using the publi
 
 # VaultContext public demo client
 
-This downloaded bundle is independent of the private source repository. Install uv,
+This downloaded bundle works without cloning the public source repository. Install uv,
 then run this bundle's `vaultcontext` launcher by absolute path or copy it onto PATH.
 It uses `uv run --no-project --with` and an immutable public wheel URL with a SHA-256
 fragment. PyNaCl and its dependencies are fetched from public PyPI. Linux and macOS

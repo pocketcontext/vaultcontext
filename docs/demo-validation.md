@@ -29,7 +29,7 @@ enrollment remain unverified.
 
 ## Previous implementation baseline
 
-This records local synthetic validation of the `vaultcontext-demo` worktree. It is not evidence of a public deployment or a completed provider migration. The source repository remains private. Public client artifacts are generated during the image build; generated wheels and bundles are not committed. Repeat builds with the tested tooling produced identical artifacts. The build backend is pinned, but its transitive build-tool dependencies are not fully locked; content-addressed paths prevent changed bytes from silently replacing a prior release.
+This records local synthetic validation of the `vaultcontext-demo` worktree. It is not evidence of a public deployment or a completed provider migration. The source repository was private for these initial checks; it is now public. Public client artifacts are generated during the image build; generated wheels and bundles are not committed. Repeat builds with the tested tooling produced identical artifacts. The build backend is pinned, but its transitive build-tool dependencies are not fully locked; content-addressed paths prevent changed bytes from silently replacing a prior release.
 
 Final local regression: 176 unit checks ran successfully (169 passed, 7 platform-specific skips). This includes the real pinned-server and Litestream cases enabled through their test environment variables. The 43 production entrypoint checks and 10 deployment-workflow checks also passed, as did demo backend, signed identity, deployment/object-storage settings, browser onboarding, and the two public-launcher integration suites.
 
@@ -56,3 +56,18 @@ Final local regression: 176 unit checks ran successfully (169 passed, 7 platform
 A Docker daemon is unavailable on this local host. Image configuration, smoke and provider-backed populated restore/migration checks must pass in container CI and a dedicated staging environment. CI invokes the real replication tests using the Litestream binary extracted from the built image.
 
 Before public enrollment, finalize legal identity/contact details, confirm the disclosed backup-expiry policy with actual provider cleanup behavior, configure the separate Google OAuth client, validate live personal/Workspace login, provision the isolated storage and stable HTTPS origin, and exercise the complete daily reset and host cutover. Verify source-host timers/deployment controllers remain fenced and old disposable local copies are removed before midnight. No production deployment, provider resource creation, external commercial message or newsletter subscription was performed by these local checks.
+
+## Public skill installation (2026-10-09)
+
+Anonymous `npx skills add` from the explicit `vaultcontext-demo` skill URL was
+verified in an isolated workspace with empty Git configuration and credentials.
+The revised local skill was separately installed in an isolated workspace; its
+pinned client fetched anonymously and both general and Google-login help worked.
+The site retains verified-download readiness and the wheel installation fallback.
+
+A bounded review of 82 locally reachable commits / 489 unique blobs found no
+confirmed credentials. Pattern matches were synthetic loopback test expressions.
+This was not a comprehensive secret audit: deployment/credential paths,
+untracked files, remote-only history and organization settings were excluded.
+PR workflows have read-only permissions and do not publish or deploy. No
+project-level license has been selected; vendor licenses remain unchanged.

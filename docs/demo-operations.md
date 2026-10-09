@@ -191,3 +191,15 @@ handling. Website sign-out clears browser auth, not CLI auth or server tokens.
 The daily reset guard clears browser auth when observed; closed browsers can
 retain stale tokens until their next visit. Vault secrets and withdrawal
 capabilities are not persisted in browser storage.
+
+## Coding-agent installation
+
+The public repository skill on `vaultcontext-demo` is the primary agent setup path.
+The website copies an instruction prompt containing `npx skills add` with the
+explicit branch/skill URL; it does not run installation itself. Node.js/npm and uv
+are prerequisites. The agent loads the installed skill, uses its pinned launcher,
+and guides the user through browser enrollment, Google login and private terminal
+initialization/unlock. Installation never counts as enrollment or unlock.
+The verified wheel remains the secondary CLI path. Keep all three generated
+artifacts and their readiness/attestation checks; this UX change does not remove
+the public download or deployment recovery contract.

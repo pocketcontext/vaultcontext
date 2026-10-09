@@ -119,7 +119,7 @@ with sync_playwright() as p:
  page.wait_for_function('!document.querySelector("#google-button").disabled && document.querySelector("#form-status").textContent.includes("unavailable")')
  assert page.locator('.continue-button').is_disabled()
  assert not page.locator('#identity').is_visible()
- # A backend readiness flag cannot make private source publicly installable.
+ # Backend readiness alone cannot bypass validated demo distribution metadata.
  # Keep the local distribution gate closed even if an old backend says ready.
  client_ready=True;fail_preferences=False
  page.evaluate('localStorage.clear()')
@@ -154,14 +154,23 @@ with sync_playwright() as p:
  for key,name in [('wheel','vaultcontext_client-0.1.0-py3-none-any.whl'),('skill','vaultcontext-skill.tar.gz'),('launcher','vaultcontext')]:
   public_downloads['artifacts'][key]={'path':'/demo/downloads/'+release+'/'+name,'sha256':'b'*64,'size':128}
  page.evaluate('localStorage.clear()')
- page.goto('http://demo.test/');page.wait_for_function('document.querySelector("#install-code").textContent.includes("uv tool install --force")')
- assert '#sha256='+'b'*64 in page.locator('#install-code').text_content()
- assert 'github.com' not in page.locator('#install-code').text_content()
+ page.goto('http://demo.test/');page.wait_for_function('document.querySelector("#install-code").textContent.includes("npx skills add")')
+ assert page.locator('[data-method="agent"]').get_attribute('aria-pressed')=='true'
+ assert page.locator('#agent-note').get_attribute('hidden') is None
+ install=page.locator('#install-code').text_content()
+ assert 'https://github.com/pocketcontext/vaultcontext/tree/vaultcontext-demo/skills/vaultcontext --skill vaultcontext --yes' in install
+ assert 'private terminal' in install and 'same Google account' in install
+ assert 'tar -xzf' not in install
+ assert '\n\nnpx skills add' in install and r'\n' not in install
  page.locator('#google-button').click();page.wait_for_selector('#identity:visible');page.locator('#terms').check();page.locator('.continue-button').click()
  page.wait_for_function('document.querySelector("#signout").disabled')
  pending_enroll.pop().fulfill(status=200,content_type='application/json',body=json.dumps({'enrolled':True,'generation':'2099-01-01','contact':{'revision':1,'unsubscribeToken':'synthetic-withdrawal'}}))
  page.wait_for_selector('#onboarding:visible')
  assert "VAULTCONTEXT_URL='http://demo.test'" in page.locator('#connect-code').text_content()
+ page.locator('[data-method="cli"]').click()
+ assert 'uv tool install --force' in page.locator('#install-code').text_content()
+ assert '#sha256='+'b'*64 in page.locator('#install-code').text_content()
+ assert 'github.com' not in page.locator('#install-code').text_content()
  # A connected, ready demo must not show design-preview or future-launch wording,
  # including policy disclosures and the expanded onboarding instructions.
  for disclosure in page.locator('details').all():disclosure.evaluate('(element)=>element.open=true')
@@ -194,8 +203,10 @@ with sync_playwright() as p:
  page.set_viewport_size({'width':1440,'height':1000})
  page.locator('[data-method="agent"]').click()
  install=page.locator('#install-code').text_content()
- assert 'shasum -a 256 -c - &&' in install and install.index('shasum')<install.index('tar -xzf')
- assert 'github.com' not in install
+ assert 'npx skills add https://github.com/pocketcontext/vaultcontext/tree/vaultcontext-demo/skills/vaultcontext' in install
+ assert 'tar -xzf' not in install
+ assert '\n\nnpx skills add' in install and r'\n' not in install
+ assert page.locator('#install-code').locator('xpath=../..').locator('.copy').inner_text()=='Copy instructions'
  # Invalid checksum/path/origin metadata must fail closed even with ready=true.
  for field,value in [('sha256','invalid'),('path','/private/download.whl')]:
   previous=public_downloads['artifacts']['wheel'][field]
@@ -349,5 +360,5 @@ with sync_playwright() as p:
  assert blocked.locator('#identity').is_hidden() and blocked.locator('#google-button').is_visible()
  assert blocked.locator('.continue-button').is_disabled() and not blocked_errors,blocked_errors
  context.close()
- print('PASS: static mobile preview/terms/optional consent/progress; live Google mock SSE/204/auth; preference revision enrollment; pending-release guide; withdrawal; signout; authentication-only localStorage; no page errors; pending-enrollment signout race; withdrawal across reset; fragment scrubbing/explicit confirmation/retry without login; public same-origin SHA-pinned installation; invalid/stale metadata rejected; continuation state and failed preference refresh; live copy and SVG icons; compact mobile headline/banner/touch targets; persisted session server validation; cross-tab signout; invalid sessions and reset clear auth; blocked storage fallback; late refresh/enrollment after cross-tab signout.')
+ print('PASS: static mobile preview/terms/optional consent/progress; live Google mock SSE/204/auth; preference revision enrollment; pending-release guide; withdrawal; signout; authentication-only localStorage; no page errors; pending-enrollment signout race; withdrawal across reset; fragment scrubbing/explicit confirmation/retry without login; coding-agent skill prompt and secondary SHA-pinned CLI installation; invalid/stale metadata rejected; continuation state and failed preference refresh; live copy and SVG icons; compact mobile headline/banner/touch targets; persisted session server validation; cross-tab signout; invalid sessions and reset clear auth; blocked storage fallback; late refresh/enrollment after cross-tab signout.')
  b.close()

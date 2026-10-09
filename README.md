@@ -19,9 +19,9 @@ This branch also requires identity-key signatures for non-demo passphrase
 changes. Old clients fail closed on that operation; install the updated package
 before adopting this server change. This branch's repository launcher pins tested
 client commit `78e0308abed01c21ffee5ec6b35a2d037c3f6280`; that Git-based installation
-requires authorized access to the private repository. Public demo visitors instead
-install a versioned wheel or skill bundle from the demo website, with SHA-256
-verification and public PyPI dependencies. Repository visibility is unchanged.
+uses the public repository without GitHub credentials. Demo visitors install the
+skill from the explicit demo branch with `npx skills`, or use the SHA-256-verified
+wheel or standalone skill bundle. Dependencies come from public PyPI.
 The public Docker deployment image includes the server, hooks, frontend, retention
 service and these approved static download artifacts. Client dependencies are
 installed on the visitor's machine, not into the server runtime.
@@ -46,8 +46,9 @@ Generated binaries are not committed. Docker runs the same builder in a separate
 stage and copies only its output into `pb_public/demo/downloads/`.
 
 The launcher runs `uv run --no-project --with PUBLIC_WHEEL_URL#sha256=HASH`; it never
-fetches the private Git repository. The UI uses `uv tool install --force` for the
-CLI, or downloads and verifies the skill archive before extraction. Lock active
+fetches a Git repository. The UI uses `npx skills` for agent setup and
+`uv tool install --force` for the CLI. The verified skill archive remains
+available as a standalone alternative. Lock active
 sessions before replacing either client or skill; installation never unlocks.
 
 `/api/demo/status` advertises client readiness only after validating the local
@@ -63,7 +64,7 @@ output under a temporary web root's `demo/downloads/` and serve that web root;
 remote builds require HTTPS. The image build argument `DEMO_PUBLIC_ORIGIN` defaults
 to `https://vault-demo.pocketcontext.com` and must match the deployment's `BASE_URL`.
 Publishing a wheel or bundle is an intentional public client release, independent
-of private repository access; it does not publish the repository or deploy a server.
+of repository visibility; it does not change repository visibility or deploy a server.
 
 Additional isolated validation:
 
@@ -160,12 +161,23 @@ Production Google settings use a separate Web OAuth client, paired `VAULTCONTEXT
 
 ## Portable client
 
-Public demo visitors use the checked wheel or skill bundle offered by the demo
-website, as described above. The following installation requires authorized access to this private repository
-and its pinned dependencies. It is not a public demo installation method. Keep Git
-authentication outside commands, source control and logs; never place tokens in
-package URLs. Install [uv](https://docs.astral.sh/uv/getting-started/installation/)
-and copy the executable launcher onto your PATH:
+The primary demo path is to paste the website's setup instructions into your coding
+agent. Node.js/npm and uv are prerequisites. From the intended agent workspace:
+
+```sh
+npx skills add https://github.com/pocketcontext/vaultcontext/tree/vaultcontext-demo/skills/vaultcontext --skill vaultcontext --yes
+```
+
+Add `--agent codex` or `--agent claude-code` to target a specific coding agent.
+Load the installed skill before using its bundled launcher. The explicit branch
+selects the demo-compatible instructions; the short `pocketcontext/vaultcontext`
+source currently selects a different default-branch release. The repository is
+public and installation needs no GitHub credentials. Enrollment and Google login
+are separate from installation; passphrases stay in the user's private terminal.
+The demo still offers a verified wheel and standalone bundle for manual installs.
+
+To use a launcher from a checkout directly, install [uv](https://docs.astral.sh/uv/getting-started/installation/)
+and copy it onto PATH:
 
 ```sh
 install -Dm755 skills/vaultcontext/vaultcontext ~/.local/bin/vaultcontext
@@ -247,7 +259,7 @@ uv run --locked python tests/deploy_workflow.py
 
 Container configuration, smoke and populated complete-restore checks gate image publication; see deployment documentation for commands. Real Google browser/provider configuration and independent security review are separate from synthetic tests. Actual verification results and remaining limitations are recorded in `docs/validation.md`.
 
-VaultContext is deployed at `https://vault.pocketcontext.com`; see [release evidence](DEPLOYMENT.md). The source repository is private; the Docker deployment image is public. This demo branch also packages the approved client wheel and skill bundle as public static downloads, without installing the client into the server runtime. The image workflow supports automatic production deployment after successful publication through the `once-pocketcontext-v2` restricted dispatcher. `CONTEXT_DEPLOY_PAUSED=true` pauses deployment without pausing CI or publication; see [deployment controls](docs/deployment.md#single-writer-updates-and-rollback).
+VaultContext is deployed at `https://vault.pocketcontext.com`; see [release evidence](DEPLOYMENT.md). The source repository and Docker deployment image are public. This demo branch also packages the approved client wheel and skill bundle as public static downloads, without installing the client into the server runtime. The image workflow supports automatic production deployment after successful publication through the `once-pocketcontext-v2` restricted dispatcher. `CONTEXT_DEPLOY_PAUSED=true` pauses deployment without pausing CI or publication; see [deployment controls](docs/deployment.md#single-writer-updates-and-rollback).
 
 Identity, OAuth and deployment patterns are adapted from RaiseContext; filtered access and complete-original backup patterns follow AccountContext. Their domain schemas and readers are not copied.
 

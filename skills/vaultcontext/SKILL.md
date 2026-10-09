@@ -5,7 +5,7 @@ description: Store, version, compare for equality, archive, restore and explicit
 
 # VaultContext
 
-Use the executable `vaultcontext` launcher. It requires uv and Linux or macOS Unix sockets; uv manages Python and dependencies. The launcher pins the packaged client to a full Git commit and works from any directory, including when copied alone to `~/.local/bin/vaultcontext`. The first run needs downloads and authorized access to the private source repository. Do not present this launcher or its GitHub dependency as anonymously installable; never embed access tokens in URLs, commands or logs. There is no skill lockfile, so transitive dependency resolution can vary. A conventional package installation also provides `vaultcontext` without requiring uv at runtime; see the workflows.
+Use the executable `vaultcontext` launcher included beside this file. It requires uv and Linux or macOS Unix sockets; uv manages Python and dependencies. Invoke it by absolute path or copy it onto PATH. The public GitHub repository needs no GitHub account or access token. The launcher pins the packaged client to a full Git commit and works when copied alone; its dependencies come from public PyPI. There is no skill lockfile, so transitive dependency resolution can vary. Installation does not authenticate or unlock a vault.
 
 When upgrading from `vc`, lock existing sessions with the old launcher before installing `vaultcontext`; remove only the old VaultContext launcher and update scripts. No compatibility alias is provided. Unlocking afterward is an explicit user action, never part of installation.
 
@@ -61,17 +61,18 @@ logs have separate disclosed retention; downloaded local files are not erased.
 After a generation change, explicitly lock the stale session, sign in, initialize
 a fresh identity and unlock privately. Never silently replace fingerprint pins.
 Sharing, Keychain enrollment and passphrase changes are unavailable in the demo.
-This branch's launcher pins tested client commit
-`eadfcf601d522690cee1d68b616294ce27c390de`, but the repository and its Git
-dependency are private. Public demo visitors instead use the approved versioned wheel or skill bundle
-served by the demo website. The public Docker image packages those static artifacts;
-the source repository remains private. The downloaded bundle replaces this
-Git-based repository launcher with `uv run --no-project --with` against a public
-wheel URL pinned by SHA-256. Its dependencies come from public PyPI.
-Use only verified downloads advertised by the enabled demo's manifest. Never tell
-a public visitor to use private GitHub installation URLs, request operator
-credentials, or change repository visibility. Missing or corrupt artifacts keep
-public installation unavailable; a simulated preview is not a live download service.
+The demo website's coding-agent instructions install this skill with `npx skills`
+from the explicit `vaultcontext-demo` branch. The repository default branch may
+carry a different release; use the demo branch for demo setup. Read the installed
+launcher for the exact pinned client revision rather than assuming the branch
+head is the runtime version. A SHA-256-verified wheel and standalone skill bundle
+remain available on the demo website as alternative installation methods.
+For setup, check Node.js/npm and uv availability, load this skill and its workflows,
+then configure `VAULTCONTEXT_URL=https://vault-demo.pocketcontext.com` and the
+user's chosen Google email. Have the user complete browser enrollment with that
+same account and run `vaultcontext login`. Have the user initialize only if no
+identity exists, then unlock in their private terminal. Never ask for a passphrase
+in chat or automatically overwrite an existing installation or identity.
 
 ## Failures
 

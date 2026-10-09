@@ -5,3 +5,5 @@
 .capability-section{padding-top:12px;padding-bottom:12px}.capability-section h2{font-size:26px;margin-top:14px}.capability-section .button{margin:18px 0 12px}.capability-section .onboarding-banner{border-color:#a9b99b}.capability-section p{max-width:760px}
 
 .ui-icon{display:inline-block;width:1.1em;height:1.1em;flex-shrink:0;vertical-align:-.15em;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}.feature-symbol .ui-icon{width:32px;height:32px}.connector .ui-icon{width:18px;height:18px}
+
+.agent-prompt pre{white-space:pre-wrap;overflow-wrap:anywhere;font:13px/1.7 system-ui,sans-serif}
