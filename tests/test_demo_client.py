@@ -37,6 +37,40 @@ class DemoClientTests(unittest.TestCase):
         })), self.assertRaises(auth.Fail):
             demo.discover({})
 
+    def test_demo_errors_do_not_mislabel_conflict_or_outage_as_enrollment(self):
+        cfg = {'url': 'https://demo.example', '_demo_generation': '2099-10-09'}
+        for status, expected in ((401, 'sign-in expired'), (403, 'same Google account'),
+                                 (409, 'state changed'), (503, 'temporarily unavailable')):
+            with self.subTest(status=status), patch.object(auth, 'call', return_value=(status, {'message': 'PRIVATE_RESPONSE'})):
+                with self.assertRaises(auth.Fail) as error:
+                    cli.request(cfg, 'POST', '/api/collections/vault_actions/records', {'op': 'vault_create'})
+                self.assertIn(expected, str(error.exception))
+                self.assertNotIn('PRIVATE_RESPONSE', str(error.exception))
+                self.assertNotIn('Complete enrollment', str(error.exception))
+
+    def test_duplicate_init_race_reports_existing_identity(self):
+        for cfg in ({}, {'url': 'https://demo.example', '_demo_generation': '2099-10-09'}):
+            with patch.object(auth, 'call', return_value=(409, {})):
+                with self.assertRaises(auth.Fail) as error:
+                    cli.action(cfg, 'identity_init', {})
+                self.assertIn('vaultcontext unlock', str(error.exception))
+                self.assertNotIn('enrollment', str(error.exception))
+
+    def test_init_checks_access_and_existing_identity_before_passphrase(self):
+        from types import SimpleNamespace
+        cfg = {'url': 'https://demo.example', '_demo_generation': '2099-10-09'}
+        for result in ([{'id': 'synthetic'}], auth.Fail(1, 'Demo access denied')):
+            with patch.object(auth, 'config', return_value=cfg), patch.object(demo, 'configure'), \
+                 patch.object(cli, 'whoami', return_value='synthetic'), \
+                 patch.object(cli, 'rows', side_effect=result if isinstance(result, Exception) else None, return_value=result) as rows, \
+                 patch.object(cli, 'prompt_passphrase') as prompt, \
+                 patch.object(cli.crypto, 'generate_identity') as generate, \
+                 patch.object(cli, 'action') as action:
+                with self.assertRaises(auth.Fail):
+                    cli.run(SimpleNamespace(command='init'))
+                rows.assert_called_once_with(cfg, 'identities', "account='synthetic'")
+                prompt.assert_not_called(); generate.assert_not_called(); action.assert_not_called()
+
     def test_pins_reject_insecure_file_directory_and_symlink(self):
         with tempfile.TemporaryDirectory() as tmp:
             directory = Path(tmp) / 'private'

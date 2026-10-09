@@ -121,6 +121,8 @@ def main():
             prefs=request('GET','/api/demo/preferences',token=token);assert prefs['revision']==0
             result=request('POST','/api/demo/enroll',enroll,token);assert result['enrolled']
             act(token,'identity_init',identity)
+            # A repeated init is an identity conflict, not missing enrollment.
+            act(token,'identity_init',identity,409)
         request('POST','/api/demo/enroll',enroll,at,409)
         def query(token,sql):return request('POST','/api/context/query',{'sql':sql},token)
         for token,user in ((at,alice),(bt,bob)):

@@ -7,7 +7,11 @@ service, reset controls and deployment prerequisites. The UI lives in
 interactive preview with no authentication or enrollment storage. The live UI
 activates only after a valid `/api/demo/status` response from an enabled backend.
 Demo users authenticate with any verified Google account, accept the current
-terms, and use personal vaults until 00:00 UTC. Sharing and identity rewrap are
+terms, and use personal vaults until 00:00 UTC.
+`vaultcontext init` checks enrollment/read access and whether an identity already
+exists before prompting for a passphrase. An existing identity must be unlocked
+with its existing passphrase; running `init` again never replaces it. CLI sign-in
+and website enrollment must use the same Google account. Sharing and identity rewrap are
 disabled in demo mode. All account/vault data is disposable; contact preferences
 and bounded security logs live outside the daily reset.
 

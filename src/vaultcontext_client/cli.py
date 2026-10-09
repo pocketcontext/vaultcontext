@@ -44,8 +44,17 @@ def request(cfg, method, path, body=None):
                     if method == 'POST' and path == '/api/context/query'
                     else auth.call(cfg, method, path, body))
     if status >= 400:
-        if cfg.get('_demo_generation') and status in (401, 403, 409, 503):
-            raise auth.Fail(4 if status == 409 else 1, 'Demo access failed. Complete enrollment at ' + cfg['url'] + '/ first. If the demo reset, lock, sign in, initialize and unlock a new identity; reread state before retrying writes.')
+        if status == 409 and method == 'POST' and path == '/api/collections/vault_actions/records' and isinstance(body, dict) and body.get('op') == 'identity_init':
+            raise auth.Fail(4, 'Identity already initialized. Run vaultcontext unlock with your existing passphrase. init does not replace an identity or reset its passphrase.')
+        if cfg.get('_demo_generation'):
+            if status == 401:
+                raise auth.Fail(1, 'Demo sign-in expired or was rejected. Run vaultcontext login --google using the same account you enrolled on the website.')
+            if status == 403:
+                raise auth.Fail(1, 'Demo access denied (HTTP 403). Check that the CLI uses the same Google account that accepted today’s terms at ' + cfg['url'] + '/. Sign-in alone is not enrollment. If already enrolled, check account access; do not recreate your identity.')
+            if status == 409:
+                raise auth.Fail(4, 'Demo state changed (HTTP 409). Reread the current state before retrying. This is not an enrollment error.')
+            if status == 503:
+                raise auth.Fail(1, 'Demo temporarily unavailable or resetting (HTTP 503). Wait and retry a read before making changes. After a daily reset, sign in and accept the new demo day’s terms on the website.')
         raise auth.Fail(4 if status == 409 else 1, f'HTTP {status}; operation failed. Reread state before retrying; response content suppressed.')
     return data
 
@@ -768,6 +777,10 @@ def run(args):
     if args.command == 'init':
         resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
         account = whoami(cfg)
+        # Verify read access/enrollment and existing identity before asking for a
+        # secret or generating replacement keys. The write still handles races.
+        if rows(cfg, 'identities', 'account=' + quote(account)):
+            raise auth.Fail(4, 'Identity already initialized. Run vaultcontext unlock with your existing passphrase. init does not replace an identity or reset its passphrase.')
         identity = crypto.generate_identity()
         bundle = crypto.wrap_identity(identity, prompt_passphrase(confirm=True), account)
         pub = crypto.public_identity(identity)
