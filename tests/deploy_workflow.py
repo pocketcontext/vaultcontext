@@ -14,11 +14,11 @@ APP = 'vaultcontext'  # Repository identity must not depend on a worktree direct
 RETIRED = APP in {'accountcontext', 'chatcontext', 'observecontext', 'peoplecontext', 'raisecontext'}
 HOST = {'dealcontext': 'crm', 'taskcontext': 'tasks', 'accountcontext': 'accounts'}.get(APP, APP.removesuffix('context'))
 PUBLICATION, DEPLOYMENT = WORKFLOW.split('  deploy:\n', 1)
-DEMO = PUBLICATION.split('  demo_manifest:\n', 1)[1]
+DEMO, DEMO_DEPLOY = PUBLICATION.split('  demo_manifest:\n', 1)[1].split('  demo_deploy:\n', 1)
 
 
-def demo_script(step):
-    section = DEMO.split('      - name: ' + step + '\n', 1)[1].split('      - ', 1)[0]
+def demo_script(step, source=DEMO):
+    section = source.split('      - name: ' + step + '\n', 1)[1].split('      - ', 1)[0]
     body = section.split('        run: |\n', 1)[1]
     return '\n'.join(line[10:] for line in body.splitlines() if line.startswith('          '))
 
@@ -31,6 +31,90 @@ def script(step):
 
 
 class DeploymentTests(unittest.TestCase):
+    def test_demo_cd_has_independent_gates_and_no_production_path(self):
+        self.assertEqual(DEMO_DEPLOY.splitlines()[0].strip(), "if: github.ref == 'refs/heads/vaultcontext-demo' && github.event_name != 'pull_request' && vars.VAULTCONTEXT_DEMO_DEPLOY_ENABLED == 'true' && vars.VAULTCONTEXT_DEMO_DEPLOY_PAUSED != 'true'")
+        self.assertIn('    needs:\n      - demo_manifest\n', DEMO_DEPLOY)
+        self.assertIn('    environment:\n      name: vaultcontext-demo\n', DEMO_DEPLOY)
+        self.assertIn('      group: deploy-vaultcontext-demo\n      cancel-in-progress: false', DEMO_DEPLOY)
+        self.assertIn('DEMO_DIGEST: ${{ needs.demo_manifest.outputs.digest }}', DEMO_DEPLOY)
+        self.assertNotIn('always()', DEMO_DEPLOY)
+        self.assertNotIn(':latest', DEMO_DEPLOY)
+        self.assertNotIn('COLORS_PROFILE', DEMO_DEPLOY)
+        self.assertLess(DEMO_DEPLOY.index('Require current demo deployment revision'), DEMO_DEPLOY.index('Deploy exact demo digest'))
+        self.assertIn('refs/heads/main', DEPLOYMENT)
+
+    def test_demo_ssh_exact_request_receipt_and_failures(self):
+        for mode in ('success', 'hostkey', 'digest', 'user', 'ssh', 'receipt'):
+            with self.subTest(mode=mode), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                for name in ('ssh-agent', 'ssh-add', 'ssh'):
+                    path = root/name
+                    path.write_text('#!' + sys.executable + '\n'
+                        'import json,os,sys\nfrom pathlib import Path\n'
+                        'name=Path(sys.argv[0]).name\n'
+                        'if name=="ssh-add": sys.stdin.read()\n'
+                        'if name=="ssh":\n'
+                        ' request=json.load(sys.stdin)\n'
+                        ' Path(os.environ["TEST_CALL"]).write_text(json.dumps({"args":sys.argv[1:],"request":request}))\n'
+                        ' if os.environ["TEST_MODE"]=="ssh":sys.exit(17)\n'
+                        ' if os.environ["TEST_MODE"]=="receipt":request["revision"]="b"*40\n'
+                        ' print(json.dumps({**request,"ready":True}))\n')
+                    path.chmod(0o700)
+                env = dict(os.environ, HOME=str(root), PATH=str(root)+':'+os.environ['PATH'],
+                           RUNNER_TEMP=str(root), SERVER_USER='wrong' if mode=='user' else 'deploy',
+                           SERVER_IP='192.0.2.1', SSH_PRIVATE_KEY='synthetic-secret',
+                           SSH_KNOWN_HOSTS='' if mode=='hostkey' else 'synthetic-host-key',
+                           DEMO_DIGEST='invalid' if mode=='digest' else 'sha256:'+'a'*64,
+                           GITHUB_SHA='c'*40, TEST_CALL=str(root/'call'), TEST_MODE=mode)
+                result = subprocess.run(['bash','-c',demo_script('Deploy exact demo digest over restricted SSH', DEMO_DEPLOY)], env=env, capture_output=True, text=True)
+                self.assertEqual(result.returncode==0, mode=='success', result.stderr)
+                self.assertNotIn('synthetic-secret',result.stdout+result.stderr)
+                if mode in ('hostkey','digest','user'):
+                    self.assertFalse((root/'call').exists())
+                else:
+                    call=json.loads((root/'call').read_text())
+                    self.assertEqual(call['args'],['-T','-o','BatchMode=yes','-o','StrictHostKeyChecking=yes','-o','ConnectTimeout=15','deploy@192.0.2.1'])
+                    self.assertEqual(call['request'],{'revision':'c'*40,'image':'ghcr.io/pocketcontext/vaultcontext@sha256:'+'a'*64})
+
+    def test_public_attestation_rejects_stale_corrupt_and_foreign_artifacts(self):
+        import hashlib
+        import io
+        from unittest.mock import patch
+        from datetime import datetime, timezone
+        program=demo_script('Attest public demo assets and downloads',DEMO_DEPLOY).split("python3 - <<'PY'\n",1)[1].rsplit('\nPY',1)[0]
+        origin='https://vault-demo.pocketcontext.com'
+        release='0.1.0-'+'a'*20
+        for mode in ('success','generation','asset','artifact','foreign','unready'):
+            with self.subTest(mode=mode):
+                manifest={'schema':1,'origin':origin,'package':'vaultcontext-client','version':'0.1.0','release':release,'artifacts':{}}
+                responses={}
+                for key,name in {'wheel':'vaultcontext_client-0.1.0-py3-none-any.whl','skill':'vaultcontext-skill.tar.gz','launcher':'vaultcontext'}.items():
+                    body=b'synthetic-'+key.encode(); path='/demo/downloads/'+release+'/'+name
+                    manifest['artifacts'][key]={'path':path,'sha256':hashlib.sha256(body).hexdigest(),'size':len(body)}
+                    responses[path]=body
+                if mode=='foreign':manifest['artifacts']['wheel']['path']='https://foreign.example/wheel'
+                if mode=='artifact':responses[manifest['artifacts']['wheel']['path']]=b'corrupt'
+                for name in ('index.html','app.js','styles.css'):
+                    responses['/demo/'+name]=(ROOT/'pb_public/demo'/name).read_bytes()
+                if mode=='asset':responses['/demo/app.js']=b'stale'
+                status={'enabled':True,'clientReady':mode!='unready','generation':'2000-01-01' if mode=='generation' else datetime.now(timezone.utc).date().isoformat(),'downloads':manifest}
+                responses['/api/demo/status']=json.dumps(status).encode()
+                def fetch(request,timeout):
+                    self.assertEqual(request.get_header('User-agent'),'VaultContext-Demo-Release-Check/1.0')
+                    url=request.full_url
+                    self.assertTrue(url.startswith(origin+'/'))
+                    data=io.BytesIO(responses[url.removeprefix(origin)])
+                    data.status=200;data.geturl=lambda:url
+                    return data
+                with patch('urllib.request.urlopen',side_effect=fetch),patch('time.sleep'),patch('builtins.print'):
+                    original=os.getcwd()
+                    os.chdir(ROOT)
+                    try:
+                        if mode=='success':exec(program,{})
+                        else:
+                            with self.assertRaises(SystemExit):exec(program,{})
+                    finally:os.chdir(original)
+
     def test_demo_publication_is_separate_from_main_and_deployment(self):
         build = PUBLICATION.split('  build:\n', 1)[1].split('  manifest:\n', 1)[0]
         self.assertIn("if: github.event_name != 'pull_request' && ((github.ref == 'refs/heads/main' && vars.VAULTCONTEXT_PUBLISH == 'true') || (github.ref == 'refs/heads/vaultcontext-demo' && vars.VAULTCONTEXT_DEMO_PUBLISH == 'true'))", build)
@@ -99,7 +183,7 @@ class DeploymentTests(unittest.TestCase):
     def test_environment_and_serialization_preserve_running_deployments(self):
         self.assertIn('    environment:\n      name: ${{ vars.COLORS_PROFILE }}', DEPLOYMENT)
         self.assertIn('      group: deploy-${{ vars.COLORS_PROFILE }}\n      cancel-in-progress: false', DEPLOYMENT)
-        self.assertIn("cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}", PUBLICATION)
+        self.assertIn("cancel-in-progress: ${{ github.ref != 'refs/heads/main' && github.ref != 'refs/heads/vaultcontext-demo' }}", PUBLICATION)
         for name in ('SERVER_IP', 'SERVER_USER', 'SSH_KNOWN_HOSTS'):
             self.assertIn(name + ': ${{ vars.' + name + ' }}', DEPLOYMENT)
         self.assertIn('SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}', DEPLOYMENT)

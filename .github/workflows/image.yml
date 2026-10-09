@@ -7,11 +7,11 @@ on:
 permissions:
   contents: read
 
-# Serialize main releases without cancelling an active deployment. GitHub does not
-# guarantee commit order; explicit current-main checks reject stale reruns.
+# Serialize main and demo releases without cancelling an active deployment.
+# Current-branch checks reject stale reruns; GitHub does not guarantee commit order.
 concurrency:
   group: image-${{ github.ref }}
-  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && github.ref != 'refs/heads/vaultcontext-demo' }}
 
 env:
   IMAGE: ghcr.io/pocketcontext/vaultcontext
@@ -262,6 +262,133 @@ jobs:
           path: ${{ runner.temp }}/demo-manifest.json
           if-no-files-found: error
           retention-days: 30
+
+  demo_deploy:
+    if: github.ref == 'refs/heads/vaultcontext-demo' && github.event_name != 'pull_request' && vars.VAULTCONTEXT_DEMO_DEPLOY_ENABLED == 'true' && vars.VAULTCONTEXT_DEMO_DEPLOY_PAUSED != 'true'
+    needs:
+      - demo_manifest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    environment:
+      name: vaultcontext-demo
+    concurrency:
+      group: deploy-vaultcontext-demo
+      cancel-in-progress: false
+    env:
+      DEMO_DIGEST: ${{ needs.demo_manifest.outputs.digest }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Require current demo deployment revision
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          head=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/vaultcontext-demo" --jq '.object.sha')
+          if [[ ! "$head" =~ ^[0-9a-f]{40}$ || "$head" != "$GITHUB_SHA" ]]; then
+            echo 'Refusing stale demo deployment.' >&2
+            exit 1
+          fi
+      - name: Deploy exact demo digest over restricted SSH
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          SERVER_IP: ${{ vars.SERVER_IP }}
+          SERVER_USER: ${{ vars.SERVER_USER }}
+          SSH_KNOWN_HOSTS: ${{ vars.SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test "$SERVER_USER" = deploy
+          test -n "$SSH_KNOWN_HOSTS"
+          test -n "$SERVER_IP"
+          python3 - <<'PY'
+          import json, os, re
+          from pathlib import Path
+          digest, revision = os.environ['DEMO_DIGEST'], os.environ['GITHUB_SHA']
+          if not re.fullmatch(r'sha256:[0-9a-f]{64}', digest) or not re.fullmatch(r'[0-9a-f]{40}', revision):
+              raise SystemExit('Invalid demo release identity')
+          Path(os.environ['RUNNER_TEMP'], 'demo-request.json').write_text(json.dumps({
+              'image': 'ghcr.io/pocketcontext/vaultcontext@' + digest, 'revision': revision}) + '\n')
+          PY
+          umask 077
+          mkdir -p ~/.ssh
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          eval "$(ssh-agent -s)" >/dev/null
+          trap 'ssh-agent -k >/dev/null 2>&1 || true' EXIT
+          printf '%s\n' "$SSH_PRIVATE_KEY" | tr -d '\r' | ssh-add - >/dev/null 2>&1
+          # The dedicated forced-command key reads a bounded release JSON request.
+          # No remote command, registry credential, shell script or archive is sent.
+          ssh -T -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=15 \
+            "$SERVER_USER@$SERVER_IP" < "$RUNNER_TEMP/demo-request.json" > "$RUNNER_TEMP/demo-receipt.json"
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          raw = Path(os.environ['RUNNER_TEMP'], 'demo-receipt.json').read_bytes()
+          if len(raw) > 4096:
+              raise SystemExit('Invalid demo release receipt')
+          receipt = json.loads(raw)
+          expected = {'ready': True, 'revision': os.environ['GITHUB_SHA'],
+                      'image': 'ghcr.io/pocketcontext/vaultcontext@' + os.environ['DEMO_DIGEST']}
+          if receipt != expected or receipt.get('ready') is not True:
+              raise SystemExit('Demo release receipt differs from requested revision and digest')
+          PY
+      - name: Attest public demo assets and downloads
+        run: |
+          python3 - <<'PY'
+          import hashlib, json, re, time
+          from datetime import datetime, timezone
+          from pathlib import Path
+          from urllib.request import Request, urlopen
+          origin = 'https://vault-demo.pocketcontext.com'
+          def fetch(path, limit=4194304):
+              request = Request(origin + path, headers={'User-Agent': 'VaultContext-Demo-Release-Check/1.0'})
+              with urlopen(request, timeout=20) as response:
+                  if response.status != 200 or not response.geturl().startswith(origin + '/'):
+                      raise ValueError('Unexpected public demo response')
+                  body = response.read(limit + 1)
+                  if len(body) > limit:
+                      raise ValueError('Public artifact exceeds limit')
+                  return body
+          def verify():
+              status = json.loads(fetch('/api/demo/status', 32768))
+              day = datetime.now(timezone.utc).date().isoformat()
+              if status.get('enabled') is not True or status.get('clientReady') is not True or status.get('generation') != day:
+                  raise ValueError('Public demo is not ready for the current UTC generation')
+              manifest = status['downloads']
+              if manifest.get('origin') != origin or manifest.get('schema') != 1 or manifest.get('package') != 'vaultcontext-client':
+                  raise ValueError('Unexpected public download manifest')
+              version, release = manifest['version'], manifest['release']
+              if not re.fullmatch(r'[0-9]+\.[0-9]+\.[0-9]+', version) or not re.fullmatch(re.escape(version) + r'-[0-9a-f]{20}', release):
+                  raise ValueError('Invalid public release version')
+              names = {'wheel': 'vaultcontext_client-' + version + '-py3-none-any.whl',
+                       'skill': 'vaultcontext-skill.tar.gz', 'launcher': 'vaultcontext'}
+              if set(manifest['artifacts']) != set(names):
+                  raise ValueError('Unexpected public artifact inventory')
+              for key, name in names.items():
+                  artifact = manifest['artifacts'][key]
+                  if artifact['path'] != '/demo/downloads/' + release + '/' + name or not re.fullmatch(r'[0-9a-f]{64}', artifact['sha256']):
+                      raise ValueError('Unexpected artifact identity')
+                  if type(artifact['size']) is not int or not 0 < artifact['size'] <= 4194304:
+                      raise ValueError('Invalid public artifact size')
+                  body = fetch(artifact['path'])
+                  if len(body) != artifact['size'] or hashlib.sha256(body).hexdigest() != artifact['sha256']:
+                      raise ValueError('Public artifact integrity mismatch')
+              for name in ('index.html', 'app.js', 'styles.css'):
+                  expected = Path('pb_public/demo', name).read_bytes()
+                  if hashlib.sha256(fetch('/demo/' + name)).digest() != hashlib.sha256(expected).digest():
+                      raise ValueError('Public assets differ from the workflow revision')
+          for attempt in range(6):
+              try:
+                  verify()
+                  break
+              except Exception:
+                  if attempt == 5:
+                      raise SystemExit('Public demo release attestation failed') from None
+                  time.sleep(5)
+          print('Public demo generation, revision assets and download integrity verified')
+          PY
 
   deploy:
     if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && vars.CONTEXT_DEPLOY_PAUSED != 'true' && vars.COLORS_PROFILE != ''
