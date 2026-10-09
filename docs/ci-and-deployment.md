@@ -117,3 +117,24 @@ ciphertext equality/decryption and preserves withdrawn marketing preferences
 across a validated release. This process test does not claim to exercise the
 shipped container paths; the separate native image bootstrap check covers those
 paths. End-to-end ONCE adoption and live provider behavior remain separate checks.
+
+## Mirrored build bases
+
+The application and MinIO recovery-test Dockerfiles pull their pinned Go and
+Debian bases from public `ghcr.io/pocketcontext/vaultcontext:base-*` tags, always
+with the original upstream index digest. These tags are base images, not releases
+of the VaultContext application. Both indexes retain every upstream platform.
+
+`.github/workflows/mirror-bases.yml` copies the fixed upstream indexes using
+Skopeo `--all --preserve-digests`, then verifies the destination index digest and
+AMD64/ARM64 platform entries. It uses Docker's official ECR Public distribution,
+with Docker Hub as an alternate source on retry, and the repository's temporary
+`GITHUB_TOKEN` for publication. No new long-lived registry credential is needed.
+The workflow runs only on the demo branch, on changes to that workflow or manual
+dispatch, and never updates application release tags.
+
+When updating a base, first update and run the mirror workflow, verify anonymous
+GHCR access and the exact upstream digest, then update both Dockerfiles. Container
+smoke and populated recovery checks remain required before publication. Mirroring
+does not upgrade or rebuild the upstream images. Build tooling and other external
+package downloads have their own upstream availability requirements.
