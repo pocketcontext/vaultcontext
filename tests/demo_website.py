@@ -51,6 +51,23 @@ with sync_playwright() as p:
  page.goto('http://demo.test/');page.wait_for_function('document.querySelector("#mode-pill").textContent === "Daily reset"')
  # A COOP-severed window handle reports closed before the independent callback.
  page.locator('#google-button').click();page.wait_for_selector('#identity:visible');assert 'Synthetic Visitor' in page.locator('#identity').inner_text()
+ # Signed-in account text must stay in its own column, including long identities.
+ assert page.locator('#identity-email').inner_text()=='demo@example.com'
+ assert page.locator('.avatar').inner_text()=='S'
+ assert 'synthetic identity' not in page.locator('#identity').inner_text()
+ for width in (1440,390,320):
+  page.set_viewport_size({'width':width,'height':1000})
+  page.evaluate("setIdentity('long.synthetic.email.address.for.layout.checks@example.com', 'SyntheticVisitorWithAnUnusuallyLongUnbrokenDisplayName')")
+  assert page.locator('#identity-email').inner_text()=='long.synthetic.email.address.for.layout.checks@example.com'
+  assert page.evaluate("""() => {
+   const card=document.querySelector('#identity'), avatar=card.querySelector('.avatar'), details=card.querySelector('.identity-details'), check=card.querySelector('.identity-check');
+   const a=avatar.getBoundingClientRect(), d=details.getBoundingClientRect(), c=check.getBoundingClientRect(), bounds=card.getBoundingClientRect();
+   return a.right<=d.left && d.right<=c.left && c.right<=bounds.right &&
+     avatar.scrollWidth<=avatar.clientWidth && details.scrollWidth<=details.clientWidth &&
+     card.scrollWidth<=card.clientWidth && document.documentElement.scrollWidth<=innerWidth;
+  }"""), f'Identity overlaps or overflows at {width}px'
+ page.set_viewport_size({'width':1440,'height':1000})
+ page.evaluate("setIdentity('demo@example.com', 'Synthetic Visitor')")
  page.locator('#terms').check();page.locator('.continue-button').click()
  page.wait_for_function('document.querySelector("#signout").disabled')
  assert pending_enroll

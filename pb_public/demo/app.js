@@ -89,8 +89,9 @@ function updateCountdown() {
 }
 function setIdentity(email, name) {
   signedIn = true; byId('identity').hidden = false; googleButton.hidden = true;
-  byId('identity').querySelector('strong').textContent = name;
-  byId('identity').querySelector('div > span').textContent = email;
+  byId('identity-name').textContent = name;
+  byId('identity-email').textContent = email;
+  byId('identity').querySelector('.avatar').textContent = Array.from((name || email).trim())[0]?.toUpperCase() || '?';
   byId('signout').hidden = !live;
 }
 function signout() {
