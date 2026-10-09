@@ -3,6 +3,8 @@ import hashlib
 import importlib.util
 import io
 import json
+import shutil
+import subprocess
 from pathlib import Path
 import tarfile
 import tempfile
@@ -15,6 +17,36 @@ builder = importlib.util.module_from_spec(spec); spec.loader.exec_module(builder
 
 
 class PublicDownloads(unittest.TestCase):
+    @unittest.skipUnless(shutil.which('node'), 'Node required for hook runtime test')
+    def test_fixed_hash_tool_fallback_and_failure(self):
+        program = r"""
+const vm=require('vm'),fs=require('fs'),assert=require('assert');
+const release='0.1.0-'+'a'.repeat(20),prefix='/demo/downloads/'+release+'/';
+const manifest={schema:1,package:'vaultcontext-client',version:'0.1.0',release,
+ origin:'https://vault-demo.pocketcontext.com',artifacts:{}};
+for(const [key,name] of Object.entries({wheel:'vaultcontext_client-0.1.0-py3-none-any.whl',skill:'vaultcontext-skill.tar.gz',launcher:'vaultcontext'}))
+ manifest.artifacts[key]={path:prefix+name,size:3,sha256:'b'.repeat(64)};
+for(const mode of ['linux','macos','failed','corrupt']) {
+ const calls=[],cache=new Map();
+ const context={module:{exports:{}},toString:value=>String(value),$os:{
+  getenv:()=>manifest.origin,
+  readFile:path=>path.endsWith('manifest.json')?Buffer.from(JSON.stringify(manifest)):Buffer.from([0,128,255]),
+  cmd:(...args)=>({output:()=>{
+   calls.push(args);
+   if(mode==='failed'||(mode!=='linux'&&args[0]==='/usr/bin/sha256sum'))throw Error('unavailable');
+   return ['wheel','skill','launcher'].map(key=>(mode==='corrupt'?'c':'b').repeat(64)+'  pb_public'+manifest.artifacts[key].path).join('\n');
+  }})}};
+ vm.createContext(context);vm.runInContext(fs.readFileSync('pb_hooks/demo.js','utf8'),context);
+ const result=context.publicDownloads({store:()=>({get:key=>cache.get(key),set:(key,value)=>cache.set(key,value)})});
+ assert.equal(!!result,mode==='linux'||mode==='macos');
+ assert.equal(calls.length,mode==='linux'?1:2);
+ assert.equal(calls[0][0],'/usr/bin/sha256sum');
+ if(mode!=='linux')assert.deepEqual(calls[1].slice(0,3),['/usr/bin/shasum','-a','256']);
+ for(const call of calls)assert.deepEqual(call.slice(mode!=='linux'&&call[0].endsWith('shasum')?3:1),['wheel','skill','launcher'].map(key=>'pb_public'+manifest.artifacts[key].path));
+}
+"""
+        subprocess.run(['node', '-e', program], cwd=ROOT, check=True)
+
     def test_origin_safety(self):
         for value in ('https://vault-demo.pocketcontext.com', 'http://127.0.0.1:18770'):
             self.assertEqual(builder.origin(value), value)

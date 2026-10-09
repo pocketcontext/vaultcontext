@@ -119,9 +119,12 @@ function publicDownloads(app) {
    if($os.readFile(path).length!==item.size)throw new Error('artifact size mismatch');
    paths.push(path);
   }
-  // sha256sum reads only these fixed public artifacts. stdout/stderr are captured
-  // in process memory; failure simply leaves public onboarding unavailable.
-  const lines=toString($os.cmd('/usr/bin/sha256sum',...paths).output()).trim().split('\n');
+  // Fixed system hash tools read only allowlisted public artifacts. macOS uses
+  // shasum; both tools hash raw bytes and capture output in process memory.
+  let output;
+  try { output=$os.cmd('/usr/bin/sha256sum',...paths).output(); }
+  catch(_) { output=$os.cmd('/usr/bin/shasum','-a','256',...paths).output(); }
+  const lines=toString(output).trim().split('\n');
   if(lines.length!==3)throw new Error('artifact verification failed');
   ['wheel','skill','launcher'].forEach((key,index)=>{
    if(lines[index].slice(0,64)!==manifest.artifacts[key].sha256)throw new Error('artifact checksum mismatch');
