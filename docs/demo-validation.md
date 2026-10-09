@@ -1,5 +1,34 @@
 # Demo implementation validation — 9 October 2026
 
+## Google popup correction — local validation, 9 October 2026
+
+The live Chrome flow returned “Google sign-in was closed” after Google consent.
+The served page uses `Cross-Origin-Opener-Policy: same-origin`. A two-origin
+loopback Chrome reproduction confirmed that an open cross-origin popup can
+report `closed=true` to its parent under that policy. The old 700 ms poll
+therefore cannot distinguish cancellation from browser isolation or a successful
+redirect closing before its separate realtime callback arrives.
+
+The correction removes that poll, retains the security header, state/PKCE checks
+and three-minute timeout, and adds an explicit Cancel Google sign-in button.
+Cancelled attempts ignore late callbacks and token-exchange results.
+
+Local checks: 81 demo unit checks ran, with 76 passing and five skips requiring
+external test binaries/platform support. The new OAuth ordering regression fails
+against the original code and passes against the correction. It covers a closed
+handle before callback, duplicate callback, explicit cancellation before/during
+exchange, timeout, state mismatch, provider rejection and connection failure.
+Chrome desktop/mobile synthetic UI checks passed delayed-callback sign-in,
+keyboard cancellation, unchanged optional choices and no horizontal overflow.
+JavaScript syntax, asset checksum and Git whitespace checks passed.
+
+The existing offline browser suite also models a closed handle and delayed
+callback now; that full suite and image CI have not been rerun for this patch.
+The correction is not yet deployed, and successful real Google sign-in and
+enrollment remain unverified.
+
+## Previous implementation baseline
+
 This records local synthetic validation of the `vaultcontext-demo` worktree. It is not evidence of a public deployment or a completed provider migration. The source repository remains private. Public client artifacts are generated during the image build; generated wheels and bundles are not committed. Repeat builds with the tested tooling produced identical artifacts. The build backend is pinned, but its transitive build-tool dependencies are not fully locked; content-addressed paths prevent changed bytes from silently replacing a prior release.
 
 Final local regression: 176 unit checks ran successfully (169 passed, 7 platform-specific skips). This includes the real pinned-server and Litestream cases enabled through their test environment variables. The 43 production entrypoint checks and 10 deployment-workflow checks also passed, as did demo backend, signed identity, deployment/object-storage settings, browser onboarding, and the two public-launcher integration suites.

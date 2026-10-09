@@ -55,6 +55,9 @@ function renderInstallation() {
   byId('install-note').textContent = 'Before replacing a client or skill, lock its active sessions. These commands download the exact published build; the page never runs them or unlocks a vault. Keep your existing skill changes before extracting an update.';
 }
 const googleButton = byId('google-button');
+const cancelGoogleButton = byId('cancel-google');
+let cancelGoogleLogin = null;
+cancelGoogleButton.addEventListener('click', () => cancelGoogleLogin?.());
 function setBusy(value) { busy = value; byId('signout').disabled = value; }
 function message(value) { byId('form-status').textContent = value; }
 async function api(path, body, authenticated = false) {
@@ -112,9 +115,13 @@ function googleLogin(popup) {
   return new Promise(async (resolve, reject) => {
     let stream, clientId, provider, exchanging = false, ended = false;
     const redirectURL = `${location.origin}/api/oauth2-redirect`;
-    const finish = (error, value) => { if (ended) return; ended = true; clearTimeout(timeout); clearInterval(closed); stream?.close(); popup.close(); error ? reject(error) : resolve(value); };
+    const finish = (error, value) => { if (ended) return; ended = true; clearTimeout(timeout); cancelGoogleLogin = null; cancelGoogleButton.hidden = true; stream?.close(); popup.close(); error ? reject(error) : resolve(value); };
     const timeout = setTimeout(() => finish(new Error('Google sign-in timed out. Please try again.')), 180000);
-    const closed = setInterval(() => { if (popup.closed && !exchanging) finish(new Error('Google sign-in was closed. Please try again.')); }, 700);
+    // COOP can sever the cross-origin popup reference and report closed even
+    // while Google is open. PocketBase also closes its successful redirect before
+    // the separate realtime callback necessarily arrives. Neither means cancel.
+    cancelGoogleLogin = () => finish(new Error('Google sign-in cancelled. You can try again.'));
+    cancelGoogleButton.hidden = false;
     try {
       const methods = await api('/api/collections/users/auth-methods');
       provider = methods.oauth2?.providers?.find(item => item.name === 'google');
@@ -141,6 +148,7 @@ function googleLogin(popup) {
           const payload = JSON.parse(event.data);
           if (payload.state !== clientId || !payload.code || payload.error) throw new Error('Google sign-in was not completed. Please try again.');
           const result = await api('/api/collections/users/auth-with-oauth2', {provider:'google', code:payload.code, codeVerifier:provider.codeVerifier, redirectURL});
+          if (ended) return;
           if (!result.token || !result.record?.id || result.record.collectionName !== 'users' || !result.record.email) throw new Error('The signed-in account could not be verified.');
           finish(null, {token:result.token, record:result.record});
         } catch (error) { finish(error); }
@@ -159,7 +167,7 @@ googleButton.addEventListener('click', async () => {
   if (!live) { setIdentity('demo@example.com · synthetic identity','Demo visitor'); message('Fictional identity selected. Review the choices above.'); byId('terms').focus(); return; }
   const popup = window.open('about:blank', '_blank', 'popup,width=520,height=720');
   if (!popup) { message('Allow the sign-in popup, then try again.'); return; }
-  setBusy(true); googleButton.disabled = true; message('Complete Google sign-in in the popup.');
+  setBusy(true); googleButton.disabled = true; message('Complete Google sign-in in the popup, or cancel here to try again.');
   try {
     const result = await googleLogin(popup); token = result.token; account = result.record;
     await refreshPreferences(); setIdentity(account.email, account.name || 'Google account');

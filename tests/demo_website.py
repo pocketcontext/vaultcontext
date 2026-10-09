@@ -47,8 +47,9 @@ with sync_playwright() as p:
   if target.is_file():return r.fulfill(path=str(target))
   r.fulfill(status=404,body='Not found')
  page.route('**/*',route)
- page.add_init_script('''class FakeEventSource { constructor(){window.fakeStream=this;this.listeners={};setTimeout(()=>this.listeners.PB_CONNECT?.({data:JSON.stringify({clientId:'synthetic-state'})}),20);}addEventListener(n,cb){this.listeners[n]=cb;}close(){}}window.EventSource=FakeEventSource;window.open=()=>({closed:false,close(){this.closed=true;},location:{set href(value){setTimeout(()=>window.fakeStream.listeners['@oauth2']({data:JSON.stringify({state:'synthetic-state',code:'synthetic-code'})}),20);}}});''')
+ page.add_init_script('''class FakeEventSource { constructor(){window.fakeStream=this;this.listeners={};setTimeout(()=>this.listeners.PB_CONNECT?.({data:JSON.stringify({clientId:'synthetic-state'})}),20);}addEventListener(n,cb){this.listeners[n]=cb;}close(){}}window.EventSource=FakeEventSource;window.open=()=>({closed:true,close(){},location:{set href(value){const stream=window.fakeStream;setTimeout(()=>stream.listeners['@oauth2']({data:JSON.stringify({state:'synthetic-state',code:'synthetic-code'})}),1000);}}});''')
  page.goto('http://demo.test/');page.wait_for_function('document.querySelector("#mode-pill").textContent === "Daily reset"')
+ # A COOP-severed window handle reports closed before the independent callback.
  page.locator('#google-button').click();page.wait_for_selector('#identity:visible');assert 'Synthetic Visitor' in page.locator('#identity').inner_text()
  page.locator('#terms').check();page.locator('.continue-button').click()
  page.wait_for_function('document.querySelector("#signout").disabled')
