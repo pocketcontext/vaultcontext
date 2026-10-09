@@ -49,6 +49,21 @@ Sharing applies to the entire vault and all retained history, never an individua
 
 Exports use a separately prompted archive passphrase and contain no identity private keys. Exporting requires an unlocked vault. The archive passphrase is not a recovery key for the live vault. Never export decrypted archives to disk. New exports use format v2 and require an updated CLI; existing v1 exports remain readable.
 
+## Disposable demo
+
+Only configure the demo when the user requests it. The proposed demo origin is
+`https://vault-demo.pocketcontext.com`; public availability must be verified.
+Use synthetic files, never real credentials. Complete browser enrollment and
+Google sign-in before vault operations. Demo terms are required; commercial
+contact and newsletter choices are separate and optional. The server resets
+accounts, keys and files at 00:00 UTC. Contact preferences and limited security
+logs have separate disclosed retention; downloaded local files are not erased.
+After a generation change, explicitly lock the stale session, sign in, initialize
+a fresh identity and unlock privately. Never silently replace fingerprint pins.
+Sharing, Keychain enrollment and passphrase changes are unavailable in the demo.
+Use an updated, tested demo-compatible client; this branch's published launcher
+is not updated until the package release is available.
+
 ## Failures
 
 On a revision conflict, reread metadata and reassess before retrying. On an uncertain network result, inspect IDs/history/membership state rather than blindly resubmitting. Do not claim a failed operation completed. HTTP error details and internal exceptions are suppressed to avoid echoing secret content.

@@ -1,0 +1,128 @@
+# Demo reset and durable contact operations
+
+This is an executable implementation with synthetic local tests, not evidence of a deployed or provider-verified service. No resources, timers, accounts or mail subscriptions are created by committing these files. The existing VaultContext production deployment must not use these reset scripts.
+
+## Storage boundaries
+
+Use one dedicated private root named `vaultcontext-demo`, for example `/var/lib/vaultcontext-demo`, owned by the lifecycle operator and mode 0700:
+
+- `runtime/`: every disposable database (`data.db`, `auxiliary.db`), SQLite journal, local upload, temporary file, cache and local replica generation. Mount the container's complete `/storage` under this directory. Do not keep runtime snapshots elsewhere.
+- `control/`: durable reset lock, pending fence, and last completed generation. Never mount this inside disposable `runtime/`.
+- `persistent/`: separately protected contact/preferences database; never inside disposable `pb_data`. The contact service account owns this directory, mode 0700, and its SQLite file, mode 0600. The parent traversal permission must permit that service account (use an explicit ACL or run the lifecycle under the same dedicated identity).
+
+Use distinct dedicated buckets for primary files and replica generations, with exact names beginning `vaultcontext-demo-`. Credentials must be bucket-scoped and distinct from production and each other. The reset deletes the **whole two buckets**, not just a current generation prefix. This is intentional: old ciphertext, orphaned objects and old database generations cannot remain restorable after a daily reset. Do not place durable contact backups in either bucket.
+
+External VM snapshots, provider backups, monitoring exports, caches and prior manually exported copies are not discoverable by this script. Do not enable them for ephemeral demo data unless their deletion is integrated into the fenced lifecycle. The reset cannot erase downloaded copies on a visitor's device. Provider physical media erasure is not verified by an application API delete.
+
+## Executable lifecycle
+
+`deploy/demo/reset.py --config /absolute/private/reset.json` chooses today's UTC generation. `--generation YYYY-MM-DD` resumes an interrupted generation. `--dry-run` validates bindings and reports the intended generation without invoking hooks, credentials or deletion. It may create the private control directory.
+
+The private, operator-owned JSON configuration has this shape (these are placeholders, not an installed deployment):
+
+```json
+{
+  "deployment": "vaultcontext-demo",
+  "origin": "https://vault-demo.pocketcontext.com",
+  "root": "/var/lib/vaultcontext-demo",
+  "storage": {
+    "kind": "r2",
+    "primary_bucket": "vaultcontext-demo-files",
+    "replica_bucket": "vaultcontext-demo-replicas"
+  },
+  "hooks": {
+    "fence": ["/opt/vaultcontext-demo-operator/fence"],
+    "stop": ["/opt/vaultcontext-demo-operator/stop"],
+    "assert_stopped": ["/opt/vaultcontext-demo-operator/assert-stopped"],
+    "initialize": ["/opt/vaultcontext-demo-operator/initialize"],
+    "start": ["/opt/vaultcontext-demo-operator/start"],
+    "health": ["/opt/vaultcontext-demo-operator/health"],
+    "unfence": ["/opt/vaultcontext-demo-operator/unfence"]
+  }
+}
+```
+
+Hooks are argument arrays, never shell strings. They are a deployment-specific integration boundary and must be implemented and verified before scheduling. They receive the generation in `VAULTCONTEXT_DEMO_GENERATION`, `VAULTCONTEXT_DEMO_MODE=true`, `VAULTCONTEXT_DEMO_RESET_ROOT`, `VAULTCONTEXT_DEMO_RESET_PHASE`, and the absolute `VAULTCONTEXT_DEMO_RESET_FENCE` path. Hook output is suppressed, including errors; hooks must not write credential dumps to files or other logs.
+
+1. Acquire the private nonblocking lifecycle lock; atomically persist `control/reset-pending.json` before touching the service.
+2. `fence` must block all ingress, including direct API/file traffic, and disable automatic restart/rollout controllers. `stop` must gracefully terminate server and replication workers. `assert_stopped` must positively verify no writer or replication process remains; a successful shell no-op is not acceptable in deployment.
+3. Delete every remote object/version/delete marker and abort multipart uploads; verify both buckets empty. Delete the complete local runtime directory, including auxiliary database and replicas, and recreate it privately.
+4. Persist phase `purged`; `initialize` must create a fresh database with the new generation and dedicated configuration using the image's explicit `init` mode, never restore the old replica. Persist phase `initialized`.
+5. `start` must start the fresh service with the new generation while ingress stays fenced. `health` must verify generation, authentication state, empty visitor data and file namespaces, and normal private authorization. Persist phase `healthy`.
+6. Record the generation, run `unfence`, then remove the pending marker. `unfence` must be atomic/idempotent and lift ingress only after verified fresh state.
+
+Any failure leaves the durable marker in place and attempts to fence/stop again. A retry fences, stops and purges again; it never assumes a partially completed purge succeeded. Repeating a fully completed generation is a no-op. A pending older generation must be resumed explicitly before advancing. The backend also rejects stale UTC generations, so a missed scheduler invocation cannot extend yesterday's visitor access indefinitely. A failed adapter can still leave external infrastructure in an uncertain state: alert an operator and verify ingress is blocked; the local marker alone cannot enforce a remote load balancer.
+
+The provided systemd timer templates schedule reset at **00:00 UTC** and contact retention at 00:05 UTC, with persistent catch-up. Install only after adapting paths, service identity, private credential files, actual fencing hooks and startup-fence mounts. A full session is not guaranteed: a visitor arriving at 23:59 UTC has approximately one minute until reset.
+
+The S3 adapter uses the existing dedicated `VAULTCONTEXT_S3_*` and `LITESTREAM_*` credential variables and requires bucket names to equal the configuration allowlist. Set region and HTTPS endpoint explicitly. The S3 adapter enumerates version history and delete markers; unsupported APIs and object-lock failures stop the reset. The explicit R2 adapter accepts only Cloudflare account endpoints and skips unsupported object-versioning APIs; it still removes all keys, multipart uploads and every Litestream generation. See [Cloudflare's API compatibility table](https://developers.cloudflare.com/r2/api/s3/api/). Remote adapters require `boto3` from the deployment's locked environment. No provider operations have been run during local validation.
+
+For isolated local testing, use `"storage":{"kind":"local"}` and a loopback HTTP origin. Put synthetic objects and replicas under `runtime/`; all are removed with the databases. Never point test configuration at real data.
+
+## Persistent contact service
+
+Run `deploy/demo/retention.py --database /var/lib/vaultcontext-demo/persistent/contacts.db`. It binds only `127.0.0.1:8781`; the application backend calls it using `VAULTCONTEXT_DEMO_CONTACT_URL` and a shared `VAULTCONTEXT_DEMO_CONTACT_TOKEN` of at least 32 characters. The service token belongs in private unversioned configuration, never JavaScript. The service does not send email, create a provider mailing list, or contact a prospect. Enrollment records preferences; a newsletter sender is a separate integration.
+
+For a containerized app, loopback means the same network namespace. Deploy the service alongside the app in that namespace or supply a private authenticated transport explicitly; do not expose the standard-library HTTP server to the public internet. The systemd unit is a host-service template, not a claim that a bridged Docker container can reach the host's loopback.
+
+Authenticated endpoints:
+
+- `GET /preferences?subject=...`: current purpose flags and revision; absent contact returns revision zero. The subject comes from verified Google provider identity, never browser input or daily PocketBase IDs.
+- `POST /enroll` or `/preferences`: `subject`, verified `email`, `salesContact`, `newsletter`, `termsVersion`, `consentVersion`, and `expectedRevision`. Both purpose flags must be explicit booleans. Updates conflict with HTTP 409 if a newer choice or withdrawal exists. The backend must retrieve current preferences and let the person decide again, never blindly retry stale opt-ins.
+- `POST /touch`: `subject`; updates last use without modifying consent or suppression.
+- `POST /security`: exact `event` (`enrollment`, `auth_success`, or `auth_failure`), canonicalizable IP address `ip`, and integer epoch-seconds `timestamp` within five minutes. Same event/IP is deduplicated for 60 seconds. Only the backend may call it. Current integration records enrollment outcomes, not a complete attack or reverse-proxy log.
+- `POST /maintenance`: `{}`; returns aggregate expired-contact and annual-review counts only.
+
+An enrollment response returns an opaque `unsubscribeToken`; only its SHA-256 is stored. Unauthenticated `POST /unsubscribe` with `{"token":"..."}` withdraws both purposes and records suppression. GET requests never unsubscribe. Existing capabilities remain valid across preference updates so old unsubscribe links do not silently stop working. A public preference frontend must submit this capability over HTTPS without query-string/referrer/analytics logging; expose only the narrow proxy route, never the private service. No public unsubscribe proxy or mailing provider is provisioned by this operations module.
+
+The SQLite store is a separate operational service, not direct access to any application's CRM database. It stores minimal contact information, versioned consent evidence, revisions, token hashes and purpose-specific suppressions. Request bodies, email addresses, subjects, tokens and full URLs are never logged. The separate security table stores the explicitly ingested event, IP and timestamp under the 30-day policy. Each connection enables SQLite secure deletion; backups, filesystem snapshots and storage media remain separate retention concerns.
+
+## Retention contract
+
+- Nonmarketing contact/profile records expire **30 days after last demo use**. Their consent events and unsubscribe capabilities are removed too. A first-time visitor who declines both optional choices does not acquire an indefinite suppression record.
+- Opted-in marketing contacts are retained separately and become **due for review after 12 calendar months without explicit marketing engagement**. This is a review trigger, not automatic deletion or automatic renewal. Operators must justify continued use and remove unnecessary records. Maintenance reports the number due; it does not send marketing or silently move the review date. A new explicit affirmative purpose choice during enrollment updates that purpose decision and restarts the review clock; passive login/use via `/touch` does not. Ordinary demo activity is not itself marketing engagement.
+- Explicit withdrawals retain only minimal purpose-specific email suppression outside the reset. `/touch`, another Google login, or resetting the demo never reverses suppression. A subsequent explicit, revision-checked opt-in may change it.
+- Operational `security_events` are purged after **30 days**, except records with an explicit finite `incident_until` hold. General webserver/provider logs must be configured to the same policy separately. Do not use indefinite holds. The contact service does not collect request bodies or identity-bearing access logs.
+- Durable-store backups need their own finite retention and restoration procedure which reapplies withdrawals and deletion tombstones before any sending. This module has no backup/export/sender integration; do not start a marketing sender until these safeguards and sender-side suppression checks are implemented.
+
+The public promise is therefore **daily deletion of demo account and vault data**, with these separately disclosed contact/security exceptions. It must not claim every datum held by every system disappears at midnight.
+
+## Validation
+
+Run `python3 -m unittest discover -s tests -p test_demo_reset.py` from this repository. Tests use temporary synthetic databases and filesystem trees, a loopback HTTP service, failure hooks and mocked remote operations. They exercise fail-closed reset, interrupted reset, idempotence, stale preference conflicts, capability unsubscribe and retention boundaries. Before release also exercise real isolated S3/R2 pagination, partial failures, restart prevention, generation rollover, fresh initialization, ingress fencing and external backup/log policies. No deployment-readiness claim follows from unit tests alone.
+
+## Concrete isolated Linux lifecycle
+
+`deploy/demo/local_lifecycle.py` supplies actual hooks for a loopback-only synthetic deployment using the pinned PocketContext binary. It persists a launch intent before spawning; the child durably records its PID and Linux start ticks before executing the server. A pending handoff or an unknown listener fails closed. It independently probes exclusive loopback-port ownership before asserting that writers stopped, strips inherited S3/Litestream/AWS and production OAuth credentials, and stops gracefully before deleting, initializes fresh databases, validates empty visitor collections, and starts the new generation. Hook/server output is suppressed. This is not a public ingress controller: all listeners are loopback, and the local fence closes the process listener. Never use these hooks for public hosting or a process managed by an automatic restart controller.
+
+Create the private root/config with:
+
+```sh
+python3 deploy/demo/local_lifecycle.py configure --root /absolute/temporary/vaultcontext-demo --binary /absolute/path/to/pinned/pocketcontext --port 8782
+```
+
+Start the contact service using that root's `persistent/contacts.db`, configure the private contact URL/token in the lifecycle environment, then run `reset.py --config ROOT/control/reset.json`. Stop the fixture with `local_lifecycle.py stop --root ROOT`. The local adapter initializes by briefly running the pinned server on loopback and stopping it; it does not run the production container's S3/replica entrypoint.
+
+Run the real pinned-server lifecycle check in addition to unit tests:
+
+```sh
+VAULTCONTEXT_DEMO_TEST_BINARY=/absolute/path/to/pinned/pocketcontext python3 -m unittest discover -s tests -p test_demo_reset.py
+```
+
+This check runs the real server through initialization, stop, complete reset, reinitialization and health checks, verifies auxiliary database recreation and durable contact survival, and stops every fixture process.
+
+## Operator review and privacy removal
+
+Annual review is actionable through a **local operator-only CLI**, not a public endpoint or application capability. Run it as the authorized contact-store OS identity on the trusted host. Protect its input/output as personal operational data; never send queue output into shared logs, marketing exports, or chat transcripts. No email addresses are exported by the queue.
+
+Use `retention.py --database /private/contacts.db --review-queue` with a JSON request on standard input: `{"after":"","limit":100}`. Results contain only stable subject, current revision and review date for due contacts. Pass `nextAfter` as the next request's `after` until it is null. Run decisions with `--review`, also through private stdin, using this shape:
+
+```json
+{"subject":"synthetic-provider-subject","expectedRevision":3,"decision":"retain","reason":"Current evaluation; continued need reviewed"}
+```
+
+`retain` requires an existing marketing permission, advances the revision and next review date by 12 calendar months, and records reason and timestamp in the restricted audit table. It cannot add a permission, reverse suppression, change last demo use, or send a message. Use a concise nonpersonal justification; do not include email addresses, file content, or incident details. A stale revision fails with status 409; read the current private state and make a new decision instead of overwriting a withdrawal.
+
+`decision:"delete"` removes the contact, its consent evidence, review history and all unsubscribe capabilities. It preserves an existing complete suppression record unchanged, and creates or strengthens minimal purpose suppression when needed to prevent an old list silently reintroducing the address. The deletion reason is validated but is not retained as another personal record. A later explicit user opt-in is a new purpose decision, not an automatic import.
+
+For an end-user privacy removal request, verify the requester's identity through the approved support process, resolve the stable Google subject privately, and perform the revision-checked `delete` decision. Explain the minimal suppression exception. Apply the same removal to separately managed exports/backups and any future sender system under their published policy. Removing the persistent contact does not operate on application vault records; the daily reset still removes those separately. No new marketing message is sent during this process.

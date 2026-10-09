@@ -1,0 +1,20 @@
+[Unit]
+Description=Private durable VaultContext demo contact preferences
+After=network.target
+
+[Service]
+Type=simple
+User=vaultcontext-demo
+Group=vaultcontext-demo
+UMask=0077
+EnvironmentFile=/etc/vaultcontext-demo/contacts.env
+ExecStart=/usr/bin/python3 /opt/vaultcontext-demo/deploy/demo/retention.py --database /var/lib/vaultcontext-demo/persistent/contacts.db
+Restart=on-failure
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/vaultcontext-demo/persistent
+
+[Install]
+WantedBy=multi-user.target

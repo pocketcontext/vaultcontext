@@ -101,8 +101,8 @@
   "maxBytes": 1048576,
   "snapshot": {
     "filters": {
-      "user_directory": "1 = 1",
-      "identities": "1 = 1",
+      "user_directory": "id = :requester OR NOT EXISTS (SELECT 1 FROM demo_policy WHERE enabled = 1)",
+      "identities": "account = :requester OR NOT EXISTS (SELECT 1 FROM demo_policy WHERE enabled = 1)",
       "identity_secrets": "account = :requester",
       "vaults": "EXISTS (SELECT 1 FROM memberships m WHERE m.vault = vaults.id AND m.account = :requester AND m.active = 1)",
       "memberships": "EXISTS (SELECT 1 FROM memberships m WHERE m.vault = memberships.vault AND m.account = :requester AND m.active = 1)",
@@ -111,11 +111,16 @@
       "versions": "EXISTS (SELECT 1 FROM memberships m WHERE m.vault = versions.vault AND m.account = :requester AND m.active = 1)",
       "version_chunks": "EXISTS (SELECT 1 FROM memberships m WHERE m.vault = version_chunks.vault AND m.account = :requester AND m.active = 1)",
       "invitations": "account = :requester OR EXISTS (SELECT 1 FROM vaults v WHERE v.id = invitations.vault AND v.owner = :requester)",
-      "audit_log": "EXISTS (SELECT 1 FROM memberships m WHERE m.vault = audit_log.vault AND m.account = :requester AND m.active = 1)"
+      "audit_log": "(vault = '' AND actor = :requester) OR (EXISTS (SELECT 1 FROM memberships m WHERE m.vault = audit_log.vault AND m.account = :requester AND m.active = 1))"
     },
     "timeoutMs": 5000,
     "maxRows": 100000,
     "maxBytes": 33554432,
-    "maxConcurrent": 2
+    "maxConcurrent": 2,
+    "policyTables": {
+      "demo_policy": [
+        "enabled"
+      ]
+    }
   }
 }

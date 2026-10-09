@@ -1,0 +1,171 @@
+#!/usr/bin/env python3
+"""Public demo boundary checks; local provider, private synthetic retention store."""
+import argparse
+import contextlib
+import concurrent.futures
+from datetime import datetime, timezone
+import importlib.util
+import os
+from pathlib import Path
+import secrets
+import shutil
+import integration
+import tempfile
+import threading
+from http.server import ThreadingHTTPServer
+from unittest.mock import patch
+from integration import server as base_server, ROOT
+from oauth_integration import google_fixture, REDIRECT
+
+@contextlib.contextmanager
+def server(binary,**options):
+    # Token minting exists only in a temporary hook tree, never in shipped hooks.
+    with tempfile.TemporaryDirectory(prefix='demo-fixture-') as tmp:
+        root=Path(tmp)
+        for folder in ('pb_hooks','pb_migrations'):
+            shutil.copytree(ROOT/folder,root/folder)
+        (root/'pb_hooks/demo_tokens.pb.js').write_text("""
+routerAdd('POST','/api/synthetic/demo-tokens',(e)=>{
+ if(!e.auth || e.auth.collection().name!=='_superusers')throw new ForbiddenError('Test operator required');
+ const user=e.app.findRecordById('users',e.requestInfo().body.account);
+ user.setPassword('SyntheticFixturePassword123!');e.app.save(user);
+ return e.json(200,{auth:user.newAuthToken(),reset:user.newPasswordResetToken(),email:user.newEmailChangeToken('changed@example.test')});
+});
+""")
+        with patch.object(integration,'ROOT',root),base_server(binary,**options) as request:
+            yield request
+
+@contextlib.contextmanager
+def contacts():
+    spec=importlib.util.spec_from_file_location('demo_retention', ROOT/'deploy/demo/retention.py')
+    module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+    with tempfile.TemporaryDirectory(prefix='demo-contact-test-') as tmp:
+        store=module.Store(Path(tmp)/'contacts.db')
+        token=secrets.token_urlsafe(32)
+        http=ThreadingHTTPServer(('127.0.0.1',0),module.handler(store,token))
+        thread=threading.Thread(target=http.serve_forever,daemon=True);thread.start()
+        try:yield f'http://127.0.0.1:{http.server_port}',token,store
+        finally:http.shutdown();http.server_close();thread.join()
+
+def main():
+    parser=argparse.ArgumentParser();parser.add_argument('--binary',required=True);args=parser.parse_args()
+    today=datetime.now(timezone.utc).date().isoformat()
+    with contacts() as (contact_url,contact_token,store), google_fixture() as (url,codes), patch.dict(os.environ,{
+        'VAULTCONTEXT_DEMO_MODE':'true','VAULTCONTEXT_DEMO_GENERATION':today,
+        'VAULTCONTEXT_DEMO_CONTACT_URL':contact_url,'VAULTCONTEXT_DEMO_CONTACT_TOKEN':contact_token,
+        'VAULTCONTEXT_GOOGLE_WORKSPACE_DOMAIN':'company.example',
+    }), server(args.binary) as request:
+        admin=request('POST','/api/collections/_superusers/auth-with-password',{'identity':'admin@example.com','password':'SyntheticAdminPassword123!'})['token']
+        provider={'name':'google','clientId':'synthetic-client','clientSecret':'synthetic-secret','authURL':url+'/authorize','tokenURL':url+'/token','userInfoURL':url+'/userinfo'}
+        request('PATCH','/api/collections/users',{'oauth2':{'enabled':True,'providers':[provider]}},admin)
+        status=request('GET','/api/demo/status');assert status['enabled'] and status['generation']==today
+        def exchange(email,verified=True,subject=None,expected=200):
+            meta=request('GET','/api/collections/users/auth-methods')['oauth2']['providers'][0]
+            code=secrets.token_urlsafe(24)
+            codes[code]={'challenge':meta['codeChallenge'],'user':{'sub':subject or email,'email':email,'email_verified':verified,'name':'Synthetic Google user'}}
+            return request('POST','/api/collections/users/auth-with-oauth2',{'provider':'google','code':code,'redirectURL':REDIRECT,'codeVerifier':meta['codeVerifier'],'createData':{'disabled':True,'demo_google_subject':'forged'}},expected=expected)
+        exchange('unverified@gmail.com',verified=False,expected=(400,403))
+        alice=exchange('alice@gmail.com');bob=exchange('bob@outside.example')
+        assert not alice['record']['disabled'] and 'demo_google_subject' not in alice['record']
+        at,bt=alice['token'],bob['token']
+        tokens=request('POST','/api/synthetic/demo-tokens',{'account':alice['record']['id']},admin)
+        at=tokens['auth']
+        # Valid tokens and the correct current password reach the mutation hooks;
+        # mere endpoint reachability or malformed-token errors are not evidence.
+        request('POST','/api/collections/users/confirm-password-reset',{'token':tokens['reset'],'password':'SyntheticReplacement123!','passwordConfirm':'SyntheticReplacement123!'},expected=403)
+        request('POST','/api/collections/users/confirm-email-change',{'token':tokens['email'],'password':'SyntheticFixturePassword123!'},expected=403)
+        exchange('alice@gmail.com',subject='another-subject',expected=(400,403))
+        request('POST','/api/collections/users/auth-with-password',{'identity':'alice@gmail.com','password':'irrelevant'},expected=(400,403))
+        for endpoint in ('request-password-reset','confirm-password-reset','request-email-change','confirm-email-change','auth-with-otp'):
+            request('POST','/api/collections/users/'+endpoint,{'email':'alice@gmail.com','token':'invalid','newEmail':'other@example.com','password':'SyntheticPassword123!','passwordConfirm':'SyntheticPassword123!'},at,expected=(400,403))
+        def act(token,op,p,expected=200):
+            return request('POST','/api/collections/vault_actions/records',{'op':op,'payload':p},token,expected)
+        identity={'public_key':'synthetic','signing_key':'synthetic','fingerprint':'synthetic','key_bundle':'synthetic-encrypted'}
+        act(at,'identity_init',identity,403)
+        request('POST','/api/context/query',{'sql':'SELECT * FROM user_directory'},at,403)
+        enroll={'generation':today,'termsVersion':status['termsVersion'],'acceptTerms':True,'salesConsent':False,'newsletterConsent':False,'expectedRevision':0}
+        request('POST','/api/demo/enroll',{**enroll,'acceptTerms':False},at,400)
+        request('POST','/api/demo/enroll',{**enroll,'generation':'2000-01-01'},at,400)
+        for token in (at,bt):
+            prefs=request('GET','/api/demo/preferences',token=token);assert prefs['revision']==0
+            result=request('POST','/api/demo/enroll',enroll,token);assert result['enrolled']
+            act(token,'identity_init',identity)
+        request('POST','/api/demo/enroll',enroll,at,409)
+        def query(token,sql):return request('POST','/api/context/query',{'sql':sql},token)
+        for token,user in ((at,alice),(bt,bob)):
+            for table in ('user_directory','identities'):
+                data=query(token,'SELECT id FROM '+table);assert data['rows']==[[user['record']['id']]],data
+            for table in ('demo_policy','demo_enrollments'):
+                request('POST','/api/context/query',{'sql':'SELECT * FROM '+table},token,expected=(400,403))
+        for op in ('identity_rewrap','share','accept','revoke','rotate'):act(at,op,{},403)
+        for n in range(3):act(at,'vault_create',{'id':str(n)*15,'metadata':'encrypted','envelope':'encrypted'})
+        act(at,'vault_create',{'id':'4'*15,'metadata':'encrypted','envelope':'encrypted'},429)
+        # Concurrent create cannot exceed the transactional account quota.
+        def create_bob(n):
+            try:
+                act(bt,'vault_create',{'id':f'b{n:014}','metadata':'encrypted','envelope':'encrypted'})
+                return True
+            except AssertionError as exc:
+                assert ', 429,' in str(exc),exc
+                return False
+        with concurrent.futures.ThreadPoolExecutor(max_workers=5) as pool:
+            assert sum(pool.map(create_bob,range(5)))==3
+        vault='0'*15
+        for n in range(20):
+            act(at,'save',{'vault':vault,'document':f'd{n:014}','version':f'v{n:014}','expected_revision':0,'epoch':1,'metadata':'encrypted','manifest':'encrypted','signature':'synthetic','chunks':['synthetic-ciphertext']})
+        act(at,'save',{'vault':vault,'document':'z'*15,'version':'y'*15,'expected_revision':0,'epoch':1,'metadata':'encrypted','manifest':'encrypted','signature':'synthetic','chunks':['synthetic-ciphertext']},429)
+        assert not query(bt,'SELECT * FROM documents')['rows']
+        request('GET','/api/collections/documents/records',token=bt,expected=(400,403,404))
+        enrollments=request('GET','/api/collections/demo_enrollments/records',token=admin)['items']
+        usage=next(row for row in enrollments if row['account']==alice['record']['id'])
+        usage_path='/api/collections/demo_enrollments/records/'+usage['id']
+        assert usage['encoded_bytes']==20*len('synthetic-ciphertext')
+        # Failed saves roll back both usage and writes. A near-limit fixture exercises
+        # the actual byte guard without allocating tens of megabytes of test uploads.
+        request('PATCH',usage_path,{'encoded_bytes':status['limits']['encodedBytes']-1},admin)
+        save={'vault':vault,'document':'d00000000000000','version':'q'*15,'expected_revision':1,'epoch':1,'metadata':'encrypted','manifest':'encrypted','signature':'synthetic','chunks':['xx']}
+        act(at,'save',save,429)
+        after=request('GET',usage_path,token=admin)
+        assert after['encoded_bytes']==status['limits']['encodedBytes']-1 and after['action_count']==usage['action_count']
+        # Withdrawal remains possible across the reset fence and rejects stale reconsent.
+        prefs=request('GET','/api/demo/preferences',token=at)
+        consent=request('POST','/api/demo/enroll',{**enroll,'salesConsent':True,'expectedRevision':prefs['revision']},at)
+        withdrawal=consent['contact']['unsubscribeToken']
+        # A persisted stale generation fences every API; no test-only clock hook.
+        request('PATCH','/api/collections/demo_policy/records/demopolicy00001',{'generation':'2000-01-01'},admin)
+        for method,path,body,token in [('GET','/api/demo/status',None,None),('POST','/api/context/query',{'sql':'SELECT 1'},at),('POST','/api/collections/users/auth-refresh',None,at)]:
+            request(method,path,body,token,503)
+        request('POST','/api/demo/unsubscribe',{'token':withdrawal})
+        assert not store.preferences('alice@gmail.com')['salesContact']
+    # Reusing yesterday's state or switching the mode cannot bypass the fence.
+    with contacts() as (contact_url,contact_token,_), tempfile.TemporaryDirectory(prefix='demo-restart-') as tmp:
+        state=Path(tmp)/'pb_data'
+        env={'VAULTCONTEXT_DEMO_MODE':'true','VAULTCONTEXT_DEMO_GENERATION':today,
+             'VAULTCONTEXT_DEMO_CONTACT_URL':contact_url,'VAULTCONTEXT_DEMO_CONTACT_TOKEN':contact_token}
+        with patch.dict(os.environ,env),server(args.binary,data_dir=state):pass
+        # Configuration flags cannot substitute an unrestricted public directory.
+        import json
+        bad=Path(tmp)/'bad';bad.mkdir()
+        config=json.loads((ROOT/'pocketcontext.json').read_text())
+        config['snapshot']['filters']['user_directory']='1 = 1'
+        (bad/'pocketcontext.json').write_text(json.dumps(config))
+        try:
+            with patch.dict(os.environ,env),server(args.binary,cwd=bad):
+                raise RuntimeError('unsafe SQL policy accepted')
+        except AssertionError as exc:
+            assert 'private directory SQL policy' in str(exc),str(exc)
+        # An inherited production replica environment must never be accepted.
+        try:
+            with patch.dict(os.environ,{**env,'LITESTREAM_BUCKET':'production-backups'}),server(args.binary):
+                raise RuntimeError('production storage accepted')
+        except AssertionError as exc:
+            assert 'dedicated primary and replica storage' in str(exc),str(exc)
+        for changes,message in [({'VAULTCONTEXT_DEMO_MODE':'false'},'cannot run in production'),
+                                ({'VAULTCONTEXT_DEMO_GENERATION':'2000-01-01'},'demo is resetting')]:
+            try:
+                with patch.dict(os.environ,{**env,**changes}),server(args.binary,data_dir=state):
+                    raise RuntimeError('unsafe restart succeeded')
+            except AssertionError as exc:
+                assert message in str(exc),str(exc)
+    print('PASS: demo Google admission, explicit consent, private directory, quotas and generation fence')
+if __name__=='__main__':main()

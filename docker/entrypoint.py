@@ -38,6 +38,36 @@ def log(message):
     print('entrypoint: ' + message, flush=True)
 
 
+def demo_fence(mode):
+    """A reset marker outside disposable storage prevents accidental restarts."""
+    if os.environ.get('VAULTCONTEXT_DEMO_MODE') != 'true':
+        return
+    value = os.environ.get('VAULTCONTEXT_DEMO_RESET_FENCE', '')
+    marker = Path(value)
+    if not value or not marker.is_absolute() or '..' in marker.parts or marker == DATA or DATA in marker.parents:
+        raise StartupError('demo requires an external absolute reset fence')
+    for part in (marker, *marker.parents):
+        if part.is_symlink():
+            raise StartupError('demo reset fence cannot traverse symlinks')
+    try:
+        info = marker.stat()
+    except FileNotFoundError:
+        return
+    if not stat.S_ISREG(info.st_mode) or info.st_mode & 0o077 or info.st_size > 4096:
+        raise StartupError('unsafe demo reset fence')
+    try:
+        state = json.loads(marker.read_text())
+    except (OSError, ValueError):
+        raise StartupError('invalid demo reset fence') from None
+    allowed = {'init': ('initialize', 'purged'), 'start': ('start', 'initialized'),
+               'serve': ('start', 'initialized'), 'verify': ('health', 'initialized')}
+    phase, stored = allowed[mode]
+    if (state.get('deployment') != 'vaultcontext-demo' or
+            state.get('generation') != os.environ.get('VAULTCONTEXT_DEMO_GENERATION') or
+            os.environ.get('VAULTCONTEXT_DEMO_RESET_PHASE') != phase or state.get('phase') != stored):
+        raise StartupError('demo reset is pending; ordinary startup is fenced')
+
+
 def sync_directory(path):
     descriptor = os.open(path, os.O_RDONLY | os.O_DIRECTORY)
     try:
@@ -356,6 +386,7 @@ def main(argv=None):
     parser.add_argument('mode', choices=('start', 'init', 'serve', 'verify'), nargs='?', default='start')
     args = parser.parse_args(argv)
     try:
+        demo_fence(args.mode)
         os.chdir(APP)
         if args.mode == 'serve':
             serve()

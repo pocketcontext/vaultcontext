@@ -9,6 +9,7 @@ function action(e) {
  return e.json(200,{result});
 }
 function execute(app,actor,op,p) {
+ require(`${__hooks}/demo.js`).authorizeAction(app,actor,op,p);
  if(app.findRecordById('users',actor).getBool('disabled')) throw new ForbiddenError('Account disabled.');
  const bad=message=>{throw new BadRequestError(message);};
  const denied=()=>{throw new ForbiddenError('Vault operation not permitted.');};
@@ -41,7 +42,8 @@ function execute(app,actor,op,p) {
  }
  if(op==='identity_rewrap') {
   const r=get('identity_secrets',actor);if(p.expected_revision!==r.getInt('revision'))conflict();
-  r.set('key_bundle',str('key_bundle'));r.set('revision',r.getInt('revision')+1);app.save(r);return {id:actor,revision:r.getInt('revision')};
+  require(`${__hooks}/identity_signature.js`).verify(actor,identity(),p);
+  r.set('key_bundle',str('key_bundle'));r.set('revision',r.getInt('revision')+1);app.save(r);audit('',actor);return {id:actor,revision:r.getInt('revision')};
  }
  identity();
  if(op==='vault_create') {
@@ -90,6 +92,7 @@ function execute(app,actor,op,p) {
   if(!Array.isArray(p.chunks)||p.chunks.length<1||p.chunks.length>64)bad('Invalid chunks');
   let total=0;p.chunks.forEach(c=>{if(typeof c!=='string'||!c.length||c.length>262144)bad('Invalid chunk');total+=c.length;});
   if(total>12000000)bad('File exceeds encoded size limit');
+  require(`${__hooks}/demo.js`).reserveSave(app,actor,v.id,!!doc,total);
   const metadata=str('metadata');
   if(!doc)doc=put('documents',{id:d,vault:v.id,metadata,revision:revision+1,current_version:version});
   else {doc.set('metadata',metadata);doc.set('revision',revision+1);doc.set('current_version',version);app.save(doc);}

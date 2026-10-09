@@ -1,5 +1,30 @@
 # VaultContext
 
+The `vaultcontext-demo` branch adds an opt-in disposable public demo. See
+[demo operations](docs/demo-operations.md) for its separate persistent contact
+service, reset controls and deployment prerequisites. The UI lives in
+`pb_public/demo/`; serving that directory alone provides a clearly labelled
+interactive preview with no authentication or enrollment storage. The live UI
+activates only after a valid `/api/demo/status` response from an enabled backend.
+Demo users authenticate with any verified Google account, accept the current
+terms, and use personal vaults until 00:00 UTC. Sharing and identity rewrap are
+disabled in demo mode. All account/vault data is disposable; contact preferences
+and bounded security logs live outside the daily reset.
+
+This branch also requires identity-key signatures for non-demo passphrase
+changes. Old clients fail closed on that operation; install the updated package
+before adopting this server change. The published portable launcher remains
+pinned to the last released client until this branch is tested and published.
+Use `uv sync --locked` and `uv run --locked vaultcontext` for this checkout.
+
+Additional isolated validation:
+
+```sh
+uv run --locked python -m unittest discover -s tests -p 'test_demo_*.py'
+uv run --locked python tests/demo_backend.py --binary /path/to/pinned/pocketcontext
+uv run --locked python tests/identity_rewrap.py --binary /path/to/pinned/pocketcontext
+```
+
 Current release controls and platform coverage: [common CI and deployment contract](docs/ci-and-deployment.md).
 
 Encrypted personal and shared file vaults for humans and coding agents, built on PocketContext. Any file type is accepted as exact opaque bytes, initially up to 8 MiB per file. Names and descriptive metadata are encrypted too. A CLI and portable skill provide the file interface. A public single-page website provides product information and a guided onboarding manual; it does not authenticate, unlock vaults or access application data. Clipperz inspired the architecture; no Clipperz code or compatibility is included.

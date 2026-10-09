@@ -197,10 +197,11 @@ def main():
                 request('PATCH',path(table)+'/'+row['id'],{'metadata':'forged'},token,403)
                 request('DELETE',path(table)+'/'+row['id'],token=token,expected=(403,404))
                 request('POST',path(table),{'id':'z'*15},token,403)
-        # Rewrap is private and revision checked; server never changes public keys.
-        act(at,'identity_rewrap',{'key_bundle':'new-encrypted-bundle','expected_revision':1})
-        act(at,'identity_rewrap',{'key_bundle':'stale','expected_revision':1},409)
-        assert query(at,'SELECT key_bundle FROM identity_secrets')[0]['key_bundle']=='new-encrypted-bundle'
+        # An application token alone cannot overwrite the encrypted identity.
+        # Valid identity signatures and replay protection have dedicated tests.
+        act(at,'identity_rewrap',{'key_bundle':'new-encrypted-bundle','expected_revision':1},403)
+        act(at,'identity_rewrap',{'key_bundle':'stale','expected_revision':0},409)
+        assert query(at,'SELECT key_bundle FROM identity_secrets')[0]['key_bundle']=='encrypted-bundle'
         assert query(bt,'SELECT key_bundle FROM identity_secrets')[0]['key_bundle']=='encrypted-bundle'
         request('PATCH',path('users')+'/'+alice,{'disabled':True},admin)
         act(at,'identity_rewrap',{'key_bundle':'forged','expected_revision':2},(401,403))

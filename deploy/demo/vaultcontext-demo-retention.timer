@@ -1,0 +1,10 @@
+[Unit]
+Description=Apply demo contact retention daily
+
+[Timer]
+OnCalendar=*-*-* 00:05:00 UTC
+Persistent=true
+Unit=vaultcontext-demo-retention.service
+
+[Install]
+WantedBy=timers.target

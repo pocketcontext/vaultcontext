@@ -41,6 +41,8 @@ function remove() {
 function realtime(e) {
   // Connection setup and OAuth callback delivery are deliberately anonymous.
   if (e.message.name === "PB_CONNECT" || e.message.name === "@oauth2") return e.next();
+  const demo=require(`${__hooks}/demo.js`);
+  if(demo.enabled()){try{demo.current(e.app);}catch(_){return;}}
   const auth = e.client.get("auth");
   // All application record subscriptions require authentication. Recheck at
   // delivery as a message may have been queued before the account was disabled.

@@ -10,7 +10,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = (ROOT / '.github/workflows/image.yml').read_text()
-APP = ROOT.name
+APP = 'vaultcontext'  # Repository identity must not depend on a worktree directory name.
 RETIRED = APP in {'accountcontext', 'chatcontext', 'observecontext', 'peoplecontext', 'raisecontext'}
 HOST = {'dealcontext': 'crm', 'taskcontext': 'tasks', 'accountcontext': 'accounts'}.get(APP, APP.removesuffix('context'))
 PUBLICATION, DEPLOYMENT = WORKFLOW.split('  deploy:\n', 1)

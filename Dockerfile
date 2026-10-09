@@ -49,7 +49,7 @@ RUN set -eu; \
     test "$(git rev-parse HEAD)" = "${revision}"
 RUN go mod download && go mod verify
 # The flags of pocketcontext's Makefile, plus -trimpath and a stripped binary.
-RUN go build -trimpath -tags sqlite_math_functions -ldflags '-s -w' -o /out/pocketcontext ./cmd/pocketcontext \
+RUN go build -trimpath -tags sqlite_math_functions,sqlite_percentile,sqlite_fts5 -ldflags '-s -w' -o /out/pocketcontext ./cmd/pocketcontext \
     && /out/pocketcontext --version
 
 
@@ -62,6 +62,7 @@ RUN apt-get update \
 COPY --from=build /out/pocketcontext /out/litestream /usr/local/bin/
 COPY docker/litestream.yml /etc/litestream.yml
 COPY --chmod=0755 docker/entrypoint.py /usr/local/bin/vaultcontext-entrypoint.py
+COPY --chmod=0755 deploy/demo/retention.py /usr/local/bin/vaultcontext-demo-retention.py
 WORKDIR /app
 COPY POCKETCONTEXT_VERSION pocketcontext.json ./
 COPY pb_migrations/ ./pb_migrations/

@@ -8,6 +8,23 @@ The client's passphrase-derived key protects its private-key bundle. X25519 reci
 
 Initial public keys are immutable. Recipient fingerprints require independent verification before sharing and are pinned locally. Members are owner/editor/reader; only the owner manages grants. New members receive every retained epoch needed for vault history. Invitations convey no ordinary vault access until acceptance. A reader can still copy plaintext or keys; roles constrain application writes, not redistribution.
 
+Identity-bundle replacement now requires a server-verified Ed25519 signature from
+the immutable identity key, bound to the account, expected revision, replacement
+bundle and operation. An application token alone cannot overwrite the bundle.
+The actor-private audit event contains no bundle or passphrase. An unlocked
+same-user session still has signing authority and may change a forgotten
+passphrase outside demo mode; its expiry does not recall copied plaintext or
+keys. The public demo rejects passphrase changes entirely. Existing signed file
+versions authenticate their authors, not independently verifiable historical
+editor grants from a malicious server; current membership is not a substitute
+for historical grant evidence.
+
+In explicit demo mode, all verified Google accounts are eligible, directory and
+identity rows are self-only, and sharing is unavailable. Demo data is scoped to
+a persisted UTC generation; API access and realtime delivery fail closed after
+midnight. Separate contact preferences and security metadata follow their own
+retention policy and do not carry vault contents or names. See demo operations.
+
 Revocation immediately removes authorization and freezes publication. An unlocked owner rotates the current vault key and publishes envelopes for exactly the remaining authorized recipients. Rotation must account for outstanding invitations and stale clients. Previously disclosed secrets remain disclosed.
 
 The local host and an unlocked agent are trusted. File contents are untrusted input, never instructions. Session keys are memory-only; Python/runtime copies, privileged processes and host swap can defeat perfect memory erasure. Limit session lifetimes and disable core dumps where supported. Avoid returning plaintext or decrypted names beyond the requested task.

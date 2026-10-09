@@ -21,7 +21,7 @@ letters/digits. Encrypted structures are JSON serialized into opaque strings.
 | Operation | Payload |
 | --- | --- |
 | `identity_init` | `public_key`, `signing_key`, `fingerprint`, `key_bundle` |
-| `identity_rewrap` | `key_bundle`, `expected_revision` |
+| `identity_rewrap` | `key_bundle`, `expected_revision`, `signature` |
 | `vault_create` | `id`, encrypted `metadata`, own `envelope` |
 | `save` | `vault`, `document`, `version`, `expected_revision`, `expected_archive_revision`, `epoch`, encrypted `metadata`, `manifest`, `signature`, `chunks` |
 | `archive`, `unarchive` | `vault`, `document`, `expected_revision`, `expected_archive_revision` |
@@ -33,6 +33,12 @@ letters/digits. Encrypted structures are JSON serialized into opaque strings.
 Identity initialization is one-time. Public keys are immutable; rewrap replaces
 only the user's encrypted bundle and increments its revision. There is no recovery
 or identity-reset operation. Key bundles are visible only to their owner.
+Rewrap requires the immutable signing key's Ed25519 signature over the canonical
+manifest `{account,expected_revision,key_bundle,purpose:"identity-rewrap"}`, using
+the existing `vaultcontext-manifest-v1` NUL-terminated signing domain. The serialized
+bundle must be ASCII JSON. Token-only and unsigned old-client replacements fail
+closed. Successful changes append an actor-private audit event with an empty vault
+ID. The disposable demo rejects rewrap entirely.
 
 Vault creation begins at epoch/revision 1. Its name metadata remains encrypted
 under epoch 1. `save` compares the document revision (0 for a new document), checks

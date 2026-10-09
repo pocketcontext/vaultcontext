@@ -13,3 +13,11 @@
 !pb_public/og-card.png
 !docker/entrypoint.py
 !docker/litestream.yml
+
+# Demo client assets and verification dependency are deliberately packaged.
+!pb_hooks/vendor/*.js
+!pb_hooks/vendor/tweetnacl-LICENSE
+!pb_hooks/vendor/README.txt
+!pb_hooks/vendor/provenance.json
+!pb_public/demo/**
+!deploy/demo/retention.py

@@ -11,7 +11,10 @@ function domain() {
 }
 
 function authenticate(e) {
-  const workspace = domain();
+  const demo = require(`${__hooks}/demo.js`);
+  const publicDemo = demo.enabled();
+  if (publicDemo) demo.current(e.app);
+  const workspace = publicDemo ? '' : domain();
   if (e.record && e.record.getBool("disabled")) {
     throw new ForbiddenError("This VaultContext account is disabled.");
   }
@@ -51,11 +54,21 @@ function authenticate(e) {
 
   // Domain configuration explicitly enables Google Workspace onboarding. Without
   // it, only an existing provisioned identity may authenticate.
-  if (!workspace && !e.record) throw new ForbiddenError("VaultContext account provisioning is disabled.");
+  if (!publicDemo && !workspace && !e.record) throw new ForbiddenError("VaultContext account provisioning is disabled.");
   // Never trust client-selected IDs, passwords, verification, access flags or
   // names. Google supplies identity, PocketBase generates the account password.
   const name = typeof user.name === "string" ? user.name.trim().slice(0, 200) : "";
   e.createData = {email: email, name: name || email.split("@")[0].slice(0, 200)};
+  if (publicDemo) {
+    const subject = raw.sub;
+    if (typeof subject !== 'string' || !subject || subject.length > 255)
+      throw new ForbiddenError('A verified Google subject is required.');
+    if (subject !== user.id)throw new ForbiddenError('Google subject mismatch.');
+    if (e.record) {
+      const links=e.app.findRecordsByFilter('_externalAuths','recordRef = {:a} && provider = \"google\"','',1,0,{a:e.record.id});
+      if(!links.length || links[0].getString('providerId')!==subject)throw new ForbiddenError('Google identity does not match this demo account.');
+    }
+  }
   return e.next();
 }
 

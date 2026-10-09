@@ -1,0 +1,11 @@
+[Unit]
+Description=Reset the VaultContext demo at midnight UTC
+
+[Timer]
+OnCalendar=*-*-* 00:00:00 UTC
+AccuracySec=1s
+Persistent=true
+Unit=vaultcontext-demo-reset.service
+
+[Install]
+WantedBy=timers.target

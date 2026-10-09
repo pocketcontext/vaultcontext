@@ -46,7 +46,7 @@ jobs:
           cache-dependency-path: pocketcontext/go.sum
       - name: Build pinned server
         working-directory: pocketcontext
-        run: CGO_ENABLED=1 go build -tags sqlite_math_functions -o bin/pocketcontext ./cmd/pocketcontext
+        run: CGO_ENABLED=1 go build -tags sqlite_math_functions,sqlite_percentile,sqlite_fts5 -o bin/pocketcontext ./cmd/pocketcontext
       - name: Primary object storage configuration
         run: python3 vaultcontext/tests/object_storage_settings.py
       - name: Frozen container startup
@@ -58,9 +58,12 @@ jobs:
           uv run --locked --project vaultcontext python vaultcontext/tests/oauth.py
       - name: Isolated application, identity, OAuth, portable skill and deployment checks
         run: |
-          for check in maintenance integration archive_migration auth oauth_integration realtime skill cli_forward deploy backup_integration limits; do
+          for check in maintenance integration archive_migration auth oauth_integration realtime skill cli_forward deploy backup_integration limits demo_backend identity_rewrap; do
             uv run --locked --project vaultcontext python "vaultcontext/tests/$check.py" --binary "$PWD/pocketcontext/bin/pocketcontext"
           done
+      - name: Fenced demo reset with a real isolated server
+        if: runner.os == 'Linux'
+        run: VAULTCONTEXT_DEMO_TEST_BINARY="$PWD/pocketcontext/bin/pocketcontext" uv run --locked --project vaultcontext python -m unittest discover -s vaultcontext/tests -p test_demo_reset.py
       - name: Copied standalone launcher and memory session
         run: |
           uv run --locked --project vaultcontext python vaultcontext/tests/skill.py --binary "$PWD/pocketcontext/bin/pocketcontext" --client vaultcontext/skills/vaultcontext/vaultcontext
@@ -71,3 +74,4 @@ jobs:
         run: |
           uv run --with playwright==1.60.0 python -m playwright install --with-deps chromium
           uv run --with playwright==1.60.0 python tests/website_analytics.py
+          uv run --with playwright==1.60.0 python tests/demo_website.py

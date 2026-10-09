@@ -11,7 +11,7 @@ import unittest
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
-PREFIX = ROOT.name.upper() + '_S3_'
+PREFIX = 'VAULTCONTEXT_S3_'  # Also run from renamed checkouts and Git worktrees.
 spec = importlib.util.spec_from_file_location('backup', ROOT / 'docker/entrypoint.py')
 backup = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(backup)

@@ -1,0 +1,14 @@
+[Unit]
+Description=Expire nonmarketing demo contacts and report annual reviews
+
+[Service]
+Type=oneshot
+User=vaultcontext-demo
+Group=vaultcontext-demo
+UMask=0077
+ExecStart=/usr/bin/python3 /opt/vaultcontext-demo/deploy/demo/retention.py --database /var/lib/vaultcontext-demo/persistent/contacts.db --maintenance
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/vaultcontext-demo/persistent
