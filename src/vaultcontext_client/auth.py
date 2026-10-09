@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
 """Command-line client for a VaultContext server. Authentication transport uses Python standard library.
 
-Configuration comes from three environment variables:
-  VAULTCONTEXT_URL             server address, for example https://raise.example.com
+Configuration comes from two environment variables:
+  VAULTCONTEXT_URL             server address, for example https://vault.example.com
   VAULTCONTEXT_USER_EMAIL     email of an account in the `users` collection
-  VAULTCONTEXT_USER_PASSWORD  password of that account (optional with Google login)
 
 Exit codes: 0 success; 1 HTTP or transport error; 2 usage or configuration error;
 3 `check` found schema differences; 4 HTTP 409 (read the record again, then retry).
@@ -29,13 +28,13 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-ENV = ['VAULTCONTEXT_URL', 'VAULTCONTEXT_USER_EMAIL', 'VAULTCONTEXT_USER_PASSWORD']
+ENV = ['VAULTCONTEXT_URL', 'VAULTCONTEXT_USER_EMAIL']
 SCHEMA_FILE = files('vaultcontext_client').joinpath('schema.json')
 STAMPS = ('created_by', 'updated_by')
 ID_ALPHABET = 'abcdefghijklmnopqrstuvwxyz0123456789'
 TIMEOUT = 30
 USER_AGENT = 'VaultContext/1.0'
-hidden = []  # The password and tokens. say() masks them in everything it prints.
+hidden = []  # Authentication tokens. say() masks them in everything it prints.
 
 
 class Fail(Exception):
@@ -72,7 +71,7 @@ def config(names=ENV[:2]):
         raise Fail(2, 'VAULTCONTEXT_URL must be an HTTP(S) URL without credentials, query, or fragment')
     if parsed.scheme == 'http' and parsed.hostname not in ('localhost', '127.0.0.1', '::1'):
         raise Fail(2, 'Use HTTPS for a remote VaultContext server')
-    return {'url': url, 'email': os.environ[ENV[1]], 'password': hide(os.environ.get(ENV[2]))}
+    return {'url': url, 'email': os.environ[ENV[1]]}
 
 
 # Token cache: one file per server URL and email, readable only by the current user.
@@ -145,17 +144,6 @@ def send(cfg, method, path, body=None, token=None, timeout=TIMEOUT):
         return status, json.loads(text) if text else None
     except ValueError:
         return status, text[:2000]
-
-
-def login(cfg):
-    if not cfg.get('password'):
-        raise Fail(2, 'Set VAULTCONTEXT_USER_PASSWORD for password login, or run vaultcontext login --google for browser sign-in.')
-    status, data = send(cfg, 'POST', '/api/collections/users/auth-with-password', {'identity': cfg['email'], 'password': cfg['password']})
-    if status != 200 or not isinstance(data, dict) or 'token' not in data:
-        raise Fail(1, f'login as {cfg["email"]} failed: HTTP {status}\n{dump(data)}\nCheck the three VAULTCONTEXT_ variables with the user. User credentials only.')
-    session = {'url': cfg['url'], 'email': cfg['email'], 'token': hide(data['token'])}
-    save_session(cfg, session)
-    return session
 
 
 def auth_session(cfg, data, method):
@@ -233,7 +221,7 @@ def google_login(cfg, port=8765, timeout=180):
             if not valid:
                 status, message = 400, 'Invalid sign-in callback. Return to your terminal.'
             elif 'error' in values:
-                outcome['error'] = 'Google sign-in was denied or cancelled; run vaultcontext login --google to retry.'
+                outcome['error'] = 'Google sign-in was denied or cancelled; run vaultcontext login to retry.'
                 status, message = 400, 'Sign-in was cancelled. Return to your terminal.'
             elif len(code) != 1 or not code[0]:
                 outcome['error'] = 'Google returned an invalid sign-in callback.'
@@ -269,7 +257,7 @@ def google_login(cfg, port=8765, timeout=180):
         while not outcome and time.monotonic() < deadline:
             server.handle_request()
     if not outcome:
-        raise Fail(1, 'Google sign-in timed out; run vaultcontext login --google to retry.')
+        raise Fail(1, 'Google sign-in timed out; run vaultcontext login to retry.')
     if 'error' in outcome:
         raise Fail(1, outcome['error'])
     status, data = oauth_send(cfg, 'POST', '/api/collections/users/auth-with-oauth2', {
@@ -285,30 +273,21 @@ def token_rejected(cfg, token):
 
 
 def call(cfg, method, path, body=None):
-    """Authenticated request. Returns (status, data).
-
-    Only the SQL endpoints answer an expired or revoked token with 401. The records API treats it as no
-    token and answers 400, 403, or 404. So after such an error with a cached token, check the token,
-    and if the server rejects it, log in once and send the request once more. The first attempt wrote nothing.
-    """
+    """Use an explicit Google session; never sign in or replay writes implicitly."""
     session = load_session(cfg)
-    cached = session is not None
-    if not cached:
-        session = login(cfg)
-    if session.get('method') == 'google' and (oauth_refresh_needed(session) or path == '/api/collections/users/auth-refresh'):
+    if not session or session.get('method') != 'google':
+        raise Fail(1, 'Run vaultcontext login to sign in with Google before using this command. Legacy password sessions are no longer supported.')
+    if oauth_refresh_needed(session) or path == '/api/collections/users/auth-refresh':
         # Renew at most every five minutes, or near expiry, to respect auth rate limits.
         status, data = oauth_send(cfg, 'POST', '/api/collections/users/auth-refresh', token=session['token'])
         if status != 200:
-            raise Fail(1, f'Google session could not be refreshed (HTTP {status}); run vaultcontext login --google again.')
+            raise Fail(1, f'Google session could not be refreshed (HTTP {status}); run vaultcontext login again.')
         session = auth_session(cfg, data, 'google')
         if path == '/api/collections/users/auth-refresh':
             return status, data
     status, data = send(cfg, method, path, body, session['token'])
-    if cached and 400 <= status < 500 and status not in (409, 429) and (status == 401 or token_rejected(cfg, session['token'])):
-        if session.get('method') == 'google':
-            raise Fail(1, 'Google session was rejected; run vaultcontext login --google again.')
-        session = login(cfg)
-        status, data = send(cfg, method, path, body, session['token'])
+    if 400 <= status < 500 and status not in (409, 429) and (status == 401 or token_rejected(cfg, session['token'])):
+        raise Fail(1, 'Google session was rejected; run vaultcontext login again.')
     return status, data
 
 

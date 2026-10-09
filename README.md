@@ -172,8 +172,10 @@ install -Dm755 skills/vaultcontext/vaultcontext ~/.local/bin/vaultcontext
 export PATH="$HOME/.local/bin:$PATH"
 export VAULTCONTEXT_URL=https://vault.example.com
 export VAULTCONTEXT_USER_EMAIL=you@example.com
-vaultcontext login --google
+vaultcontext login
 ```
+
+`vaultcontext login` always starts Google OAuth. The former `--google` flag and CLI password login have been removed; update existing scripts to use plain `login`. `VAULTCONTEXT_USER_PASSWORD` is no longer supported. This changes sign-in only: initializing and unlocking the encrypted identity still require a separate vault passphrase.
 
 The launcher declares its Python requirements and pins the client package to a full Git commit. It can run from any directory without neighboring source files. The first run needs network access to download the package, Python if needed, and dependencies; later runs reuse uv's cache. Updating the copied launcher adopts its new client revision. Before replacing an installed client, run its `lock` command for each configured server/account with an unlocked session. After updating, have the user run `vaultcontext unlock` explicitly in their private terminal so the session uses the new client; installation never unlocks automatically. The skill has no script lockfile: transitive dependencies may resolve differently on fresh installations. The repository's `uv.lock` governs development and tests, not launcher execution.
 
@@ -186,7 +188,7 @@ Alternatively, install the package from a trusted checkout into an external Pyth
 ```sh
 python3 -m venv ~/.local/share/vaultcontext-venv
 ~/.local/share/vaultcontext-venv/bin/pip install /absolute/path/to/vaultcontext
-~/.local/share/vaultcontext-venv/bin/vaultcontext login --google
+~/.local/share/vaultcontext-venv/bin/vaultcontext login
 ```
 
 Run `vaultcontext` or `vaultcontext --help` for grouped commands and a first-use example, or `vaultcontext COMMAND --help`

@@ -13,7 +13,7 @@ Read [workflows](references/workflows.md) for login, local unlock, files, sharin
 
 ## Identity and trust
 
-Configure `VAULTCONTEXT_URL` and `VAULTCONTEXT_USER_EMAIL`. Authenticate as an ordinary `users` account, never an operator. Google sign-in and cryptographic unlock are separate. Passphrases are entered by the user in an interactive terminal; never request them in chat, put them in arguments/environment variables, pipe them into stdin, or retrieve credentials from other files.
+Configure `VAULTCONTEXT_URL` and `VAULTCONTEXT_USER_EMAIL`. Authenticate as an ordinary `users` account, never an operator. Run `vaultcontext login` for Google sign-in. The CLI does not support password login. Google sign-in and cryptographic unlock are separate. Passphrases are entered by the user in an interactive terminal; never request them in chat, put them in arguments/environment variables, pipe them into stdin, or retrieve credentials from other files.
 
 Encrypted identity private keys persist only on the server. `unlock` downloads/decrypts them in process memory and starts a same-user local Unix socket session, expiring after 15 minutes by default. The session uses a fresh interpreter from the same package environment, with verified keys passed only through private inherited IPC and a readiness handshake. Lock sessions before clearing uv's cache. Unlock, lock and logout recover verified stale sockets; unsafe paths or ambiguous failures remain errors. There is no recovery key and no persistent local private-key cache. Losing the passphrase without an unlocked session or enrolled macOS Keychain credential loses access. The unlocked execution host and any agent running as that OS user are trusted; Python memory and host swap cannot guarantee erasure.
 

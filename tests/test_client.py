@@ -149,12 +149,24 @@ class ClientTests(unittest.TestCase):
                                     capture_output=True, text=True, timeout=30)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertTrue(result.stdout.startswith('usage: vaultcontext '), result.stdout)
-        self.assertIn('vaultcontext login --google', result.stdout)
+        self.assertIn('vaultcontext login', result.stdout)
+        self.assertNotIn('--google', result.stdout)
 
     def test_cli_no_secret_argument(self):
         with self.assertRaises(SystemExit):vc.parser().parse_args(['unlock','--passphrase','secret'])
-        args=vc.parser().parse_args(['login','--google','--port','9876'])
+        args=vc.parser().parse_args(['login','--port','9876'])
         self.assertEqual(args.port,9876)
+        for option in ('--google', '--password'):
+            with self.subTest(option=option), self.assertRaises(SystemExit):
+                vc.parser().parse_args(['login', option])
+
+    def test_plain_login_dispatches_google_with_callback_options(self):
+        cfg = {'url': 'https://vault.example.com', 'email': 'synthetic@example.com'}
+        for words, port, timeout in ((['login'], 8765, 180), (['login', '--port', '9876', '--timeout', '30'], 9876, 30)):
+            args = vc.parser().parse_args(words)
+            with self.subTest(words=words), patch.object(vc.auth, 'config', return_value=cfg), patch.object(vc.demo, 'configure'), patch.object(vc.auth, 'google_login') as google:
+                self.assertEqual(vc.run(args), {'signed_in': True})
+            google.assert_called_once_with(cfg, port, timeout)
 
     def test_session_regular_file_refused(self):
         with tempfile.TemporaryDirectory() as tmp:

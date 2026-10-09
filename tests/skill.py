@@ -10,6 +10,7 @@ import subprocess
 import tempfile
 import time
 from unittest.mock import patch
+from synthetic_auth import cache_test_session
 from integration import server
 from client_command import client_command
 from cli_forward import terminal
@@ -22,7 +23,7 @@ def cat_checks(command, temporary, request, owner, other, document, historical, 
     cfg, identity, account, fingerprint = owner
     stranger, _, _, _ = other
     env = dict(os.environ, VAULTCONTEXT_URL=cfg['url'],
-               VAULTCONTEXT_USER_EMAIL=cfg['email'], VAULTCONTEXT_USER_PASSWORD=cfg['password'])
+               VAULTCONTEXT_USER_EMAIL=cfg['email'])
 
     def cat(*words, environment=env):
         return subprocess.run(command + ['cat', document, *words], cwd=temporary,
@@ -195,7 +196,7 @@ def listing_rate_limit_checks(command, temporary, request, admin, owner):
         expected.add(run('save', vault=vault, path=str(source), name=f'rate-file-{index:02d}')['id'])
     run('change-passphrase', new_passphrase='Synthetic terminal passphrase 123!')
     env = dict(os.environ, VAULTCONTEXT_URL=cfg['url'],
-               VAULTCONTEXT_USER_EMAIL=cfg['email'], VAULTCONTEXT_USER_PASSWORD=cfg['password'])
+               VAULTCONTEXT_USER_EMAIL=cfg['email'])
     terminal(command + ['unlock', '--timeout', '180'], env, temporary)
     request('PATCH', '/api/settings', {'rateLimits': {'enabled': True, 'rules': [
         {'label': '/api/context/', 'audience': '', 'duration': 10, 'maxRequests': 60},
@@ -233,7 +234,7 @@ def main():
         for name in ['alice','bob','eve']:
             row=req('POST','/api/collections/users/records',{'email':name+'@example.com','name':name,'password':'SyntheticUserPassword123!','passwordConfirm':'SyntheticUserPassword123!'},admin)
             cfg={'url':req.base_url.replace('127.0.0.1', 'localhost'),'email':name+'@example.com','password':'SyntheticUserPassword123!'}
-            vc.auth.login(cfg)
+            cache_test_session(cfg, cfg['password'])
             identity=crypto.generate_identity();pub=crypto.public_identity(identity);fingerprint=crypto.fingerprint(pub)
             vc.action(cfg,'identity_init',{'public_key':pub['enc_public'],'signing_key':pub['sign_public'],'fingerprint':fingerprint,'key_bundle':vc.encode(crypto.wrap_identity(identity,'synthetic passphrase',row['id']))})
             vc.verify_user(cfg,row['id'],fingerprint)
@@ -310,7 +311,7 @@ def main():
         # Session expiry is exercised with real time by cli_forward.py and
         # with a bounded in-process serving loop by the unit suite.
         # Validate schema snapshot against live schema.
-        os.environ['VAULTCONTEXT_URL']=a['url'];os.environ['VAULTCONTEXT_USER_EMAIL']=a['email'];os.environ['VAULTCONTEXT_USER_PASSWORD']=a['password']
+        os.environ['VAULTCONTEXT_URL']=a['url'];os.environ['VAULTCONTEXT_USER_EMAIL']=a['email']
         vc.run(vc.parser().parse_args(['check']))
         result=subprocess.run(command+['check'],cwd=tmp,capture_output=True,text=True,check=True)
         assert json.loads(result.stdout)['compatible'] is True

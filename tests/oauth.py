@@ -136,10 +136,19 @@ class OAuthTest(unittest.TestCase):
             self.assertEqual(tc.call(self.cfg, 'GET', '/api/context/schema')[0], 200)
             self.assertEqual(send.call_args_list[1].args[4], 'renewed-secret')
         self.assertEqual(tc.load_session(self.cfg)['token'], 'renewed-secret')
-        with patch.object(tc, 'send', return_value=(401, {})) as send, self.assertRaisesRegex(tc.Fail, 'login --google'):
+        with patch.object(tc, 'send', return_value=(401, {})) as send, self.assertRaisesRegex(tc.Fail, 'vaultcontext login'):
             tc.call(self.cfg, 'POST', '/api/collections/issues/records', {'title': 'must not write'})
         self.assertEqual(send.call_count, 1)
         self.assertTrue(send.call_args.args[2].endswith('/auth-refresh'))
+
+    def test_missing_or_legacy_session_requires_explicit_login(self):
+        for method in (None, 'password'):
+            if method:
+                tc.auth_session(self.cfg, self.auth, method)
+            with self.subTest(method=method), patch.object(tc, 'send') as send:
+                with self.assertRaisesRegex(tc.Fail, 'vaultcontext login'):
+                    tc.call(self.cfg, 'GET', '/api/context/schema')
+                send.assert_not_called()
 
     def test_refresh_identity_mismatch_preserves_previous_cache(self):
         tc.auth_session(self.cfg, self.auth, 'google')
@@ -187,7 +196,9 @@ class OAuthTest(unittest.TestCase):
     def test_oauth_configuration_needs_no_password(self):
         with patch.dict(os.environ, {'VAULTCONTEXT_URL': self.cfg['url'], 'VAULTCONTEXT_USER_EMAIL': self.cfg['email']}):
             os.environ.pop('VAULTCONTEXT_USER_PASSWORD', None)
-            self.assertIsNone(tc.config()['password'])
+            self.assertNotIn('password', tc.config())
+        with patch.dict(os.environ, {'VAULTCONTEXT_URL': self.cfg['url'], 'VAULTCONTEXT_USER_EMAIL': self.cfg['email'], 'VAULTCONTEXT_USER_PASSWORD': 'ignored'}):
+            self.assertNotIn('password', tc.config())
 
 
 if __name__ == '__main__':

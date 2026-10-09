@@ -4,7 +4,7 @@
   <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex,nofollow"><meta name="description" content="An interactive preview of the VaultContext public demo experience.">
   <title>Try a little privacy · VaultContext demo preview</title>
-  <link rel="stylesheet" href="styles.css?v=6b926c4f0a29"><script src="app.js?v=95bdd6ff1113" defer></script>
+  <link rel="stylesheet" href="styles.css?v=6b926c4f0a29"><script src="app.js?v=c204096ffa48" defer></script>
 </head>
 <body>
 <a class="skip" href="#main">Skip to content</a>
@@ -36,7 +36,7 @@
 <details><summary><span>02</span>Connect, then unlock <span class="summary-plus">+</span></summary><div class="guide-content"><p>Google identifies you; a separate passphrase unlocks your encryption keys. Enter it only in your private terminal. There are no recovery keys.</p><div class="codebox"><button type="button" class="copy">Copy</button><pre><code id="connect-code"># Illustration only — .invalid is not a live service
 export VAULTCONTEXT_URL=https://vault-demo.example.invalid
 export VAULTCONTEXT_USER_EMAIL=demo@example.com
-vaultcontext login --google
+vaultcontext login
 vaultcontext whoami
 vaultcontext check
 vaultcontext init

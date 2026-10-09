@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import tempfile
 from unittest.mock import patch
+from synthetic_auth import cache_test_session
 from integration import server
 
 from vaultcontext_client import cli as vc
@@ -24,7 +25,7 @@ def main():
             account = request('POST', '/api/collections/users/records', {
                 'email': 'limits@example.test', 'name': 'Limits test', 'password': password, 'passwordConfirm': password}, admin)['id']
             cfg = {'url': request.base_url, 'email': 'limits@example.test', 'password': password}
-            vc.auth.login(cfg)
+            cache_test_session(cfg, cfg['password'])
             identity = vc.crypto.generate_identity()
             public = vc.crypto.public_identity(identity)
             fingerprint = vc.crypto.fingerprint(public)

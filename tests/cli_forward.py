@@ -11,6 +11,8 @@ import signal
 import subprocess
 import tempfile
 import time
+from unittest.mock import patch
+from synthetic_auth import cache_test_session
 from integration import server
 from client_command import client_command
 
@@ -62,12 +64,15 @@ def main():
         actors=[]
         for name in ['owner','colleague']:
             user=request('POST','/api/collections/users/records',{'email':name+'@example.com','name':name,'password':'SyntheticUserPassword123!','passwordConfirm':'SyntheticUserPassword123!'},admin)
-            env=dict(os.environ,VAULTCONTEXT_URL=request.base_url,VAULTCONTEXT_USER_EMAIL=name+'@example.com',VAULTCONTEXT_USER_PASSWORD='SyntheticUserPassword123!',XDG_CACHE_HOME=str(Path(tmp)/'cache'))
+            env=dict(os.environ,VAULTCONTEXT_URL=request.base_url,VAULTCONTEXT_USER_EMAIL=name+'@example.com',XDG_CACHE_HOME=str(Path(tmp)/'cache'))
             def cli(*words,env=env):
                 result=subprocess.run(command+list(words),env=env,cwd=tmp,capture_output=True,text=True)
                 assert result.returncode==0,'CLI failed: '+result.stderr
                 return json.loads(result.stdout)
-            cli('login');cli('check')
+            with patch.dict(os.environ, {'XDG_CACHE_HOME': env['XDG_CACHE_HOME']}):
+                cache_test_session({'url': request.base_url, 'email': name+'@example.com'},
+                                   'SyntheticUserPassword123!')
+            cli('check')
             initialized=terminal(command+['init'],env,tmp)
             terminal(command+['unlock','--timeout','180'],env,tmp)
             actors.append((user['id'],initialized['fingerprint'],cli,env))

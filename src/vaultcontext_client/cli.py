@@ -48,7 +48,7 @@ def request(cfg, method, path, body=None):
             raise auth.Fail(4, 'Identity already initialized. Run vaultcontext unlock with your existing passphrase. init does not replace an identity or reset its passphrase.')
         if cfg.get('_demo_generation'):
             if status == 401:
-                raise auth.Fail(1, 'Demo sign-in expired or was rejected. Run vaultcontext login --google using the same account you enrolled on the website.')
+                raise auth.Fail(1, 'Demo sign-in expired or was rejected. Run vaultcontext login using the same account you enrolled on the website.')
             if status == 403:
                 raise auth.Fail(1, 'Demo access denied (HTTP 403). Check that the CLI uses the same Google account that accepted today’s terms at ' + cfg['url'] + '/. Sign-in alone is not enrollment. If already enrolled, check account access; do not recreate your identity.')
             if status == 409:
@@ -474,15 +474,22 @@ def unlock(cfg, timeout, use_keychain=False):
     verify_user(cfg, account, crypto.fingerprint(crypto.public_identity(identity)))
     return session.start(cfg, identity, account, timeout)
 
+class CommandParser(argparse.ArgumentParser):
+    def error(self, message):
+        if 'unrecognized arguments:' in message and '--google' in message.split():
+            message = '--google has been removed. Use vaultcontext login for Google sign-in.'
+        super().error(message)
+
+
 def parser():
-    p = argparse.ArgumentParser(
+    p = CommandParser(
         prog='vaultcontext',
         description=__doc__, usage='%(prog)s [-h] COMMAND ...',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""First use (replace the example URL and email):
   export VAULTCONTEXT_URL=https://vault.example.com
   export VAULTCONTEXT_USER_EMAIL=you@example.com
-  vaultcontext login --google
+  vaultcontext login
   vaultcontext init                         # once per account; prompts for a passphrase
   vaultcontext unlock                       # prompts; session lasts 15 minutes
   vaultcontext create 'Personal'            # returns the VAULT_ID for save
@@ -537,17 +544,15 @@ Manual: https://github.com/pocketcontext/vaultcontext/blob/main/skills/vaultcont
     unlocked = 'Requires login and an unlocked session (vaultcontext unlock). '
     q = add('login', 'Sign in to your account',
             'Sign in and cache an application token. Set VAULTCONTEXT_URL and '
-            'VAULTCONTEXT_USER_EMAIL first. Use --google for browser sign-in, or '
-            'VAULTCONTEXT_USER_PASSWORD for a provisioned password account. '
-            'The account password is separate from the vault passphrase.\n\n'
+            'VAULTCONTEXT_USER_EMAIL first. Google browser sign-in is the only login method. '
+            'Signing in does not unlock the vault; its passphrase remains separate.\n\n'
             'Over SSH, forward the callback port: ssh -L 8765:127.0.0.1:8765 user@host. '
             'Open the printed URL on your browser machine; decryption stays on the CLI host.',
-            'login --google')
-    q.add_argument('--google', action='store_true', help='sign in with Google in a browser')
+            'login')
     q.add_argument('--port', type=int, default=8765,
-                   help='Google callback port, 1–65535; with --google (default: %(default)s)')
+                   help='Google callback port, 1–65535; (default: %(default)s)')
     q.add_argument('--timeout', type=int, default=180,
-                   help='Google sign-in wait in seconds, 1–600; with --google (default: %(default)s)')
+                   help='Google sign-in wait in seconds, 1–600; (default: %(default)s)')
     add('whoami', 'Show your authenticated account ID',
         'Refresh the application token and return your account ID. Requires login; no unlock needed.', 'whoami')
     add('logout', 'Lock and remove the local sign-in token',
@@ -751,10 +756,8 @@ def run(args):
         demo.configure(cfg, args.command)
     if args.command == 'login':
         if cfg.get('_demo_generation'):
-            if not args.google:
-                raise auth.Fail(2, 'The demo requires vaultcontext login --google.')
             session.stop(cfg)
-        (auth.google_login(cfg, args.port, args.timeout) if args.google else auth.login(cfg))
+        auth.google_login(cfg, args.port, args.timeout)
         return {'signed_in': True}
     if args.command == 'logout':
         return session.stop(cfg, logout=True)

@@ -14,6 +14,7 @@ import urllib.request
 from unittest.mock import patch
 from vaultcontext_client import cli as vc
 
+from synthetic_auth import cache_test_session
 from integration import ROOT, server
 
 
@@ -44,7 +45,7 @@ def main():
         # Populate an ordinary client vault with active and archived documents,
         # authentic version history, and transitions independent of signed revisions.
         cfg = {'url': request.base_url, 'email': 'owner@example.test', 'password': password}
-        vc.auth.login(cfg)
+        cache_test_session(cfg, cfg['password'])
         bundle = vc.one(cfg, 'identity_secrets', 'account=' + vc.quote(owner))['key_bundle']
         identity = vc.crypto.unwrap_identity(json.loads(bundle), 'SyntheticVaultUnlockPassphrase123!', owner)
         vc.verify_user(cfg, owner, meta['fingerprint'])
@@ -89,7 +90,7 @@ def main():
                 restored = smoke.Client(base, 'owner@example.test', password, None)
                 smoke.check_records(restored, doc, meta)
                 cfg = dict(cfg, url=base)
-                vc.auth.login(cfg)
+                cache_test_session(cfg, cfg['password'])
                 vc.verify_user(cfg, owner, meta['fingerprint'])
                 assert vc.query(cfg, 'SELECT * FROM documents WHERE vault=' + vc.quote(vault) + ' ORDER BY id') == before
                 assert vc.query(cfg, 'SELECT * FROM audit_log WHERE vault=' + vc.quote(vault) + ' ORDER BY id') == audit_before

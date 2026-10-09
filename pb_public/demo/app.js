@@ -257,7 +257,7 @@ byId('enrollment-form').addEventListener('submit', async event => {
     byId('guide-banner').querySelector('p').textContent = clientAvailable() ? 'Google sign-in does not unlock your files. Enter your vault passphrase only in your private terminal. The daily reset removes your demo account and vault data.' : 'No verified public client downloads are available on this server. Do not run these examples against a real service or use production credentials. Your preferences are saved; vault onboarding is not yet available.';
     // Quote identity safely for shell snippets; never interpolate untrusted identity as code.
     const shellQuote = value => "'" + value.replaceAll("'", "'\\''") + "'";
-    if (clientAvailable()) byId('connect-code').textContent = `export VAULTCONTEXT_URL=${shellQuote(location.origin)}\nexport VAULTCONTEXT_USER_EMAIL=${shellQuote(account.email)}\nvaultcontext login --google\nvaultcontext whoami\nvaultcontext check\nvaultcontext init\nvaultcontext unlock --timeout 900\nvaultcontext create 'Sample vault'`;
+    if (clientAvailable()) byId('connect-code').textContent = `export VAULTCONTEXT_URL=${shellQuote(location.origin)}\nexport VAULTCONTEXT_USER_EMAIL=${shellQuote(account.email)}\nvaultcontext login\nvaultcontext whoami\nvaultcontext check\nvaultcontext init\nvaultcontext unlock --timeout 900\nvaultcontext create 'Sample vault'`;
     byId('guide-complete').textContent = 'All three steps reviewed. Verify each operation in your terminal; the page cannot confirm CLI success.';
     if (unsubscribeToken) {
       let withdraw = byId('withdraw');

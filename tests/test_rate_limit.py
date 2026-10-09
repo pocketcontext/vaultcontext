@@ -35,12 +35,10 @@ class RateLimitTests(unittest.TestCase):
         sleep.assert_not_called()
 
     def test_rate_limit_does_not_check_or_replace_authentication(self):
-        for method in ('google', 'password'):
-            with self.subTest(method=method), patch.object(auth, 'load_session', return_value={'token': 'synthetic', 'method': method}), patch.object(auth, 'oauth_refresh_needed', return_value=False), patch.object(auth, 'send', return_value=(429, {})) as send, patch.object(auth, 'token_rejected') as rejected, patch.object(auth, 'login') as login:
-                self.assertEqual(auth.call({}, 'POST', '/api/context/query', {}), (429, {}))
-                send.assert_called_once()
-                rejected.assert_not_called()
-                login.assert_not_called()
+        with patch.object(auth, 'load_session', return_value={'token': 'synthetic', 'method': 'google'}), patch.object(auth, 'oauth_refresh_needed', return_value=False), patch.object(auth, 'send', return_value=(429, {})) as send, patch.object(auth, 'token_rejected') as rejected:
+            self.assertEqual(auth.call({}, 'POST', '/api/context/query', {}), (429, {}))
+            send.assert_called_once()
+            rejected.assert_not_called()
 
     def test_action_rate_limit_is_not_replayed_or_disclosed(self):
         with patch.object(auth, 'call', return_value=(429, 'synthetic private response')) as request, patch.object(auth.time, 'sleep') as sleep:

@@ -29,7 +29,7 @@ This console entry point does not require uv at runtime. In the examples below, 
 ```sh
 export VAULTCONTEXT_URL=https://vault.example.com
 export VAULTCONTEXT_USER_EMAIL=you@example.com
-vaultcontext login --google
+vaultcontext login
 vaultcontext whoami
 vaultcontext check
 vaultcontext init
@@ -37,7 +37,7 @@ vaultcontext unlock --timeout 900
 vaultcontext create 'Personal'
 ```
 
-`init` runs once per account and prompts for a passphrase twice. Keep its public fingerprint for independent verification. There is no recovery key. Google callback uses port 8765; on SSH forward it with `ssh -L 8765:127.0.0.1:8765 user@host` and open the provided URL on the browser machine. This does not move vault decryption from the execution host to the browser machine. `VAULTCONTEXT_USER_PASSWORD` supports ordinary provisioned test/password accounts; it is not the vault passphrase.
+`init` runs once per account and prompts for a passphrase twice. Keep its public fingerprint for independent verification. There is no recovery key. Google callback uses port 8765; on SSH forward it with `ssh -L 8765:127.0.0.1:8765 user@host` and open the provided URL on the browser machine. This does not move vault decryption from the execution host to the browser machine. `login` always uses Google OAuth; password login and `VAULTCONTEXT_USER_PASSWORD` are not supported. The vault passphrase is separate from Google authentication.
 
 Application tokens and public fingerprint pins are local, privately permissioned, and scoped by server/user. Only encrypted private keys persist on the server. `change-passphrase` prompts for a new passphrase while unlocked and updates the server bundle. Reuse an existing unlocked session across commands and tasks; do not lock or log out as end-of-task cleanup. Lock on user request or before replacing the client or clearing its runtime cache. The default 900-second lifetime runs from unlock and is not extended by activity; the user may choose `unlock --timeout 3600` for up to one hour. `lock` terminates the memory session; expiration rejects new requests, while an operation already running may finish. `logout` locks and deletes the local application token, but does not revoke copied tokens.
 
@@ -97,7 +97,7 @@ Use only this command for agent equality checks; do not read files, invoke `cat`
 Install the launcher on the destination computer, configure the same server and account, then sign in and unlock there. Use the existing encryption identity: do not run `vaultcontext init` or create a replacement vault. Have the user complete Google sign-in and enter the passphrase in their private terminal.
 
 ```sh
-vaultcontext login --google
+vaultcontext login
 vaultcontext whoami
 vaultcontext check
 vaultcontext unlock --timeout 900
