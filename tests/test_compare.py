@@ -172,7 +172,7 @@ class CompareTests(unittest.TestCase):
 
     def test_cli_session_transport_resolves_local_path(self):
         args = vc.parser().parse_args(['compare', 'document', 'relative-file', '--version', 'version'])
-        with patch.object(vc.auth, 'config', return_value={}), patch.object(vc, 'session_call', return_value={'same': True}) as call:
+        with patch.object(vc.auth, 'config', return_value={}), patch.object(vc.demo, 'configure'), patch.object(vc, 'session_call', return_value={'same': True}) as call:
             self.assertEqual(vc.run(args), {'same': True})
         self.assertEqual(call.call_args.args[1], {'command': 'compare', 'document': 'document',
                                                 'path': os.path.abspath('relative-file'), 'version': 'version'})
