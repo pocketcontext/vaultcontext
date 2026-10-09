@@ -16,7 +16,14 @@ for asset in ('styles.css','app.js'):
 with sync_playwright() as p:
  b=p.chromium.launch(**({'executable_path':BROWSER} if BROWSER else {}))
  page=b.new_page(viewport={'width':390,'height':844})
- page.goto((ROOT/'index.html').as_uri());page.locator('#google-button').click();page.locator('#terms').check();page.locator('.continue-button').click()
+ page.goto((ROOT/'index.html').as_uri())
+ assert page.locator('.continue-button').is_disabled(), 'Preview must explain sign-in before enabling continuation'
+ page.locator('#terms').check()
+ assert page.locator('.continue-button').is_disabled(), 'Accepting terms alone does not sign in'
+ page.locator('#google-button').click()
+ assert page.locator('.continue-button').is_enabled()
+ page.locator('#terms').uncheck();assert page.locator('.continue-button').is_disabled()
+ page.locator('#terms').check();page.locator('.continue-button').click()
  assert page.locator('#onboarding').is_visible()
  assert not page.locator('#commercial').is_checked() and not page.locator('#newsletter').is_checked()
  assert page.evaluate('document.documentElement.scrollWidth<=innerWidth')
@@ -39,7 +46,7 @@ with sync_playwright() as p:
    if fail_preferences:return result({'message':'resetting'},503)
    return result({'revision':0,'salesContact':False,'newsletter':False})
   if path=='/api/demo/enroll':
-   body=json.loads(r.request.post_data);assert body['salesConsent']==False and body['newsletterConsent']==False and body['expectedRevision']==0
+   body=json.loads(r.request.post_data);assert body['salesConsent']==False and body['newsletterConsent']==False and body['expectedRevision'] in (0,1)
    pending_enroll.append(r);return
   if path=='/api/demo/unsubscribe':return result({'ok':True})
   target=ROOT/('index.html' if path=='/' else path.lstrip('/'))
@@ -49,8 +56,12 @@ with sync_playwright() as p:
  page.route('**/*',route)
  page.add_init_script('''class FakeEventSource { constructor(){window.fakeStream=this;this.listeners={};setTimeout(()=>this.listeners.PB_CONNECT?.({data:JSON.stringify({clientId:'synthetic-state'})}),20);}addEventListener(n,cb){this.listeners[n]=cb;}close(){}}window.EventSource=FakeEventSource;window.open=()=>({closed:true,close(){},location:{set href(value){const stream=window.fakeStream;setTimeout(()=>stream.listeners['@oauth2']({data:JSON.stringify({state:'synthetic-state',code:'synthetic-code'})}),1000);}}});''')
  page.goto('http://demo.test/');page.wait_for_function('document.querySelector("#mode-pill").textContent === "Daily reset"')
+ assert page.locator('.continue-button').is_disabled()
+ page.locator('#terms').check();assert page.locator('.continue-button').is_disabled()
+ page.locator('#terms').uncheck()
  # A COOP-severed window handle reports closed before the independent callback.
  page.locator('#google-button').click();page.wait_for_selector('#identity:visible');assert 'Synthetic Visitor' in page.locator('#identity').inner_text()
+ assert page.locator('.continue-button').is_disabled(), 'Signed in still requires terms acceptance'
  # Signed-in account text must stay in its own column, including long identities.
  assert page.locator('#identity-email').inner_text()=='demo@example.com'
  assert page.locator('.avatar').inner_text()=='S'
@@ -68,9 +79,12 @@ with sync_playwright() as p:
   }"""), f'Identity overlaps or overflows at {width}px'
  page.set_viewport_size({'width':1440,'height':1000})
  page.evaluate("setIdentity('demo@example.com', 'Synthetic Visitor')")
+ page.locator('#terms').check();assert page.locator('.continue-button').is_enabled()
+ page.locator('#terms').uncheck();assert page.locator('.continue-button').is_disabled()
  page.locator('#terms').check();page.locator('.continue-button').click()
  page.wait_for_function('document.querySelector("#signout").disabled')
  assert pending_enroll
+ assert page.locator('.continue-button').is_disabled(), 'Pending enrollment must not offer another submission'
  page.locator('#signout').evaluate('(button)=>button.click()')
  assert page.locator('#identity').is_visible(), 'Signout must not race a pending enrollment'
  pending_enroll.pop().fulfill(status=200,content_type='application/json',body=json.dumps({'enrolled':True,'generation':'2099-01-01','contact':{'revision':1,'unsubscribeToken':'synthetic-withdrawal'}}))
@@ -79,14 +93,22 @@ with sync_playwright() as p:
  assert not page.evaluate('localStorage.length')
  fail_preferences=True
  page.evaluate("live.resetAt = new Date(Date.now() - 1000).toISOString(); updateCountdown();")
+ assert page.locator('.continue-button').is_disabled(), 'Reset-due demo must not offer enrollment'
  page.locator('#withdraw').click();page.wait_for_function('document.querySelector("#form-status").textContent.includes("withdrawn")')
  page.wait_for_function('document.querySelector("#preferences-status").textContent.includes("Withdrawal succeeded")')
  page.wait_for_timeout(1100)
  assert 'withdrawn' in page.locator('#form-status').inner_text(), 'Reset timer must not overwrite withdrawal success'
  assert not page.locator('#commercial').is_checked() and not page.locator('#newsletter').is_checked()
  page.locator('#signout').click();assert not page.locator('#identity').is_visible()
+ assert page.locator('.continue-button').is_disabled()
  assert not errors,errors
  assert any(x[0]=='/api/demo/enroll' for x in calls)
+ # Failed preference loading cannot turn successful Google authentication into enrollment.
+ page.goto('http://demo.test/');page.wait_for_function('document.querySelector("#mode-pill").textContent === "Daily reset"')
+ page.locator('#terms').check();page.locator('#google-button').click()
+ page.wait_for_function('!document.querySelector("#google-button").disabled && document.querySelector("#form-status").textContent.includes("unavailable")')
+ assert page.locator('.continue-button').is_disabled()
+ assert not page.locator('#identity').is_visible()
  # A backend readiness flag cannot make private source publicly installable.
  # Keep the local distribution gate closed even if an old backend says ready.
  client_ready=True;fail_preferences=False
@@ -103,6 +125,18 @@ with sync_playwright() as p:
  assert 'Public downloads are not connected' in page.locator('#install-code').text_content()
  assert 'npx skills add' not in page.locator('#install-code').text_content()
  assert not errors,errors
+ # A preference-conflict refresh failure must invalidate the previously loaded revision.
+ fail_preferences=True
+ page.locator('.continue-button').click()
+ page.wait_for_function('document.querySelector("#signout").disabled')
+ pending_enroll.pop().fulfill(status=409,content_type='application/json',body='{}')
+ page.wait_for_function('document.querySelector("#form-status").textContent.includes("Could not refresh preferences")')
+ assert page.locator('.continue-button').is_disabled(), 'Stale preferences must not permit another enrollment'
+ enrollment_count=sum(path=='/api/demo/enroll' for path,_ in calls)
+ page.locator('#enrollment-form').evaluate('(form)=>form.requestSubmit()')
+ page.wait_for_timeout(100)
+ assert sum(path=='/api/demo/enroll' for path,_ in calls)==enrollment_count, 'A programmatic submit must also reject stale preferences'
+ fail_preferences=False
  # Same-origin checked metadata enables public, hash-pinned distribution.
  release='0.1.0-'+'a'*20
  public_downloads={'schema':1,'package':'vaultcontext-client','version':'0.1.0','release':release,'origin':'http://demo.test','artifacts':{}}
@@ -116,6 +150,36 @@ with sync_playwright() as p:
  pending_enroll.pop().fulfill(status=200,content_type='application/json',body=json.dumps({'enrolled':True,'generation':'2099-01-01','contact':{'revision':1,'unsubscribeToken':'synthetic-withdrawal'}}))
  page.wait_for_selector('#onboarding:visible')
  assert "VAULTCONTEXT_URL='http://demo.test'" in page.locator('#connect-code').text_content()
+ # A connected, ready demo must not show design-preview or future-launch wording,
+ # including policy disclosures and the expanded onboarding instructions.
+ for disclosure in page.locator('details').all():disclosure.evaluate('(element)=>element.open=true')
+ visible_copy=page.locator('body').inner_text().lower()
+ for obsolete in ('planned public demo', 'required to explore onboarding', 'proposed privacy', 'future demo', 'future daily reset', 'before any real enrollment', 'when the demo goes live', 'there is no live demo endpoint yet'):
+  assert obsolete not in visible_copy, f'Live page still shows preview copy: {obsolete}'
+ # Browser-native emoji rendering must not determine the appearance of action icons.
+ for selector in ('.hero-actions .button', '.nav-cta', '.continue-button', '.features article:last-child .feature-symbol'):
+  for element in page.locator(selector).all():
+   assert element.locator('svg').count(), f'Missing scalable icon: {selector}'
+   assert not any(char in element.text_content() for char in '↗↙'), f'Emoji-prone arrow: {selector}'
+ for width in (390,320):
+  page.set_viewport_size({'width':width,'height':844})
+  assert page.evaluate('document.documentElement.scrollWidth<=innerWidth')
+  assert page.locator('.hero-actions .text-link').bounding_box()['height']>=44, 'Secondary action needs a mobile touch target'
+  banner_lines=page.locator('#mode-banner > span:last-child').evaluate(r"""element=>{
+   const lines=new Map(), walker=document.createTreeWalker(element,NodeFilter.SHOW_TEXT);
+   while(walker.nextNode()){
+    const node=walker.currentNode;
+    for(const match of node.textContent.matchAll(/\S+/g)){
+     const range=document.createRange();range.setStart(node,match.index);range.setEnd(node,match.index+match[0].length);
+     const top=Math.round(range.getBoundingClientRect().top);lines.set(top,(lines.get(top)||0)+1);
+    }
+   }
+   return [...lines.values()];
+  }""")
+  assert len(banner_lines)<2 or banner_lines[-1]>1, f'Banner ends with a single-word line at {width}px'
+  headline=page.locator('h1').evaluate('(element)=>({height:element.getBoundingClientRect().height,line:parseFloat(getComputedStyle(element).lineHeight)})')
+  assert headline['height']<=headline['line']*3+1, f'Headline wraps beyond three lines at {width}px'
+ page.set_viewport_size({'width':1440,'height':1000})
  page.locator('[data-method="agent"]').click()
  install=page.locator('#install-code').text_content()
  assert 'shasum -a 256 -c - &&' in install and install.index('shasum')<install.index('tar -xzf')
@@ -164,5 +228,5 @@ with sync_playwright() as p:
   page.wait_for_function('document.querySelector("#withdrawal-status").textContent.includes("request processed")')
   assert len(withdrawals)==1 and page.locator('#confirm-withdrawal').is_disabled()
   page.close()
- print('PASS: static mobile preview/terms/optional consent/progress; live Google mock SSE/204/auth; preference revision enrollment; pending-release guide; withdrawal; signout; no localStorage; no page errors; pending-enrollment signout race; withdrawal across reset; fragment scrubbing/explicit confirmation/retry without login; public same-origin SHA-pinned installation; invalid/stale metadata rejected.')
+ print('PASS: static mobile preview/terms/optional consent/progress; live Google mock SSE/204/auth; preference revision enrollment; pending-release guide; withdrawal; signout; no localStorage; no page errors; pending-enrollment signout race; withdrawal across reset; fragment scrubbing/explicit confirmation/retry without login; public same-origin SHA-pinned installation; invalid/stale metadata rejected; continuation state and failed preference refresh; live copy and SVG icons; compact mobile headline/banner/touch targets.')
  b.close()

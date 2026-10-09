@@ -58,7 +58,13 @@ const googleButton = byId('google-button');
 const cancelGoogleButton = byId('cancel-google');
 let cancelGoogleLogin = null;
 cancelGoogleButton.addEventListener('click', () => cancelGoogleLogin?.());
-function setBusy(value) { busy = value; byId('signout').disabled = value; }
+function canContinue() {
+  return !busy && signedIn && byId('terms').checked && (!live ||
+    (Number.isInteger(revision) && revision >= 0 && !!token && !!account && Date.now() < Date.parse(live.resetAt)));
+}
+function syncContinue() { document.querySelector('.continue-button').disabled = !canContinue(); }
+function setBusy(value) { busy = value; byId('signout').disabled = value; syncContinue(); }
+byId('terms').addEventListener('change', syncContinue);
 function message(value) { byId('form-status').textContent = value; }
 async function api(path, body, authenticated = false) {
   const response = await fetch(path, {method: body === undefined ? 'GET' : 'POST', cache:'no-store', credentials:'omit',
@@ -76,6 +82,7 @@ function validStatus(data) {
   return data?.enabled === true && /^\d{4}-\d{2}-\d{2}$/.test(data.generation) && typeof data.termsVersion === 'string' && Number.isFinite(Date.parse(data.resetAt));
 }
 function updateCountdown() {
+  syncContinue();
   const now = new Date();
   const midnight = live ? Date.parse(live.resetAt) : Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1);
   const seconds = Math.max(0, Math.floor((midnight - now.getTime()) / 1000));
@@ -93,6 +100,7 @@ function setIdentity(email, name) {
   byId('identity-email').textContent = email;
   byId('identity').querySelector('.avatar').textContent = Array.from((name || email).trim())[0]?.toUpperCase() || '?';
   byId('signout').hidden = !live;
+  syncContinue();
 }
 function signout() {
   if (busy) return;
@@ -101,12 +109,14 @@ function signout() {
   byId('preferences-status').hidden = true; byId('onboarding').hidden = true;
   byId('enrollment-form').reset(); byId('connect-code').textContent = connectExample;
   const withdraw = byId('withdraw'); if (withdraw) withdraw.hidden = true;
+  syncContinue();
   message('Signed out of this page. Existing CLI sessions are unchanged.');
 }
 async function refreshPreferences() {
+  revision = null; syncContinue();
   const preferences = await api('/api/demo/preferences', undefined, true);
   if (!Number.isInteger(preferences.revision) || preferences.revision < 0 || typeof preferences.salesContact !== 'boolean' || typeof preferences.newsletter !== 'boolean') throw new Error('Preferences could not be verified. Please sign in again.');
-  revision = preferences.revision;
+  revision = preferences.revision; syncContinue();
   byId('commercial').checked = preferences.salesContact;
   byId('newsletter').checked = preferences.newsletter;
   byId('preferences-status').hidden = false;
@@ -180,7 +190,7 @@ byId('signout').addEventListener('click', signout);
 byId('enrollment-form').addEventListener('submit', async event => {
   event.preventDefault(); if (busy) return;
   if (!signedIn) { message(live ? 'Sign in with Google before continuing.' : 'First simulate Google sign-in. No Google account is needed.'); googleButton.focus(); return; }
-  if (!byId('terms').checked) return;
+  if (!canContinue()) return;
   if (!live) { message('Preview opened. No account or preferences have been saved.'); showOnboarding(); return; }
   setBusy(true); const submit = document.querySelector('.continue-button'); submit.disabled = true;
   try {
@@ -219,9 +229,10 @@ byId('enrollment-form').addEventListener('submit', async event => {
     }
     showOnboarding();
   } catch (error) {
+    if (error.status === 401) revision = null;
     message(error.message);
     if (error.status === 409) { try { await refreshPreferences(); message('The latest preferences are shown. Review and submit again; nothing was retried automatically.'); } catch { message('Could not refresh preferences. Sign out and sign in again.'); } }
-  } finally { setBusy(false); submit.disabled = false; updateCountdown(); }
+  } finally { setBusy(false); updateCountdown(); }
 });
 // This capability works independently of demo-day status and Google account lifetime.
 byId('confirm-withdrawal').addEventListener('click', async () => {
@@ -246,9 +257,17 @@ async function discoverLive() {
     const data = await api('/api/demo/status'); if (!validStatus(data)) return;
     if (signedIn) signout();
     live = data;
+    document.title = 'Try VaultContext · Public demo';
+    document.querySelector('meta[name="description"]').content = 'Try client-encrypted file storage with your Google account. Demo vaults reset daily at 00:00 UTC.';
+    byId('audience-description').textContent = 'Try the demo with a verified Google account, including personal Gmail and Google Workspace accounts.';
+    byId('terms-help').textContent = 'Required to try the demo';
+    byId('privacy-label').textContent = 'privacy & retention policy';
+    byId('terms-details').querySelector('div').innerHTML = '<p>Use synthetic or disposable sample files only. Do not upload real credentials, confidential information or other people’s personal data. The demo is temporary, has no storage guarantee, and vault data resets at 00:00 UTC daily.</p><p>Commercial contact and newsletter subscription are separate, optional choices. Neither is required to try the demo. <a href="terms/">Read the full terms and operator details.</a></p>';
+    byId('privacy-details').querySelector('dl').innerHTML = '<dt>Vault data</dt><dd>Deleted daily at 00:00 UTC, including demo accounts, encrypted files and keys. This does not erase your local downloads.</dd><dt>Email without marketing consent</dt><dd>Retained separately for up to 30 days after your last demo use.</dd><dt>Marketing preferences and contact details</dt><dd>Retained separately from vault data, reviewed after 12 months, with an option to withdraw consent. Minimal suppression records may remain to honor withdrawal.</dd><dt>Operational logs</dt><dd>Retained for up to 30 days, excluding file content, passphrases and credentials. A documented security incident may require a limited investigation period.</dd><dt>Isolated contact and security backups</dt><dd>Recovery copies may remain for up to an additional 30 days after live retention ends. They are restricted to recovery. Withdrawals and deletion requests must be reconciled before any sending. Demo vault replicas remain subject to the daily reset.</dd>';
+    byId('reset-details').querySelector('div > p').textContent = 'Demo accounts, encrypted keys and vault files reset daily at 00:00 UTC. You may have less than 24 hours until the next reset. The countdown uses the deadline supplied by the demo server. Contact details and preferences are retained separately.';
     byId('mode-banner').replaceChildren();
     const badge = document.createElement('span'); badge.className = 'preview-tag'; badge.textContent = 'PUBLIC DEMO';
-    const note = document.createElement('span'); note.textContent = 'Temporary vaults · daily reset at 00:00 UTC · sample files only'; byId('mode-banner').append(badge,note);
+    const note = document.createElement('span'); note.textContent = 'Vaults reset at 00:00 UTC · Sample files only.'; byId('mode-banner').append(badge,note);
     byId('mode-note').innerHTML = '<strong>A temporary evaluation space.</strong><p>Google sign-in creates a demo identity. Vaults reset daily; your separately stored contact preferences follow the privacy policy.</p>';
     byId('mode-pill').textContent = 'Daily reset';
     renderInstallation();
@@ -257,7 +276,7 @@ async function discoverLive() {
     byId('privacy-mode-note').textContent = 'Your contact preferences are saved separately from daily vault data. Use the withdrawal control after enrollment, or sign in again to review and change your choices.';
     googleButton.replaceChildren(); const g = document.createElement('span'); g.className='google-g'; g.textContent='G'; googleButton.append(g,document.createTextNode('Continue with Google'));
     byId('google-note').textContent = 'Sign in with your Google account. Your organization may restrict access.';
-    document.querySelector('.continue-button').textContent = 'Accept terms & continue →';
+    document.querySelector('.continue-button').replaceChildren(document.createTextNode('Accept terms & continue'), document.querySelector('.nav-cta .ui-icon').cloneNode(true));
     byId('countdown-note').textContent = 'Reset time supplied by the demo server';
     byId('reset-description').textContent = 'Demo vault data clears every day at 00:00 UTC. Use sample files only.';
     message('Sign in with Google to continue.'); updateCountdown();
