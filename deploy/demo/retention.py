@@ -12,6 +12,8 @@ import json
 import os
 from pathlib import Path
 import secrets
+import signal
+import threading
 import sqlite3
 import stat
 import sys
@@ -77,12 +79,18 @@ class Store:
 
     @contextmanager
     def connect(self):
+        if (self.path.parent/'migration-fenced.json').exists():
+            raise Rejected(503)
         db = sqlite3.connect(self.path, timeout=10)
         db.row_factory = sqlite3.Row
         try:
-            # No WAL: no extra long-lived plaintext database copies.
+            # WAL is required for Litestream. Private sidecars and replica history
+            # have independent retention; secure_delete cannot erase old replicas.
+            db.execute('PRAGMA journal_mode=WAL')
             db.execute('PRAGMA secure_delete=ON')
             db.execute('BEGIN IMMEDIATE')
+            if (self.path.parent/'migration-fenced.json').exists():
+                raise Rejected(503)
             yield db
             db.commit()
         except Exception:
@@ -288,7 +296,11 @@ def handler(store, secret):
                 public_unsubscribe = method == 'POST' and parsed.path == '/unsubscribe' and not parsed.query
                 if not public_unsubscribe and not hmac.compare_digest(self.headers.get('Authorization', ''), 'Bearer ' + secret):
                     raise Rejected(401)
-                if method == 'GET' and parsed.path == '/preferences':
+                if method == 'GET' and parsed.path == '/health' and not parsed.query:
+                    with store.connect() as db:
+                        db.execute('SELECT 1').fetchone()
+                    result = {'ready':True}
+                elif method == 'GET' and parsed.path == '/preferences':
                     query = parse_qs(parsed.query, strict_parsing=True)
                     if set(query) != {'subject'} or len(query['subject']) != 1:
                         raise Rejected()
@@ -365,8 +377,16 @@ def main():
     if len(secret) < 32:
         raise SystemExit('contact service requires a strong configured token')
     server = ThreadingHTTPServer(('127.0.0.1', args.port), handler(store, secret))
-    server.daemon_threads = True
-    server.serve_forever()
+    server.daemon_threads = False
+    stopping = threading.Event()
+    for sig in (signal.SIGTERM,signal.SIGINT):
+        signal.signal(sig,lambda _s,_f:stopping.set())
+    thread = threading.Thread(target=server.serve_forever,daemon=True)
+    thread.start()
+    stopping.wait()
+    server.shutdown()
+    server.server_close()  # Join in-flight requests before supervisor performs final sync.
+    thread.join()
 
 
 if __name__ == '__main__':

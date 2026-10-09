@@ -13,9 +13,53 @@ and bounded security logs live outside the daily reset.
 
 This branch also requires identity-key signatures for non-demo passphrase
 changes. Old clients fail closed on that operation; install the updated package
-before adopting this server change. The published portable launcher remains
-pinned to the last released client until this branch is tested and published.
+before adopting this server change. This branch's repository launcher pins tested
+client commit `eadfcf601d522690cee1d68b616294ce27c390de`; that Git-based installation
+requires authorized access to the private repository. Public demo visitors instead
+install a versioned wheel or skill bundle from the demo website, with SHA-256
+verification and public PyPI dependencies. Repository visibility is unchanged.
+The public Docker deployment image includes the server, hooks, frontend, retention
+service and these approved static download artifacts. Client dependencies are
+installed on the visitor's machine, not into the server runtime.
+See [demo validation evidence](docs/demo-validation.md) for the checks and remaining
+provider/deployment gates.
 Use `uv sync --locked` and `uv run --locked vaultcontext` for this checkout.
+
+Public downloads are built from allowlisted source and contain no checkout, Git
+metadata, deployment configuration or credentials. Build locally with:
+
+```sh
+python3 scripts/build-demo-downloads.py \
+  --output .local/public/demo/downloads \
+  --origin https://vault-demo.pocketcontext.com
+```
+
+The builder uses `uv build`, fixed archive timestamps, a version/content-addressed
+directory, and a `manifest.json` containing artifact paths, byte sizes and SHA-256
+hashes. It also writes `SHA256SUMS`, a standalone launcher and the complete skill
+bundle. Rebuilding identical source for the same origin produces identical bytes.
+Generated binaries are not committed. Docker runs the same builder in a separate
+stage and copies only its output into `pb_public/demo/downloads/`.
+
+The launcher runs `uv run --no-project --with PUBLIC_WHEEL_URL#sha256=HASH`; it never
+fetches the private Git repository. The UI uses `uv tool install --force` for the
+CLI, or downloads and verifies the skill archive before extraction. Lock active
+sessions before replacing either client or skill; installation never unlocks.
+
+`/api/demo/status` advertises client readiness only after validating the local
+manifest, exact `BASE_URL` origin, all three artifact sizes and SHA-256 checksums.
+The Linux image uses `/usr/bin/sha256sum` on those fixed public artifact paths and
+caches the result for its lifetime. Missing, corrupt or mismatched downloads keep
+installation unavailable. The browser independently validates the same-origin
+manifest structure before displaying commands. A static preview never enables
+installation from its own simulated sign-in.
+
+For isolated installation tests, a loopback HTTP `--origin` is allowed. Place
+output under a temporary web root's `demo/downloads/` and serve that web root;
+remote builds require HTTPS. The image build argument `DEMO_PUBLIC_ORIGIN` defaults
+to `https://vault-demo.pocketcontext.com` and must match the deployment's `BASE_URL`.
+Publishing a wheel or bundle is an intentional public client release, independent
+of private repository access; it does not publish the repository or deploy a server.
 
 Additional isolated validation:
 
@@ -23,6 +67,8 @@ Additional isolated validation:
 uv run --locked python -m unittest discover -s tests -p 'test_demo_*.py'
 uv run --locked python tests/demo_backend.py --binary /path/to/pinned/pocketcontext
 uv run --locked python tests/identity_rewrap.py --binary /path/to/pinned/pocketcontext
+uv run --locked python -m unittest discover -s tests -p test_demo_downloads.py
+uv run --with playwright==1.60.0 python tests/demo_website.py
 ```
 
 Current release controls and platform coverage: [common CI and deployment contract](docs/ci-and-deployment.md).
@@ -110,7 +156,12 @@ Production Google settings use a separate Web OAuth client, paired `VAULTCONTEXT
 
 ## Portable client
 
-Install [uv](https://docs.astral.sh/uv/getting-started/installation/) and copy the executable launcher onto your PATH:
+Public demo visitors use the checked wheel or skill bundle offered by the demo
+website, as described above. The following installation requires authorized access to this private repository
+and its pinned dependencies. It is not a public demo installation method. Keep Git
+authentication outside commands, source control and logs; never place tokens in
+package URLs. Install [uv](https://docs.astral.sh/uv/getting-started/installation/)
+and copy the executable launcher onto your PATH:
 
 ```sh
 install -Dm755 skills/vaultcontext/vaultcontext ~/.local/bin/vaultcontext
@@ -190,7 +241,7 @@ uv run --locked python tests/deploy_workflow.py
 
 Container configuration, smoke and populated complete-restore checks gate image publication; see deployment documentation for commands. Real Google browser/provider configuration and independent security review are separate from synthetic tests. Actual verification results and remaining limitations are recorded in `docs/validation.md`.
 
-VaultContext is deployed at `https://vault.pocketcontext.com`; see [release evidence](DEPLOYMENT.md). The repository and container image are public. The image workflow supports automatic production deployment after successful publication through the `once-pocketcontext-v2` restricted dispatcher. `CONTEXT_DEPLOY_PAUSED=true` pauses deployment without pausing CI or publication; see [deployment controls](docs/deployment.md#single-writer-updates-and-rollback).
+VaultContext is deployed at `https://vault.pocketcontext.com`; see [release evidence](DEPLOYMENT.md). The source repository is private; the Docker deployment image is public. This demo branch also packages the approved client wheel and skill bundle as public static downloads, without installing the client into the server runtime. The image workflow supports automatic production deployment after successful publication through the `once-pocketcontext-v2` restricted dispatcher. `CONTEXT_DEPLOY_PAUSED=true` pauses deployment without pausing CI or publication; see [deployment controls](docs/deployment.md#single-writer-updates-and-rollback).
 
 Identity, OAuth and deployment patterns are adapted from RaiseContext; filtered access and complete-original backup patterns follow AccountContext. Their domain schemas and readers are not copied.
 

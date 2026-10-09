@@ -26,12 +26,12 @@ with sync_playwright() as p:
  assert page.locator('#guide-complete').is_visible();page.locator('#reset-progress').click();assert not page.locator('#guide-complete').is_visible()
  page.locator('a[href="#privacy-details"]').click();assert page.locator('#privacy-details').get_attribute('open') is not None
  page.close()
- page=b.new_page(viewport={'width':1440,'height':1000});calls=[];errors=[];pending_enroll=[];fail_preferences=False;client_ready=False
+ page=b.new_page(viewport={'width':1440,'height':1000});calls=[];errors=[];pending_enroll=[];fail_preferences=False;client_ready=False;public_downloads=None
  page.on('pageerror',lambda error:errors.append(str(error)))
  def route(r):
   path=urlsplit(r.request.url).path;calls.append((path,r.request.post_data))
   def result(x,status=200):r.fulfill(status=status,content_type='application/json',body=json.dumps(x))
-  if path=='/api/demo/status':return result({'enabled':True,'generation':'2099-01-01','resetAt':'2099-01-02T00:00:00Z','termsVersion':'v1','clientReady':client_ready})
+  if path=='/api/demo/status':return result({'enabled':True,'generation':'2099-01-01','resetAt':'2099-01-02T00:00:00Z','termsVersion':'v1','clientReady':client_ready,'downloads':public_downloads})
   if path=='/api/collections/users/auth-methods':return result({'oauth2':{'providers':[{'name':'google','authURL':'https://accounts.google.com/o/oauth2/auth?client_id=synthetic&redirect_uri=','codeVerifier':'synthetic-verifier'}]}})
   if path=='/api/realtime':return r.fulfill(status=204)
   if path=='/api/collections/users/auth-with-oauth2':return result({'token':'synthetic-token','record':{'id':'synthetic','collectionName':'users','email':'demo@example.com','name':'Synthetic Visitor'}})
@@ -57,7 +57,7 @@ with sync_playwright() as p:
  assert page.locator('#identity').is_visible(), 'Signout must not race a pending enrollment'
  pending_enroll.pop().fulfill(status=200,content_type='application/json',body=json.dumps({'enrolled':True,'generation':'2099-01-01','contact':{'revision':1,'unsubscribeToken':'synthetic-withdrawal'}}))
  page.wait_for_selector('#onboarding:visible')
- assert 'example.invalid' in page.locator('#connect-code').text_content();assert 'release pending' in page.locator('#guide-intro').inner_text();assert 'Demo enrollment saved' in page.locator('#form-status').inner_text()
+ assert 'example.invalid' in page.locator('#connect-code').text_content();assert 'distribution pending' in page.locator('#guide-intro').inner_text();assert 'Demo enrollment saved' in page.locator('#form-status').inner_text()
  assert not page.evaluate('localStorage.length')
  fail_preferences=True
  page.evaluate("live.resetAt = new Date(Date.now() - 1000).toISOString(); updateCountdown();")
@@ -69,20 +69,49 @@ with sync_playwright() as p:
  page.locator('#signout').click();assert not page.locator('#identity').is_visible()
  assert not errors,errors
  assert any(x[0]=='/api/demo/enroll' for x in calls)
- # Once the tested release is enabled, installation must use the exact package
- # commit and the demo skill branch; the default/disabled gate stays inert above.
+ # A backend readiness flag cannot make private source publicly installable.
+ # Keep the local distribution gate closed even if an old backend says ready.
  client_ready=True;fail_preferences=False
- page.goto('http://demo.test/');page.wait_for_function('document.querySelector("#install-code").textContent.includes("uv tool install")')
+ page.goto('http://demo.test/');page.wait_for_function('document.querySelector("#mode-pill").textContent === "Daily reset"')
  install=page.locator('#install-code').text_content()
- assert 'git+https://github.com/pocketcontext/vaultcontext.git@eadfcf601d522690cee1d68b616294ce27c390de' in install
+ assert 'Public downloads are not connected' in install
+ assert 'github.com' not in install and 'uv tool install' not in install
+ page.locator('#google-button').click();page.wait_for_selector('#identity:visible');page.locator('#terms').check();page.locator('.continue-button').click()
+ page.wait_for_function('document.querySelector("#signout").disabled')
+ pending_enroll.pop().fulfill(status=200,content_type='application/json',body=json.dumps({'enrolled':True,'generation':'2099-01-01','contact':{'revision':1,'unsubscribeToken':'synthetic-withdrawal'}}))
+ page.wait_for_selector('#onboarding:visible')
+ assert 'example.invalid' in page.locator('#connect-code').text_content()
+ page.locator('[data-method="agent"]').click()
+ assert 'Public downloads are not connected' in page.locator('#install-code').text_content()
+ assert 'npx skills add' not in page.locator('#install-code').text_content()
+ assert not errors,errors
+ # Same-origin checked metadata enables public, hash-pinned distribution.
+ release='0.1.0-'+'a'*20
+ public_downloads={'schema':1,'package':'vaultcontext-client','version':'0.1.0','release':release,'origin':'http://demo.test','artifacts':{}}
+ for key,name in [('wheel','vaultcontext_client-0.1.0-py3-none-any.whl'),('skill','vaultcontext-skill.tar.gz'),('launcher','vaultcontext')]:
+  public_downloads['artifacts'][key]={'path':'/demo/downloads/'+release+'/'+name,'sha256':'b'*64,'size':128}
+ page.goto('http://demo.test/');page.wait_for_function('document.querySelector("#install-code").textContent.includes("uv tool install --force")')
+ assert '#sha256='+'b'*64 in page.locator('#install-code').text_content()
+ assert 'github.com' not in page.locator('#install-code').text_content()
  page.locator('#google-button').click();page.wait_for_selector('#identity:visible');page.locator('#terms').check();page.locator('.continue-button').click()
  page.wait_for_function('document.querySelector("#signout").disabled')
  pending_enroll.pop().fulfill(status=200,content_type='application/json',body=json.dumps({'enrolled':True,'generation':'2099-01-01','contact':{'revision':1,'unsubscribeToken':'synthetic-withdrawal'}}))
  page.wait_for_selector('#onboarding:visible')
  assert "VAULTCONTEXT_URL='http://demo.test'" in page.locator('#connect-code').text_content()
  page.locator('[data-method="agent"]').click()
- assert 'https://github.com/pocketcontext/vaultcontext/tree/vaultcontext-demo --skill vaultcontext' in page.locator('#install-code').text_content()
- assert not errors,errors
+ install=page.locator('#install-code').text_content()
+ assert 'shasum -a 256 -c - &&' in install and install.index('shasum')<install.index('tar -xzf')
+ assert 'github.com' not in install
+ # Invalid checksum/path/origin metadata must fail closed even with ready=true.
+ for field,value in [('sha256','invalid'),('path','/private/download.whl')]:
+  previous=public_downloads['artifacts']['wheel'][field]
+  public_downloads['artifacts']['wheel'][field]=value
+  page.goto('http://demo.test/');page.wait_for_function('document.querySelector("#mode-pill").textContent === "Daily reset"')
+  assert 'uv tool install' not in page.locator('#install-code').text_content()
+  public_downloads['artifacts']['wheel'][field]=previous
+ public_downloads['origin']='https://untrusted.example'
+ page.goto('http://demo.test/');page.wait_for_function('document.querySelector("#mode-pill").textContent === "Daily reset"')
+ assert 'uv tool install' not in page.locator('#install-code').text_content()
  page.close()
  # A capability link remains useful after reset/account deletion. Merely opening
  # the page must never invoke the state-changing POST, and failures are retryable.
@@ -117,5 +146,5 @@ with sync_playwright() as p:
   page.wait_for_function('document.querySelector("#withdrawal-status").textContent.includes("request processed")')
   assert len(withdrawals)==1 and page.locator('#confirm-withdrawal').is_disabled()
   page.close()
- print('PASS: static mobile preview/terms/optional consent/progress; live Google mock SSE/204/auth; preference revision enrollment; pending-release guide; withdrawal; signout; no localStorage; no page errors; pending-enrollment signout race; withdrawal across reset; fragment scrubbing/explicit confirmation/retry without login; gated pinned-client and demo-skill installation.')
+ print('PASS: static mobile preview/terms/optional consent/progress; live Google mock SSE/204/auth; preference revision enrollment; pending-release guide; withdrawal; signout; no localStorage; no page errors; pending-enrollment signout race; withdrawal across reset; fragment scrubbing/explicit confirmation/retry without login; public same-origin SHA-pinned installation; invalid/stale metadata rejected.')
  b.close()

@@ -5,7 +5,7 @@ description: Store, version, compare for equality, archive, restore and explicit
 
 # VaultContext
 
-Use the executable `vaultcontext` launcher. It requires uv and Linux or macOS Unix sockets; uv manages Python and dependencies. The launcher pins the packaged client to a full Git commit and works from any directory, including when copied alone to `~/.local/bin/vaultcontext`. The first run needs downloads. There is no skill lockfile, so transitive dependency resolution can vary. A conventional package installation also provides `vaultcontext` without requiring uv at runtime; see the workflows.
+Use the executable `vaultcontext` launcher. It requires uv and Linux or macOS Unix sockets; uv manages Python and dependencies. The launcher pins the packaged client to a full Git commit and works from any directory, including when copied alone to `~/.local/bin/vaultcontext`. The first run needs downloads and authorized access to the private source repository. Do not present this launcher or its GitHub dependency as anonymously installable; never embed access tokens in URLs, commands or logs. There is no skill lockfile, so transitive dependency resolution can vary. A conventional package installation also provides `vaultcontext` without requiring uv at runtime; see the workflows.
 
 When upgrading from `vc`, lock existing sessions with the old launcher before installing `vaultcontext`; remove only the old VaultContext launcher and update scripts. No compatibility alias is provided. Unlocking afterward is an explicit user action, never part of installation.
 
@@ -61,8 +61,17 @@ logs have separate disclosed retention; downloaded local files are not erased.
 After a generation change, explicitly lock the stale session, sign in, initialize
 a fresh identity and unlock privately. Never silently replace fingerprint pins.
 Sharing, Keychain enrollment and passphrase changes are unavailable in the demo.
-Use an updated, tested demo-compatible client; this branch's published launcher
-is not updated until the package release is available.
+This branch's launcher pins tested client commit
+`eadfcf601d522690cee1d68b616294ce27c390de`, but the repository and its Git
+dependency are private. Public demo visitors instead use the approved versioned wheel or skill bundle
+served by the demo website. The public Docker image packages those static artifacts;
+the source repository remains private. The downloaded bundle replaces this
+Git-based repository launcher with `uv run --no-project --with` against a public
+wheel URL pinned by SHA-256. Its dependencies come from public PyPI.
+Use only verified downloads advertised by the enabled demo's manifest. Never tell
+a public visitor to use private GitHub installation URLs, request operator
+credentials, or change repository visibility. Missing or corrupt artifacts keep
+public installation unavailable; a simulated preview is not a live download service.
 
 ## Failures
 

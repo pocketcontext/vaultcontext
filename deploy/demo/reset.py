@@ -75,11 +75,15 @@ def configuration(path):
         if set(data['storage']) != {'kind'}:
             raise ResetError('unexpected local storage settings')
     else:
-        if set(data['storage']) != {'kind', 'primary_bucket', 'replica_bucket'} or data['storage']['kind'] not in ('s3', 'r2'):
+        if set(data['storage']) != {'kind', 'primary_bucket', 'replica_bucket', 'durable_bucket'} or data['storage']['kind'] not in ('s3', 'r2'):
             raise ResetError('invalid remote storage settings')
         for field in ('primary_bucket', 'replica_bucket'):
             if not re.fullmatch(r'vaultcontext-demo-[a-z0-9][a-z0-9-]{1,40}', data['storage'][field]):
                 raise ResetError('only dedicated vaultcontext-demo buckets are accepted')
+        if not re.fullmatch(r'vaultcontext-demo-contacts-[a-z0-9][a-z0-9-]{1,32}',data['storage']['durable_bucket']):
+            raise ResetError('durable contact exclusion binding is required')
+        if len({data['storage'][key] for key in ('primary_bucket','replica_bucket','durable_bucket')})!=3:
+            raise ResetError('reset storage may never overlap durable contact storage')
         if data['storage']['primary_bucket'] == data['storage']['replica_bucket']:
             raise ResetError('primary and replica buckets must differ')
     return data
@@ -139,13 +143,13 @@ class S3Bucket:
 
 
 def hook(config, name, generation):
-    env = os.environ.copy()
+    env = {key:value for key,value in os.environ.items() if not key.startswith('CONTACTS_LITESTREAM_')}
     env.update(VAULTCONTEXT_DEMO_MODE='true', VAULTCONTEXT_DEMO_GENERATION=generation,
                VAULTCONTEXT_DEMO_RESET_ROOT=config['root'], VAULTCONTEXT_DEMO_RESET_PHASE=name,
                VAULTCONTEXT_DEMO_RESET_FENCE=str(Path(config['root']) / 'control/reset-pending.json'))
     try:
         result = subprocess.run(config['hooks'][name], env=env, stdin=subprocess.DEVNULL,
-                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=300)
+                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=600)
     except Exception:
         raise ResetError('lifecycle hook failed: ' + name) from None
     if result.returncode:
@@ -161,6 +165,8 @@ def reset(config, generation, dry_run=False, clients=None):
     root = safe_path(config['root'])
     control = safe_path(root / 'control')
     control.mkdir(mode=0o700, exist_ok=True)
+    if (control/'migration-fenced.json').exists():
+        raise ResetError('host migration fence prohibits daily reset')
     for item in ('runtime', 'persistent'):
         safe_path(root / item)
     if dry_run:
@@ -171,6 +177,8 @@ def reset(config, generation, dry_run=False, clients=None):
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
             raise ResetError('another reset owns the lifecycle lock') from None
+        if (control/'migration-fenced.json').exists():
+            raise ResetError('host migration fence prohibits daily reset')
         pending = control / 'reset-pending.json'
         complete = control / 'generation.json'
         for item in (pending, complete):
@@ -184,9 +192,12 @@ def reset(config, generation, dry_run=False, clients=None):
         else:
             state = {'deployment': 'vaultcontext-demo', 'generation': generation, 'phase': 'pending'}
             atomic_json(pending, state)
+            if (control/'app-state').is_dir():atomic_json(control/'app-state/reset-pending.json',state)
+        if (control/'app-state').is_dir():atomic_json(control/'app-state/reset-pending.json',state)
         def phase(value):
             state['phase'] = value
             atomic_json(pending, state)
+            if (control/'app-state').is_dir():atomic_json(control/'app-state/reset-pending.json',state)
         try:
             # On every retry re-establish fencing and prove all writers stopped.
             hook(config, 'fence', generation)
@@ -216,7 +227,15 @@ def reset(config, generation, dry_run=False, clients=None):
             atomic_json(complete, {'generation': generation})
             # Ingress remains fenced until healthy fresh state is confirmed.
             hook(config, 'unfence', generation)
+            (control/'app-state/reset-pending.json').unlink(missing_ok=True)
+            if (control/'app-state').is_dir():
+                descriptor=os.open(control/'app-state',os.O_RDONLY|os.O_DIRECTORY)
+                try:os.fsync(descriptor)
+                finally:os.close(descriptor)
             pending.unlink()
+            descriptor=os.open(control,os.O_RDONLY|os.O_DIRECTORY)
+            try:os.fsync(descriptor)
+            finally:os.close(descriptor)
             return {'reset': True, 'generation': generation}
         except Exception:
             # Do not resume traffic or delete the durable marker after any error.

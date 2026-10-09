@@ -91,11 +91,50 @@ function checkConfig() {
  config.tables.demo_policy || config.tables.demo_enrollments || (config.tables.users))
   throw new Error('Demo requires its private directory SQL policy');
 }
+function publicDownloads(app) {
+ // Artifacts are immutable for the lifetime of this server image. Validate only
+ // allowlisted public paths and cache the result; never inspect private files.
+ const cached=app.store().get('demoPublicDownloads');
+ if(cached!==undefined && cached!==null)return cached;
+ let result=false;
+ try {
+  const file='pb_public/demo/downloads/manifest.json';
+  const bytes=$os.readFile(file);
+  if(bytes.length>16384)throw new Error('manifest too large');
+  const manifest=JSON.parse(toString(bytes));
+  if(manifest.schema!==1 || manifest.package!=='vaultcontext-client' ||
+     !/^[0-9]+\.[0-9]+\.[0-9]+$/.test(manifest.version) ||
+     manifest.release.indexOf(manifest.version+'-')!==0 || !/^[0-9]+\.[0-9]+\.[0-9]+-[a-f0-9]{20}$/.test(manifest.release) ||
+     typeof manifest.origin!=='string' || manifest.origin!==($os.getenv('BASE_URL')||'').replace(/\/$/,'') ||
+     !manifest.artifacts || Object.keys(manifest.artifacts).sort().join(',')!=='launcher,skill,wheel')throw new Error('invalid manifest');
+  const prefix='/demo/downloads/'+manifest.release+'/';
+  const names={wheel:'vaultcontext_client-'+manifest.version+'-py3-none-any.whl',skill:'vaultcontext-skill.tar.gz',launcher:'vaultcontext'};
+  const paths=[];
+  for(const key of ['wheel','skill','launcher']) {
+   const item=manifest.artifacts[key];
+   if(item.path!==prefix+names[key] || !/^[a-f0-9]{64}$/.test(item.sha256) ||
+      !Number.isInteger(item.size) || item.size<1 || item.size>4194304)throw new Error('invalid artifact');
+   const path='pb_public'+item.path;
+   if($os.readFile(path).length!==item.size)throw new Error('artifact size mismatch');
+   paths.push(path);
+  }
+  // sha256sum reads only these fixed public artifacts. stdout/stderr are captured
+  // in process memory; failure simply leaves public onboarding unavailable.
+  const lines=toString($os.cmd('/usr/bin/sha256sum',...paths).output()).trim().split('\n');
+  if(lines.length!==3)throw new Error('artifact verification failed');
+  ['wheel','skill','launcher'].forEach((key,index)=>{
+   if(lines[index].slice(0,64)!==manifest.artifacts[key].sha256)throw new Error('artifact checksum mismatch');
+  });
+  result=manifest;
+ } catch(_) { result=false; }
+ app.store().set('demoPublicDownloads',result);
+ return result;
+}
 function status(e) {
  e.response.header().set('Cache-Control','no-store');
  if(!enabled())return e.json(200,{enabled:false});
- const day=current(e.app);
- return e.json(200,{enabled:true,generation:day,resetAt:new Date(Date.parse(day+'T00:00:00Z')+86400000).toISOString(),termsVersion:TERMS,consentVersion:TERMS,limits:LIMITS});
+ const day=current(e.app),downloads=publicDownloads(e.app);
+ return e.json(200,{enabled:true,clientReady:!!downloads,downloads:downloads||null,generation:day,resetAt:new Date(Date.parse(day+'T00:00:00Z')+86400000).toISOString(),termsVersion:TERMS,consentVersion:TERMS,limits:LIMITS});
 }
 function actor(e) {
  if(!enabled())throw new NotFoundError('Demo unavailable.');

@@ -53,6 +53,23 @@ RUN go build -trimpath -tags sqlite_math_functions,sqlite_percentile,sqlite_fts5
     && /out/pocketcontext --version
 
 
+# Public client artifacts are built from allowlisted source, not fetched from the
+# private Git repository by visitors. The final image carries no build tools.
+FROM debian:trixie-20260918-slim@sha256:a99cfc517144bc59b1978475ec53b46ecabec7e43635402ee5b77cc54cd1b20a AS client-build
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates python3 python3-venv \
+    && rm -rf /var/lib/apt/lists/* \
+    && python3 -m venv /build-env \
+    && /build-env/bin/pip install --no-cache-dir uv==0.12.21
+WORKDIR /client
+COPY pyproject.toml ./
+COPY src/vaultcontext_client/ ./src/vaultcontext_client/
+COPY skills/vaultcontext/SKILL.md ./skills/vaultcontext/SKILL.md
+COPY skills/vaultcontext/references/ ./skills/vaultcontext/references/
+COPY scripts/build-demo-downloads.py ./scripts/build-demo-downloads.py
+ARG DEMO_PUBLIC_ORIGIN=https://vault-demo.pocketcontext.com
+RUN python3 scripts/build-demo-downloads.py --uv /build-env/bin/uv --output /public-downloads --origin "$DEMO_PUBLIC_ORIGIN"
+
+
 FROM debian:trixie-20260918-slim@sha256:a99cfc517144bc59b1978475ec53b46ecabec7e43635402ee5b77cc54cd1b20a
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates tini python3 python3-boto3 \
@@ -63,11 +80,14 @@ COPY --from=build /out/pocketcontext /out/litestream /usr/local/bin/
 COPY docker/litestream.yml /etc/litestream.yml
 COPY --chmod=0755 docker/entrypoint.py /usr/local/bin/vaultcontext-entrypoint.py
 COPY --chmod=0755 deploy/demo/retention.py /usr/local/bin/vaultcontext-demo-retention.py
+COPY --chmod=0755 deploy/demo/contact_replica.py /usr/local/bin/vaultcontext-demo-contact-replica.py
+COPY deploy/demo/contact-litestream.yml /etc/vaultcontext-demo-contacts-litestream.yml
 WORKDIR /app
 COPY POCKETCONTEXT_VERSION pocketcontext.json ./
 COPY pb_migrations/ ./pb_migrations/
 COPY pb_hooks/ ./pb_hooks/
 COPY pb_public/ ./pb_public/
+COPY --from=client-build /public-downloads/ ./pb_public/demo/downloads/
 
 # The container runs as root. ONCE creates and mounts the /storage volume and offers no option to
 # set its owner or the container's user, and the server binds port 80.

@@ -10,9 +10,23 @@ Use one dedicated private root named `vaultcontext-demo`, for example `/var/lib/
 - `control/`: durable reset lock, pending fence, and last completed generation. Never mount this inside disposable `runtime/`.
 - `persistent/`: separately protected contact/preferences database; never inside disposable `pb_data`. The contact service account owns this directory, mode 0700, and its SQLite file, mode 0600. The parent traversal permission must permit that service account (use an explicit ACL or run the lifecycle under the same dedicated identity).
 
-Use distinct dedicated buckets for primary files and replica generations, with exact names beginning `vaultcontext-demo-`. Credentials must be bucket-scoped and distinct from production and each other. The reset deletes the **whole two buckets**, not just a current generation prefix. This is intentional: old ciphertext, orphaned objects and old database generations cannot remain restorable after a daily reset. Do not place durable contact backups in either bucket.
+Use distinct dedicated buckets for primary files and replica generations, with exact names beginning `vaultcontext-demo-`. Credentials must be bucket-scoped and distinct from production and each other. The reset deletes the **whole two buckets**, not just a current generation prefix. This is intentional: old ciphertext, orphaned objects and old database generations cannot remain restorable after a daily reset. Do not place durable contact backups in either bucket. Use a third dedicated bucket, named `vaultcontext-demo-contacts-<suffix>`, with its own credentials for contact replicas. The daily reset must never receive those credentials or delete that bucket.
 
 External VM snapshots, provider backups, monitoring exports, caches and prior manually exported copies are not discoverable by this script. Do not enable them for ephemeral demo data unless their deletion is integrated into the fenced lifecycle. The reset cannot erase downloaded copies on a visitor's device. Provider physical media erasure is not verified by an application API delete.
+
+## Three SQLite replicas
+
+| Database | Replica destination | Daily reset |
+|---|---|---|
+| `runtime/pb_data/data.db` | Disposable bucket, `LITESTREAM_PATH` | Delete database and every replica |
+| `runtime/pb_data/auxiliary.db` | Same disposable bucket, `LITESTREAM_PATH/auxiliary` | Delete database and every replica |
+| `persistent/contacts.db` | Separate contact bucket and `CONTACTS_LITESTREAM_PATH` | Preserve; apply contact retention |
+
+The application entrypoint generates a two-database Litestream configuration only in demo mode. Production retains its existing configuration. Startup requires both demo databases, checks their integrity and stored UTC generation, and waits for both replicas before serving. Restores stage both databases before installation; interrupted installation leaves a durable fence. Restoring yesterday's generation cannot extend its deadline. Uploaded ciphertext remains in the primary object bucket and is verified independently; Litestream replicates SQLite, not those files.
+
+The contact supervisor is `deploy/demo/contact_replica.py`, using `contact-litestream.yml`. Its `CONTACTS_LITESTREAM_*` variables cover `BUCKET`, `ENDPOINT`, `REGION`, `PATH`, `ACCESS_KEY_ID`, and `SECRET_ACCESS_KEY`. The default sync interval is `1s`; snapshot retention defaults to `720` hours and cannot exceed that limit. Contacts use their own Litestream process and private control socket. Neither contact credentials nor the database belong in the application container's disposable storage.
+
+Replication is asynchronous and does not supply an atomic snapshot across databases. A planned migration must stop all writers, synchronize and verify all three replicas, and preserve an explicit handoff before the destination accepts traffic. It must also preserve primary-object access and the current generation. A disk failure can lose writes that have not reached a replica.
 
 ## Executable lifecycle
 
@@ -28,7 +42,8 @@ The private, operator-owned JSON configuration has this shape (these are placeho
   "storage": {
     "kind": "r2",
     "primary_bucket": "vaultcontext-demo-files",
-    "replica_bucket": "vaultcontext-demo-replicas"
+    "replica_bucket": "vaultcontext-demo-replicas",
+    "durable_bucket": "vaultcontext-demo-contacts-persistent"
   },
   "hooks": {
     "fence": ["/opt/vaultcontext-demo-operator/fence"],
@@ -61,7 +76,7 @@ For isolated local testing, use `"storage":{"kind":"local"}` and a loopback HTTP
 
 ## Persistent contact service
 
-Run `deploy/demo/retention.py --database /var/lib/vaultcontext-demo/persistent/contacts.db`. It binds only `127.0.0.1:8781`; the application backend calls it using `VAULTCONTEXT_DEMO_CONTACT_URL` and a shared `VAULTCONTEXT_DEMO_CONTACT_TOKEN` of at least 32 characters. The service token belongs in private unversioned configuration, never JavaScript. The service does not send email, create a provider mailing list, or contact a prospect. Enrollment records preferences; a newsletter sender is a separate integration.
+For standalone synthetic development, run `deploy/demo/retention.py --database /var/lib/vaultcontext-demo/persistent/contacts.db`. Deployed operation uses the contact replication supervisor, which starts this service only after successful recovery and initial synchronization. It binds only `127.0.0.1:8781`; the application backend calls it using `VAULTCONTEXT_DEMO_CONTACT_URL` and a shared `VAULTCONTEXT_DEMO_CONTACT_TOKEN` of at least 32 characters. The service token belongs in private unversioned configuration, never JavaScript. The service does not send email, create a provider mailing list, or contact a prospect. Enrollment records preferences; a newsletter sender is a separate integration.
 
 For a containerized app, loopback means the same network namespace. Deploy the service alongside the app in that namespace or supply a private authenticated transport explicitly; do not expose the standard-library HTTP server to the public internet. The systemd unit is a host-service template, not a claim that a bridged Docker container can reach the host's loopback.
 
@@ -75,7 +90,7 @@ Authenticated endpoints:
 
 An enrollment response returns an opaque `unsubscribeToken`; only its SHA-256 is stored. Unauthenticated `POST /unsubscribe` with `{"token":"..."}` withdraws both purposes and records suppression. GET requests never unsubscribe. Existing capabilities remain valid across preference updates so old unsubscribe links do not silently stop working. A public preference frontend must submit this capability over HTTPS without query-string/referrer/analytics logging; expose only the narrow proxy route, never the private service. No public unsubscribe proxy or mailing provider is provisioned by this operations module.
 
-The SQLite store is a separate operational service, not direct access to any application's CRM database. It stores minimal contact information, versioned consent evidence, revisions, token hashes and purpose-specific suppressions. Request bodies, email addresses, subjects, tokens and full URLs are never logged. The separate security table stores the explicitly ingested event, IP and timestamp under the 30-day policy. Each connection enables SQLite secure deletion; backups, filesystem snapshots and storage media remain separate retention concerns.
+The SQLite store is a separate operational service, not direct access to any application's CRM database. It stores minimal contact information, versioned consent evidence, revisions, token hashes and purpose-specific suppressions. Request bodies, email addresses, subjects, tokens and full URLs are never logged. The separate security table stores the explicitly ingested event, IP and timestamp under the 30-day policy. Connections enable SQLite secure deletion, and Litestream uses WAL files in the same private directory. Secure deletion does not erase historical replica snapshots or guarantee physical media erasure.
 
 ## Retention contract
 
@@ -83,7 +98,8 @@ The SQLite store is a separate operational service, not direct access to any app
 - Opted-in marketing contacts are retained separately and become **due for review after 12 calendar months without explicit marketing engagement**. This is a review trigger, not automatic deletion or automatic renewal. Operators must justify continued use and remove unnecessary records. Maintenance reports the number due; it does not send marketing or silently move the review date. A new explicit affirmative purpose choice during enrollment updates that purpose decision and restarts the review clock; passive login/use via `/touch` does not. Ordinary demo activity is not itself marketing engagement.
 - Explicit withdrawals retain only minimal purpose-specific email suppression outside the reset. `/touch`, another Google login, or resetting the demo never reverses suppression. A subsequent explicit, revision-checked opt-in may change it.
 - Operational `security_events` are purged after **30 days**, except records with an explicit finite `incident_until` hold. General webserver/provider logs must be configured to the same policy separately. Do not use indefinite holds. The contact service does not collect request bodies or identity-bearing access logs.
-- Durable-store backups need their own finite retention and restoration procedure which reapplies withdrawals and deletion tombstones before any sending. This module has no backup/export/sender integration; do not start a marketing sender until these safeguards and sender-side suppression checks are implemented.
+- Durable contact snapshots have a maximum configured retention of 30 days. Historical snapshots may contain data already removed from the live database for up to an additional 30 days; a 30-day live-data rule is not a promise of erasure from every backup within 30 days of collection. Provider versions, snapshots and exports need matching policies. Confirm actual expiry behavior with the provider before launch.
+- An ordinary recovery from an asynchronous contact replica conservatively disables restored marketing permissions and preserves suppression before serving. A verified, fully stopped host handoff can preserve current permissions. Retention is reapplied during recovery. There is no sender integration; any future sender must enforce current suppression and resolve historical deletions before sending. A restore must never silently reactivate an old mailing list.
 
 The public promise is therefore **daily deletion of demo account and vault data**, with these separately disclosed contact/security exceptions. It must not claim every datum held by every system disappears at midnight.
 
@@ -126,3 +142,20 @@ Use `retention.py --database /private/contacts.db --review-queue` with a JSON re
 `decision:"delete"` removes the contact, its consent evidence, review history and all unsubscribe capabilities. It preserves an existing complete suppression record unchanged, and creates or strengthens minimal purpose suppression when needed to prevent an old list silently reintroducing the address. The deletion reason is validated but is not retained as another personal record. A later explicit user opt-in is a new purpose decision, not an automatic import.
 
 For an end-user privacy removal request, verify the requester's identity through the approved support process, resolve the stable Google subject privately, and perform the revision-checked `delete` decision. Explain the minimal suppression exception. Apply the same removal to separately managed exports/backups and any future sender system under their published policy. Removing the persistent contact does not operate on application vault records; the daily reset still removes those separately. No new marketing message is sent during this process.
+
+## Docker deployment and planned host migration
+
+The Docker adapter uses a dedicated network namespace, a loopback-only ingress gate, immutable server/nginx image digests and private environment files. It does not modify ONCE production containers or provision DNS, TLS or buckets. Public TLS routing must target only the loopback gate; a direct application listener would bypass fencing. Run the lifecycle as its dedicated root operator. `runtime.env` uses literal `KEY=value` entries, not shell `export` syntax; never print it.
+
+Configure the dedicated root using the adapter's `configure` command and reviewed image digests. Supply the primary, disposable replica and contact replica credentials through the private environment configuration. The three bucket identities and credentials must be distinct. Initialize durable contacts once with `contacts-init`, then use the reset lifecycle to initialize the disposable daily generation. Starting with a missing contact database requires a verified restore; ordinary startup must not silently replace lost contact data with an empty database.
+
+Planned migration uses these lifecycle actions with `--root /var/lib/vaultcontext-demo`:
+
+1. On the source, run `migration-freeze`. This takes the same lifecycle lock as reset, persists a source migration fence, closes ingress, stops application writes, forces and verifies the final paired database replica, and fences/drains contact writes before verifying the contact replica. A failure leaves the source fenced. Suspend source rollout and reset controllers as well; do not remove the source fences to make a restart succeed.
+2. Securely transfer the reviewed deployment configuration and completed handoff manifests to the new host. Place the runtime manifest at `control/incoming-runtime-handoff.json` and the contact manifest at `persistent/incoming-handoff.json`, using private operator-owned files. Reuse the dedicated primary objects and replica destinations; do not run a fresh-init or daily purge against them while transferring. Do not copy credentials into a transcript or Git.
+3. On the fresh target, run `migration-adopt`. Restore and compare the paired application databases and contacts with the verified handoff. Preserve the same UTC generation, application configuration and contact token. The target must accept populated state; reset's empty-database health condition does not apply to migration.
+4. Verify the populated target through its private network and then run `migration-unfence` before switching the authorized TLS route. Confirm sign-in, authorization and protected ciphertext retrieval. Keep the source stopped and fenced, including its scheduler and deployment controller. After target verification, securely remove the old host's disposable local runtime and transient handoff copies before their midnight deadline. Do not run the old host's reset command against shared remote buckets: only the designated active host owns remote deletion.
+
+Crossing 00:00 UTC does not grant another day to the old demo. An expired generation must remain unavailable and be purged through a coordinated reset on the designated active host; its contact store survives. Complete the public route change only after resolving which host owns the reset. Both hosts must never write the same replica paths concurrently.
+
+The manifests attest verified final database state; they are not a distributed fencing service. Operator control of both hosts, load balancing, automatic restarts, timers and replicas remains necessary. Provider-backed migration, ingress isolation, image startup and populated recovery must pass before calling this deployment ready.

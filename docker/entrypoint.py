@@ -6,10 +6,13 @@ The default command requires an existing database or a recoverable replica.
 Python replaces itself with Litestream/PocketContext once preparation is done.
 """
 import argparse
+import base64
 from contextlib import closing
+from datetime import datetime, timezone
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 import signal
 import sqlite3
@@ -25,6 +28,7 @@ SERVER = '/usr/local/bin/pocketcontext'
 LITESTREAM = '/usr/local/bin/litestream'
 SELF = '/usr/local/bin/vaultcontext-entrypoint.py'
 CONFIG = '/etc/litestream.yml'
+DEMO_CONFIG = '/run/vaultcontext-demo-litestream.yml'
 SOCKET = '/run/litestream.sock'
 S3_FIELDS = {'bucket': 'BUCKET', 'endpoint': 'ENDPOINT', 'region': 'REGION',
              'accessKey': 'ACCESS_KEY_ID', 'secret': 'SECRET_ACCESS_KEY'}
@@ -49,6 +53,20 @@ def demo_fence(mode):
     for part in (marker, *marker.parents):
         if part.is_symlink():
             raise StartupError('demo reset fence cannot traverse symlinks')
+    migration = marker.parent / 'migration-fenced.json'
+    if migration.exists() or migration.is_symlink():
+        state = private_json(migration)
+        if (set(state) != {'deployment','generation','phase'} or state.get('deployment') != 'vaultcontext-demo'
+                or state.get('generation') != os.environ.get('VAULTCONTEXT_DEMO_GENERATION')):
+            raise StartupError('invalid migration fence')
+        expected = {'handoff': ('handoff','source-fenced'),
+                    'adopt-handoff': ('adopt-handoff','target-restoring'),
+                    'start': ('migrate-start','target-verified'), 'serve': ('migrate-start','target-verified'),
+                    'verify': ('migrate-start','target-verified')}.get(mode)
+        if not expected or (os.environ.get('VAULTCONTEXT_DEMO_RESET_PHASE'),state.get('phase')) != expected:
+            raise StartupError('host migration is fenced; ordinary startup is forbidden')
+    elif mode in ('handoff','adopt-handoff'):
+        raise StartupError('host migration requires its explicit durable fence')
     try:
         info = marker.stat()
     except FileNotFoundError:
@@ -59,6 +77,8 @@ def demo_fence(mode):
         state = json.loads(marker.read_text())
     except (OSError, ValueError):
         raise StartupError('invalid demo reset fence') from None
+    if mode in ('handoff','adopt-handoff'):
+        raise StartupError('daily reset and host migration cannot overlap')
     allowed = {'init': ('initialize', 'purged'), 'start': ('start', 'initialized'),
                'serve': ('start', 'initialized'), 'verify': ('health', 'initialized')}
     phase, stored = allowed[mode]
@@ -66,6 +86,41 @@ def demo_fence(mode):
             state.get('generation') != os.environ.get('VAULTCONTEXT_DEMO_GENERATION') or
             os.environ.get('VAULTCONTEXT_DEMO_RESET_PHASE') != phase or state.get('phase') != stored):
         raise StartupError('demo reset is pending; ordinary startup is fenced')
+
+
+def private_json(path):
+    for part in (path, *path.parents):
+        if part.is_symlink():
+            raise StartupError('private control state cannot traverse symlinks')
+    info = path.stat()
+    if not stat.S_ISREG(info.st_mode) or info.st_mode & 0o077 or info.st_size > 16384:
+        raise StartupError('invalid private control state')
+    try:
+        value = json.loads(path.read_text())
+    except (OSError, ValueError):
+        raise StartupError('invalid private control state') from None
+    if not isinstance(value, dict):
+        raise StartupError('invalid private control state')
+    return value
+
+
+def write_private_json(path, value):
+    if path.is_symlink():
+        raise StartupError('control state cannot replace a symlink')
+    with tempfile.NamedTemporaryFile(mode='w', dir=path.parent, prefix='.demo-handoff-', delete=False) as stream:
+        temporary = Path(stream.name)
+        try:
+            json.dump(value, stream, sort_keys=True)
+            stream.flush()
+            os.fsync(stream.fileno())
+        except BaseException:
+            temporary.unlink(missing_ok=True)
+            raise
+    try:
+        os.replace(temporary,path)
+        sync_directory(path.parent)
+    finally:
+        temporary.unlink(missing_ok=True)
 
 
 def sync_directory(path):
@@ -101,6 +156,75 @@ def validate_config():
     for key, default in (('LITESTREAM_REGION', ''), ('LITESTREAM_ENDPOINT', ''),
                          ('LITESTREAM_SYNC_INTERVAL', '10s')):
         os.environ.setdefault(key, default)
+
+
+def demo_mode():
+    return os.environ.get('VAULTCONTEXT_DEMO_MODE') == 'true'
+
+
+def replication_config():
+    return DEMO_CONFIG if demo_mode() else CONFIG
+
+
+def configure_replication():
+    """Keep production's single-DB template; demo appends its auxiliary replica.
+
+    The generated file contains environment references, never credentials. Each
+    database has an independent replica path; daily reset clears the whole bucket.
+    """
+    if not demo_mode():
+        return
+    prefix = os.environ.get('LITESTREAM_PATH', '')
+    if not re.fullmatch(r'[A-Za-z0-9_./-]+', prefix) or any(part in ('', '.', '..') for part in prefix.split('/')):
+        raise StartupError('demo replica path must be a normalized private prefix')
+    os.environ['LITESTREAM_DEMO_AUXILIARY_PATH'] = prefix + '/auxiliary'
+    addition = '\n'.join([
+        '', '  - path: ' + str(DATA / 'auxiliary.db'), '    replica:', '      type: s3',
+        '      bucket: "${LITESTREAM_BUCKET}"', '      path: "${LITESTREAM_DEMO_AUXILIARY_PATH}"',
+        '      region: "${LITESTREAM_REGION}"', '      endpoint: "${LITESTREAM_ENDPOINT}"',
+        '      sync-interval: "${LITESTREAM_SYNC_INTERVAL}"', '',
+    ])
+    target = Path(DEMO_CONFIG)
+    for part in (target, *target.parents):
+        if part.is_symlink():
+            raise StartupError('demo replica configuration cannot traverse symlinks')
+    with tempfile.NamedTemporaryFile(mode='w', prefix='.demo-litestream-', dir=target.parent, delete=False) as stream:
+        temporary = Path(stream.name)
+        try:
+            stream.write(Path(CONFIG).read_text() + addition)
+            stream.flush()
+            os.fsync(stream.fileno())
+        except BaseException:
+            temporary.unlink(missing_ok=True)
+            raise
+    try:
+        os.replace(temporary, target)
+        sync_directory(target.parent)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def verify_auxiliary(data):
+    auxiliary = data / 'auxiliary.db'
+    if auxiliary.is_symlink() or not auxiliary.is_file():
+        raise StartupError('a complete auxiliary database is required; refusing to recreate it')
+    with closing(sqlite3.connect(auxiliary.resolve().as_uri() + '?mode=ro', uri=True)) as conn:
+        if conn.execute('PRAGMA quick_check').fetchone() != ('ok',):
+            raise StartupError('auxiliary database integrity check failed')
+        if demo_mode() and not conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='_logs'").fetchone():
+            raise StartupError('auxiliary database is missing its expected schema')
+
+
+def verify_demo_generation(data):
+    if not demo_mode():
+        return
+    generation = os.environ.get('VAULTCONTEXT_DEMO_GENERATION', '')
+    if generation != datetime.now(timezone.utc).date().isoformat():
+        raise StartupError('demo generation expired; restore cannot extend the daily deadline')
+    with closing(database_connection(data)) as conn:
+        row = conn.execute('SELECT enabled,generation FROM demo_policy WHERE id=?', ('demopolicy00001',)).fetchone()
+    if row != (1, generation):
+        raise StartupError('restored demo generation differs from the current daily generation')
 
 
 def maintenance_state(data):
@@ -243,6 +367,9 @@ def verify_remote(data, client=None):
 
 
 def verify(data):
+    if demo_mode():
+        verify_auxiliary(data)
+        verify_demo_generation(data)
     verify_frozen_storage(data)
     verify_remote(data)
 
@@ -279,44 +406,156 @@ def run_command(args, env=None, timeout=None):
 
 
 def restore_database(data, initialize=False):
+    names = ('data.db', 'auxiliary.db') if demo_mode() else ('data.db',)
     db = data / 'data.db'
+    marker = data / 'restoration.pending'
+    if marker.exists() or marker.is_symlink():
+        raise StartupError('incomplete paired restore; recover into a fresh volume')
     if db.exists() or db.is_symlink():
         if initialize:
             raise StartupError('init requires an empty database directory')
         if not db.is_file() or db.is_symlink():
             raise StartupError('a regular database file is required')
+        if demo_mode():
+            verify_auxiliary(data)
         log('database exists in the volume: no restore')
         return
     if any(data.iterdir()):
         raise StartupError('database missing but local state remains; operator recovery required')
-    # A killed/failed restore cannot leave a database that a later start trusts.
+    # Stage both demo databases before installing either. Partial installation
+    # leaves a durable marker so a later process cannot recreate missing state.
     with tempfile.TemporaryDirectory(prefix='.vaultcontext-restore-', dir=data.parent) as temp:
         staged = Path(temp)
-        command = [LITESTREAM, 'restore', '-config', CONFIG, '-o', str(staged / 'data.db'),
-                   '-integrity-check', 'quick']
-        if initialize:
-            command.append('-if-replica-exists')
-        command.append(str(db))
-        try:
-            run_command(command)
-        except StartupError:
-            raise StartupError('Litestream restore failed; check replica configuration and availability') from None
-        if initialize:
-            if (staged / 'data.db').exists():
+        for name in names:
+            command = [LITESTREAM, 'restore', '-config', replication_config(), '-o', str(staged / name),
+                       '-integrity-check', 'quick']
+            if initialize:
+                command.append('-if-replica-exists')
+            command.append(str(data / name))
+            try:
+                run_command(command)
+            except StartupError:
+                raise StartupError('Litestream restore failed; check replica configuration and availability') from None
+            if initialize and (staged / name).exists():
                 raise StartupError('init refused: replica already exists; use normal startup to restore it')
+        if initialize:
             return
         verify(staged)
-        with (staged / 'data.db').open('rb') as restored:
-            os.fsync(restored.fileno())
-        os.replace(staged / 'data.db', db)
+        for name in names:
+            with (staged / name).open('rb') as restored:
+                os.fsync(restored.fileno())
+        if demo_mode():
+            with marker.open('x') as pending:
+                pending.write('Paired database restoration must finish before startup.\n')
+                pending.flush()
+                os.fsync(pending.fileno())
+            sync_directory(data)
+        for name in names:
+            os.replace(staged / name, data / name)
         sync_directory(data)
-        log('database restored and remote originals verified')
+        if demo_mode():
+            marker.unlink()
+            sync_directory(data)
+        log('databases restored and remote originals verified')
         return True
+
+
+def database_digest(path):
+    """Digest schema and all domain rows without emitting any record contents.
+
+    Litestream's own coordination tables change during snapshots and are not
+    application state. SQLite internal sequence/statistics tables remain covered.
+    """
+    if path.is_symlink() or not path.is_file():
+        raise StartupError('regular handoff database required')
+    digest = hashlib.sha256()
+    def append(value):
+        encoded = json.dumps(value, ensure_ascii=True, separators=(',', ':'), allow_nan=False).encode()
+        digest.update(len(encoded).to_bytes(8,'big'));digest.update(encoded)
+    def cell(value):
+        if isinstance(value,bytes):
+            return {'blob':base64.b64encode(value).decode('ascii')}
+        return {'value':value}
+    with closing(sqlite3.connect(path.resolve().as_uri()+'?mode=ro',uri=True)) as db:
+        db.execute('BEGIN')
+        if db.execute('PRAGMA quick_check').fetchone()!=('ok',):
+            raise StartupError('handoff database integrity failed')
+        schema=db.execute("SELECT type,name,tbl_name,sql FROM sqlite_master WHERE tbl_name NOT IN ('_litestream_seq','_litestream_lock') ORDER BY type,name").fetchall()
+        append(schema)
+        for kind,name,_,_ in schema:
+            if kind!='table':
+                continue
+            columns=[row[1] for row in db.execute('PRAGMA table_info('+identifier(name)+')')]
+            append([name,columns])
+            ordered=','.join(identifier(column) for column in columns)
+            for row in db.execute('SELECT * FROM '+identifier(name)+' ORDER BY '+ordered):
+                append([cell(value) for value in row])
+    return digest.hexdigest()
+
+
+def manifest_generation(manifest):
+    generation=os.environ.get('VAULTCONTEXT_DEMO_GENERATION','')
+    if (set(manifest)!={'generation','databaseDigests','maintenance'} or
+            manifest.get('generation')!=generation or generation!=datetime.now(timezone.utc).date().isoformat() or
+            not isinstance(manifest.get('databaseDigests'),dict) or set(manifest['databaseDigests'])!={'data.db','auxiliary.db'} or
+            any(not isinstance(value,str) or not re.fullmatch('[a-f0-9]{64}',value) for value in manifest['databaseDigests'].values())):
+        raise StartupError('handoff manifest does not describe the current demo generation')
+    maintenance=manifest['maintenance']
+    if maintenance is not None and (not isinstance(maintenance,dict) or set(maintenance)!={'readOnly','generation'} or
+            type(maintenance.get('readOnly')) is not bool or type(maintenance.get('generation')) is not int or
+            not 0<=maintenance['generation']<=18446744073709551615):
+        raise StartupError('invalid handoff maintenance state')
+
+
+def handoff(data):
+    if not demo_mode():
+        raise StartupError('host migration commands are available only for the demo')
+    validate_config();configure_replication();verify(data)
+    if any((data/name).exists() or (data/name).is_symlink() for name in ('initialization.pending','restoration.pending')):
+        raise StartupError('incomplete state cannot be handed off')
+    before={name:database_digest(data/name) for name in ('data.db','auxiliary.db')}
+    run_command([LITESTREAM,'replicate','-once','-force-snapshot','-config',replication_config()],timeout=240)
+    with tempfile.TemporaryDirectory(prefix='.vaultcontext-handoff-',dir=data.parent) as directory:
+        staged=Path(directory)
+        for name in before:
+            run_command([LITESTREAM,'restore','-config',replication_config(),'-o',str(staged/name),'-integrity-check','full',str(data/name)],timeout=120)
+        verify(staged)
+        if any(database_digest(staged/name)!=value or database_digest(data/name)!=value for name,value in before.items()):
+            raise StartupError('handoff replica differs from stopped source; remain fenced')
+    maintenance=private_json(data/'maintenance.json') if (data/'maintenance.json').exists() else None
+    manifest={'generation':os.environ['VAULTCONTEXT_DEMO_GENERATION'],'databaseDigests':before,'maintenance':maintenance}
+    manifest_generation(manifest)
+    write_private_json(data.parent/'demo-handoff.json',manifest)
+    log('both stopped demo databases replicated and verified for handoff')
+
+
+def adopt_handoff(data):
+    if not demo_mode():
+        raise StartupError('host migration commands are available only for the demo')
+    validate_config();configure_replication()
+    control=Path(os.environ.get('VAULTCONTEXT_DEMO_RESET_FENCE','')).parent
+    manifest=private_json(control/'incoming-runtime-handoff.json');manifest_generation(manifest)
+    data.mkdir(mode=0o700,parents=True,exist_ok=True)
+    if any(data.iterdir()):
+        raise StartupError('handoff adoption requires an empty target database directory')
+    restore_database(data)
+    if any(database_digest(data/name)!=value for name,value in manifest['databaseDigests'].items()):
+        raise StartupError('restored databases differ from source handoff; remain fenced')
+    manifest_generation(manifest)  # Restoration cannot extend the daily deadline.
+    if manifest['maintenance'] is not None:
+        write_private_json(data/'maintenance.json',manifest['maintenance'])
+    verify(data)
+    write_private_json(data.parent/'demo-handoff.json',manifest)
+    log('both demo databases adopted and verified without starting a writer')
 
 
 def prepare(data, initialize=False):
     validate_config()
+    configure_replication()
     frozen = maintenance_state(data)
+    restored_marker = data / 'restoration.pending'
+    if restored_marker.exists() or restored_marker.is_symlink():
+        raise StartupError('incomplete paired restore; recover into a fresh volume')
     pending = data / 'initialization.pending'
     if pending.exists() or pending.is_symlink():
         raise StartupError('incomplete initialization; preserve this directory and recover into a fresh volume')
@@ -338,12 +577,7 @@ def prepare(data, initialize=False):
         sync_directory(data)
         run_command([SERVER, 'migrate', 'up', *app_flags(data)])
     if frozen:
-        auxiliary = data / 'auxiliary.db'
-        if auxiliary.is_symlink() or not auxiliary.is_file():
-            raise StartupError('frozen startup requires the existing auxiliary database')
-        with closing(sqlite3.connect(auxiliary.resolve().as_uri() + '?mode=ro', uri=True)) as conn:
-            if conn.execute('PRAGMA quick_check').fetchone() != ('ok',):
-                raise StartupError('auxiliary database integrity check failed')
+        verify_auxiliary(data)
     if not restored:
         verify(data)
     if frozen:
@@ -359,11 +593,18 @@ def prepare(data, initialize=False):
 
 def serve():
     validate_config()
+    if demo_mode():
+        verify_auxiliary(DATA)
+        verify_demo_generation(DATA)
     try:
-        run_command([LITESTREAM, 'sync', '-wait', '-timeout', '60', '-socket', SOCKET,
-                     str(DATA / 'data.db')], timeout=65)
+        names = ('data.db', 'auxiliary.db') if demo_mode() else ('data.db',)
+        for name in names:
+            run_command([LITESTREAM, 'sync', '-wait', '-timeout', '60', '-socket', SOCKET,
+                         str(DATA / name)], timeout=65)
     except (StartupError, subprocess.TimeoutExpired):
         raise StartupError('initial replica synchronization failed; refusing to serve') from None
+    if demo_mode():
+        verify_demo_generation(DATA)  # Sync must not extend a generation across midnight.
     log('initial replica synchronization complete')
     env = dict(os.environ)
     for key in ('LITESTREAM_ACCESS_KEY_ID', 'LITESTREAM_SECRET_ACCESS_KEY',
@@ -383,12 +624,16 @@ def serve():
 def main(argv=None):
     os.umask(0o077)
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('mode', choices=('start', 'init', 'serve', 'verify'), nargs='?', default='start')
+    parser.add_argument('mode', choices=('start', 'init', 'serve', 'verify', 'handoff', 'adopt-handoff'), nargs='?', default='start')
     args = parser.parse_args(argv)
     try:
         demo_fence(args.mode)
         os.chdir(APP)
-        if args.mode == 'serve':
+        if args.mode == 'handoff':
+            handoff(DATA)
+        elif args.mode == 'adopt-handoff':
+            adopt_handoff(DATA)
+        elif args.mode == 'serve':
             serve()
         elif args.mode == 'verify':
             validate_config()
@@ -398,7 +643,7 @@ def main(argv=None):
             prepare(DATA, initialize=args.mode == 'init')
             if args.mode == 'start':
                 log('starting Litestream, which starts and supervises the server')
-                os.execve(LITESTREAM, [LITESTREAM, 'replicate', '-config', CONFIG,
+                os.execve(LITESTREAM, [LITESTREAM, 'replicate', '-config', replication_config(),
                                       '-exec', SELF + ' serve'], dict(os.environ))
         return 0
     except StartupError as error:

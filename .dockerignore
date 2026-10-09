@@ -21,3 +21,15 @@
 !pb_hooks/vendor/provenance.json
 !pb_public/demo/**
 !deploy/demo/retention.py
+!deploy/demo/contact_replica.py
+!deploy/demo/contact-litestream.yml
+
+# Rebuild approved public downloads; never import generated local binaries.
+pb_public/demo/downloads/
+!pyproject.toml
+!src/vaultcontext_client/*.py
+!src/vaultcontext_client/schema.json
+!skills/vaultcontext/SKILL.md
+!skills/vaultcontext/references/schema.md
+!skills/vaultcontext/references/workflows.md
+!scripts/build-demo-downloads.py

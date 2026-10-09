@@ -25,14 +25,34 @@ let linkWithdrawalToken = '';
 }
 const connectExample = byId('connect-code').textContent;
 const installExample = byId('install-code').textContent;
-const DEMO_CLIENT_COMMIT = 'eadfcf601d522690cee1d68b616294ce27c390de';
+// Readiness requires checked, same-origin public artifacts; a boolean alone
+// cannot turn a private repository release into an installable client.
+function checkedDownloads(data) {
+  const downloads = data?.downloads;
+  if (data?.clientReady !== true || downloads?.schema !== 1 || downloads.origin !== location.origin || downloads.package !== 'vaultcontext-client' || !/^[0-9]+\.[0-9]+\.[0-9]+$/.test(downloads.version) || !downloads.release?.startsWith(downloads.version + '-') || !/^[0-9]+\.[0-9]+\.[0-9]+-[a-f0-9]{20}$/.test(downloads.release)) return null;
+  const names = {wheel:`vaultcontext_client-${downloads.version}-py3-none-any.whl`, skill:'vaultcontext-skill.tar.gz', launcher:'vaultcontext'};
+  for (const key of Object.keys(names)) {
+    const item = downloads.artifacts?.[key];
+    if (!item || item.path !== `/demo/downloads/${downloads.release}/${names[key]}` || !/^[a-f0-9]{64}$/.test(item.sha256) || !Number.isInteger(item.size) || item.size < 1 || item.size > 4194304) return null;
+  }
+  return downloads;
+}
+function clientAvailable() { return !!checkedDownloads(live); }
 function renderInstallation() {
-  if (live?.clientReady !== true) { byId('install-code').textContent = installExample; return; }
+  const downloads = checkedDownloads(live);
+  if (!downloads) {
+    byId('install-code').textContent = installExample;
+    byId('install-intro').textContent = 'Public installation will appear when this server has a verified client wheel and skill bundle. These blocks currently describe the planned workflow; do not use production credentials.';
+    byId('install-note').textContent = 'No checked public downloads are available on this origin. The source repository remains private; no repository credentials are needed or requested.';
+    return;
+  }
   const agent = document.querySelector('[data-method=agent]').getAttribute('aria-pressed') === 'true';
-  byId('install-intro').textContent = agent ? 'Install uv, Git and Node.js/npm, then run these commands from your workspace. The skill describes the demo; the client is pinned to its tested release.' : 'Install uv and Git, then install the tested demo client. Linux and macOS are supported. This does not unlock any vault.';
-  const skill = agent ? 'npx skills add https://github.com/pocketcontext/vaultcontext/tree/vaultcontext-demo --skill vaultcontext --agent codex claude-code --yes\n' : '';
-  byId('install-code').textContent = skill + `uv tool install 'git+https://github.com/pocketcontext/vaultcontext.git@${DEMO_CLIENT_COMMIT}'\nexport PATH="$HOME/.local/bin:$PATH"\nvaultcontext --help`;
-  byId('install-note').textContent = 'Before replacing an installed client, lock its active sessions. Installation downloads code and dependencies; the page never runs these commands. Use the demo URL below, never production credentials.';
+  const wheel = downloads.artifacts.wheel, skill = downloads.artifacts.skill;
+  byId('install-intro').textContent = agent ? 'Install uv, then download and verify the skill into your workspace. It includes a standalone client launcher; no GitHub access is required.' : 'Install uv, then install this verified public client wheel. Linux and macOS are supported; dependencies come from public PyPI.';
+  byId('install-code').textContent = agent
+    ? `curl --fail --location '${downloads.origin}${skill.path}' --output vaultcontext-skill.tar.gz &&\nprintf '%s  %s\\n' '${skill.sha256}' 'vaultcontext-skill.tar.gz' | shasum -a 256 -c - &&\nmkdir -p .agents/skills &&\ntar -xzf vaultcontext-skill.tar.gz -C .agents/skills &&\nexport PATH="$PWD/.agents/skills/vaultcontext:$PATH" &&\nvaultcontext --help`
+    : `uv tool install --force '${downloads.origin}${wheel.path}#sha256=${wheel.sha256}' &&\nexport PATH="$HOME/.local/bin:$PATH" &&\nvaultcontext --help`;
+  byId('install-note').textContent = 'Before replacing a client or skill, lock its active sessions. These commands download the exact published build; the page never runs them or unlocks a vault. Keep your existing skill changes before extracting an update.';
 }
 const googleButton = byId('google-button');
 function setBusy(value) { busy = value; byId('signout').disabled = value; }
@@ -160,11 +180,11 @@ byId('enrollment-form').addEventListener('submit', async event => {
     if (result.enrolled !== true || result.generation !== live.generation || !Number.isInteger(result.contact?.revision)) throw new Error('Enrollment could not be verified. Refresh your preferences before retrying.');
     revision = result.contact.revision; unsubscribeToken = result.contact.unsubscribeToken || '';
     message('Demo enrollment saved. Your optional contact preferences have been recorded. No email has been sent.');
-    byId('guide-intro').textContent = live.clientReady === true ? 'You are enrolled for this demo day. Use the verified demo-compatible client.' : 'Enrollment saved. Demo client release pending — these are planned instructions only.';
-    byId('guide-banner').querySelector('p').textContent = live.clientReady === true ? 'Google sign-in does not unlock your files. Enter your vault passphrase only in your private terminal. The daily reset removes your demo account and vault data.' : 'The demo-compatible client has not been published. Do not run these examples against a real service or use production credentials. Your contact preferences are saved; vault onboarding is not yet available.';
+    byId('guide-intro').textContent = clientAvailable() ? 'You are enrolled for this demo day. Use the verified demo-compatible client.' : 'Enrollment saved. Public client distribution pending — these are planned instructions only.';
+    byId('guide-banner').querySelector('p').textContent = clientAvailable() ? 'Google sign-in does not unlock your files. Enter your vault passphrase only in your private terminal. The daily reset removes your demo account and vault data.' : 'No verified public client downloads are available on this server. Do not run these examples against a real service or use production credentials. Your preferences are saved; vault onboarding is not yet available.';
     // Quote identity safely for shell snippets; never interpolate untrusted identity as code.
     const shellQuote = value => "'" + value.replaceAll("'", "'\\''") + "'";
-    if (live.clientReady === true) byId('connect-code').textContent = `export VAULTCONTEXT_URL=${shellQuote(location.origin)}\nexport VAULTCONTEXT_USER_EMAIL=${shellQuote(account.email)}\nvaultcontext login --google\nvaultcontext whoami\nvaultcontext check\nvaultcontext init\nvaultcontext unlock --timeout 900\nvaultcontext create 'Sample vault'`;
+    if (clientAvailable()) byId('connect-code').textContent = `export VAULTCONTEXT_URL=${shellQuote(location.origin)}\nexport VAULTCONTEXT_USER_EMAIL=${shellQuote(account.email)}\nvaultcontext login --google\nvaultcontext whoami\nvaultcontext check\nvaultcontext init\nvaultcontext unlock --timeout 900\nvaultcontext create 'Sample vault'`;
     byId('guide-complete').textContent = 'All three steps reviewed. Verify each operation in your terminal; the page cannot confirm CLI success.';
     if (unsubscribeToken) {
       let withdraw = byId('withdraw');

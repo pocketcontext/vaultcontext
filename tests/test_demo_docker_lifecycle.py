@@ -1,5 +1,6 @@
 """Synthetic command/metadata tests; never invoke Docker or cloud providers."""
 import copy
+from datetime import datetime,timezone
 import importlib.util
 import io
 import json
@@ -47,7 +48,9 @@ class FakeDocker:
             elif args[0]=='start':self.items[key]['running']=key!='init'
             elif args[0]=='kill':self.items[key]['running']=False
             else:self.items[key]['restart']='no'
-        elif args[0]=='exec':return json.dumps({'enabled':True,'generation':os.environ['VAULTCONTEXT_DEMO_GENERATION']}).encode()
+        elif args[0]=='exec':
+            if args[1]==module.PREFIX+'retention':return b'{"ready":true}'
+            return json.dumps({'enabled':True,'generation':os.environ['VAULTCONTEXT_DEMO_GENERATION']}).encode()
         return b''
 
 class DockerDemoTests(unittest.TestCase):
@@ -56,7 +59,7 @@ class DockerDemoTests(unittest.TestCase):
         self.root=Path(self.temp.name)/'vaultcontext-demo';(self.root/'control').mkdir(parents=True,mode=0o700);os.chmod(self.root,0o700)
         values={key:'synthetic-value' for key in module.REQUIRED}
         values.update(VAULTCONTEXT_S3_BUCKET='vaultcontext-demo-files',LITESTREAM_BUCKET='vaultcontext-demo-replicas',
-                      VAULTCONTEXT_S3_ACCESS_KEY_ID='primary-key',LITESTREAM_ACCESS_KEY_ID='replica-key',VAULTCONTEXT_DEMO_CONTACT_TOKEN='synthetic-contact-token-'+'x'*32)
+                      VAULTCONTEXT_S3_ACCESS_KEY_ID='primary-key',LITESTREAM_ACCESS_KEY_ID='replica-key',CONTACTS_LITESTREAM_BUCKET='vaultcontext-demo-contacts-private',CONTACTS_LITESTREAM_ACCESS_KEY_ID='contact-key',VAULTCONTEXT_DEMO_CONTACT_TOKEN='synthetic-contact-token-'+'x'*32)
         self.env_file=self.root/'control/runtime.env';self.env_file.write_text(''.join(k+'='+v+'\n' for k,v in values.items()));self.env_file.chmod(0o600)
         with socket.socket() as listener:listener.bind(('127.0.0.1',0));self.port=listener.getsockname()[1]
         module.configure(self.root,IMAGE,GATE,self.port,'https://vault-demo.example.com','r2')
@@ -70,7 +73,11 @@ class DockerDemoTests(unittest.TestCase):
         for phase,command in reset['hooks'].items():
             self.assertEqual(command[-1],phase);self.assertTrue(command[-2].endswith('docker_lifecycle.py'))
         self.assertEqual(reset['storage']['primary_bucket'],'vaultcontext-demo-files')
-        self.assertEqual((self.root/'control/contact.env').read_text().count('\n'),1)
+        contact=(self.root/'control/contact.env').read_text()
+        self.assertEqual(contact.count('\n'),7)
+        self.assertNotIn('CONTACTS_LITESTREAM_', (self.root/'control/app.env').read_text())
+        self.assertNotIn('CONTACTS_LITESTREAM_', (self.root/'control/reset.env').read_text())
+        self.assertNotIn('VAULTCONTEXT_S3_',contact)
         self.assertNotIn('synthetic-contact-token',(self.root/'control/nginx.conf').read_text())
 
     def test_only_anchor_publishes_loopback_and_contact_is_least_privilege(self):
@@ -143,6 +150,89 @@ class DockerDemoTests(unittest.TestCase):
         with self.assertRaises(module.ResetError):module.load(self.root)
         with self.env_file.open('a') as stream:stream.write('VAULTCONTEXT_SUPERUSER_PASSWORD=forbidden\n')
         with self.assertRaises(module.ResetError):module.environment(self.env_file)
+
+    def test_durable_destination_must_not_overlap_reset_storage(self):
+        content=self.env_file.read_text().replace('CONTACTS_LITESTREAM_ACCESS_KEY_ID=contact-key','CONTACTS_LITESTREAM_ACCESS_KEY_ID=replica-key')
+        self.env_file.write_text(content)
+        with self.assertRaisesRegex(module.ResetError,'distinct'):module.environment(self.env_file)
+
+    def test_derived_secrets_are_checked_and_not_mounted(self):
+        self.life.ensure_services();self.life.create('app',[],'start')
+        app=self.docker.items['app']
+        self.assertIn(str(self.root/'control/app-state'),[m['source'] for m in app['mounts']])
+        self.assertNotIn(str(self.root/'control'),[m['source'] for m in app['mounts']])
+        with (self.root/'control/app.env').open('a') as stream:stream.write('CONTACTS_LITESTREAM_SECRET_ACCESS_KEY=forbidden\n')
+        with self.assertRaises(module.ResetError):module.Lifecycle(self.root,self.config,self.docker)
+
+    def test_source_migration_stops_all_writers_and_prevents_reset(self):
+        today=datetime.now(timezone.utc).date().isoformat()
+        self.life.ensure_services();self.life.create('app',[],'start');self.life.create('gate',['-g','daemon off;'])
+        for role in ('app','gate'):self.docker.run('start',module.PREFIX+role)
+        original=self.docker.run
+        def run(*args,**kwargs):
+            if args[:3]==('exec',module.PREFIX+'retention','python3') and args[-1]=='fence':
+                module.atomic_json(self.root/'persistent/migration-fenced.json',{'fenced':True})
+                module.atomic_json(self.root/'persistent/contact-handoff.json',{'version':1,'databaseDigest':'a'*64,'completedAt':1})
+                return b''
+            return original(*args,**kwargs)
+        def handoff(role,command,phase):
+            self.assertEqual((role,command,phase),('init',['handoff'],'handoff'))
+            self.assertFalse(self.docker.items['app']['running']);self.assertFalse(self.docker.items['gate']['running'])
+            module.atomic_json(self.root/'runtime/demo-handoff.json',{'generation':today,'databaseDigests':{'data.db':'a'*64,'auxiliary.db':'b'*64},'maintenance':None})
+        with patch.dict(os.environ,{'VAULTCONTEXT_DEMO_GENERATION':today}),patch.object(self.docker,'run',side_effect=run),patch.object(self.life,'job',side_effect=handoff):
+            self.life.migration('migration-freeze')
+        self.assertTrue((self.root/'control/handoff-ready.json').is_file())
+        self.assertFalse(self.docker.items['retention']['running'])
+        with patch.dict(os.environ,{'VAULTCONTEXT_DEMO_GENERATION':today}),patch.object(self.life,'job') as repeated_job:
+            self.life.migration('migration-freeze')
+            repeated_job.assert_not_called()
+        state=json.loads((self.root/'control/app-state/migration-fenced.json').read_text())
+        self.assertEqual(state['phase'],'source-complete')
+        with self.assertRaisesRegex(module.ResetError,'migration fence'):self.life.action('initialize')
+
+    def test_partial_gate_start_failure_refences_target(self):
+        today=datetime.now(timezone.utc).date().isoformat()
+        self.life.ensure_services()
+        original=self.docker.run
+        def run(*args,**kwargs):
+            result=original(*args,**kwargs)
+            if args==('start',module.PREFIX+'gate'):raise module.ResetError('synthetic daemon response lost')
+            return result
+        with patch.dict(os.environ,{'VAULTCONTEXT_DEMO_GENERATION':today}):
+            self.life.migration_marker('target-verified')
+            with patch.object(self.life,'health'),patch.object(self.docker,'run',side_effect=run):
+                with self.assertRaises(module.ResetError):self.life.migration('migration-unfence')
+        self.assertFalse(self.docker.items['gate']['running'])
+        self.assertEqual(json.loads((self.root/'control/migration-fenced.json').read_text())['phase'],'target-verified')
+        self.assertTrue((self.root/'control/app-state/migration-fenced.json').is_file())
+
+    def test_manifest_extra_fields_never_reach_app_state(self):
+        today=datetime.now(timezone.utc).date().isoformat()
+        path=self.root/'control/incoming-runtime-handoff.json'
+        module.atomic_json(path,{'generation':today,'databaseDigests':{'data.db':'a'*64,'auxiliary.db':'b'*64},'maintenance':None,'credential':'synthetic-never-copy'})
+        with self.assertRaises(module.ResetError):module.runtime_manifest(path,today)
+        self.assertFalse((self.root/'control/app-state/incoming-runtime-handoff.json').exists())
+        (self.root/'control/app-state/credentials.env').write_text('synthetic')
+        with self.assertRaisesRegex(module.ResetError,'unexpected file'):self.life.create('app',[],'start')
+
+    def test_target_adoption_rejects_existing_writer(self):
+        self.life.ensure_services()
+        with patch.dict(os.environ,{'VAULTCONTEXT_DEMO_GENERATION':datetime.now(timezone.utc).date().isoformat()}),patch.object(self.life,'job') as job:
+            with self.assertRaisesRegex(module.ResetError,'running components'):self.life.migration('migration-adopt')
+            job.assert_not_called()
+
+    def test_target_adoption_uses_populated_health(self):
+        today=datetime.now(timezone.utc).date().isoformat()
+        (self.root/'persistent').mkdir(mode=0o700)
+        module.atomic_json(self.root/'persistent/incoming-handoff.json',{'version':1,'databaseDigest':'a'*64,'completedAt':1})
+        module.atomic_json(self.root/'control/incoming-runtime-handoff.json',{'generation':today,'databaseDigests':{'data.db':'a'*64,'auxiliary.db':'b'*64},'maintenance':None})
+        with patch.dict(os.environ,{'VAULTCONTEXT_DEMO_GENERATION':today}),patch.object(self.life,'job') as job,patch.object(self.life,'health') as health:
+            self.life.migration('migration-adopt')
+        self.assertEqual(job.call_args_list[0].args,('init',['adopt-handoff'],'adopt-handoff'))
+        self.assertEqual(job.call_args_list[1].args,('retention',['/usr/local/bin/vaultcontext-demo-contact-replica.py','adopt-handoff']))
+        health.assert_called_with(empty=False)
+        self.assertNotIn('gate',self.docker.items)
+        self.assertEqual(json.loads((self.root/'control/migration-fenced.json').read_text())['phase'],'target-verified')
 
     def test_raw_inspect_secrets_never_escape(self):
         raw={'Id':'a'*64,'Name':'/vaultcontext-demo-network','Config':{'Image':IMAGE,'Env':['SECRET=must-not-escape'],

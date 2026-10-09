@@ -8,6 +8,9 @@ socket:
 # this file. The credentials are not written here: Litestream reads LITESTREAM_ACCESS_KEY_ID
 # and LITESTREAM_SECRET_ACCESS_KEY from the environment itself.
 # A custom endpoint (R2, MinIO) selects path-style addressing automatically.
+# Production replicates data.db only. In explicit demo mode the entrypoint
+# generates /run/vaultcontext-demo-litestream.yml and appends auxiliary.db at
+# ${LITESTREAM_PATH}/auxiliary in the same disposable replica bucket.
 dbs:
   - path: /storage/pb_data/data.db
     replica:

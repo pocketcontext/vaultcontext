@@ -1,0 +1,19 @@
+# Dedicated durable contact replica. Never shares daily-reset storage or credentials.
+socket:
+  enabled: true
+  path: "${CONTACTS_REPLICA_SOCKET}"
+  permissions: 0600
+snapshot:
+  interval: 1h
+  retention: "${CONTACTS_LITESTREAM_RETENTION_HOURS}h"
+retention:
+  enabled: true
+dbs:
+  - path: "${CONTACTS_DATABASE}"
+    replica:
+      type: s3
+      bucket: "${CONTACTS_LITESTREAM_BUCKET}"
+      path: "${CONTACTS_LITESTREAM_PATH}"
+      region: "${CONTACTS_LITESTREAM_REGION}"
+      endpoint: "${CONTACTS_LITESTREAM_ENDPOINT}"
+      sync-interval: "${CONTACTS_LITESTREAM_SYNC_INTERVAL}"

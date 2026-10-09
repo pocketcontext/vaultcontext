@@ -83,6 +83,18 @@ class ResetTests(unittest.TestCase):
         with self.assertRaises(reset.ResetError):
             reset.reset(self.cfg, '2026-10-10')
 
+    def test_migration_fence_is_rechecked_after_lifecycle_lock(self):
+        original=reset.fcntl.flock
+        def acquire(descriptor,flags):
+            result=original(descriptor,flags)
+            reset.atomic_json(self.root/'control/migration-fenced.json',{'phase':'source-fenced'})
+            return result
+        with patch.object(reset.fcntl,'flock',side_effect=acquire):
+            with self.assertRaisesRegex(reset.ResetError,'migration fence'):
+                reset.reset(self.cfg,'2026-10-10')
+        self.assertTrue((self.root/'runtime/pb_data/data.db').exists())
+        self.assertFalse((self.root/'control/reset-pending.json').exists())
+
     def test_dry_run_does_not_delete(self):
         self.assertTrue(reset.reset(self.cfg, '2026-10-10', True)['dryRun'])
         self.assertTrue((self.root / 'runtime/pb_data/data.db').exists())

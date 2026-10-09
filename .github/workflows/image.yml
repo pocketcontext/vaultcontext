@@ -62,6 +62,11 @@ jobs:
           docker cp "$container:/usr/local/bin/pocketcontext" "$RUNNER_TEMP/pocketcontext-maintenance"
           chmod +x "$RUNNER_TEMP/pocketcontext-maintenance"
           uv run --locked python tests/maintenance.py --binary "$RUNNER_TEMP/pocketcontext-maintenance"
+          docker cp "$container:/usr/local/bin/litestream" "$RUNNER_TEMP/vaultcontext-litestream"
+          chmod +x "$RUNNER_TEMP/vaultcontext-litestream"
+          VAULTCONTEXT_TEST_LITESTREAM="$RUNNER_TEMP/vaultcontext-litestream" uv run --locked python -m unittest discover -s tests -p test_demo_replication_real.py
+          VAULTCONTEXT_DEMO_TEST_LITESTREAM="$RUNNER_TEMP/vaultcontext-litestream" uv run --locked python -m unittest discover -s tests -p test_demo_contact_replica.py
+          VAULTCONTEXT_TEST_BINARY="$RUNNER_TEMP/pocketcontext-maintenance" VAULTCONTEXT_TEST_LITESTREAM="$RUNNER_TEMP/vaultcontext-litestream" uv run --locked python -m unittest discover -s tests -p test_demo_auxiliary_replication.py
       - name: Startup errors for missing configuration
         run: uv run --locked python docker/smoke.py config --image vaultcontext:ci
       - name: Smoke test
