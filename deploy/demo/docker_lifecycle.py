@@ -508,6 +508,7 @@ http {
  scgi_temp_path /tmp/scgi;
  server {
   listen 8080;
+  absolute_redirect off;
   client_max_body_size 14m;
   location = / { return 302 /demo/; }
   location / {

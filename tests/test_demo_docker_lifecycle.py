@@ -101,6 +101,8 @@ class DockerDemoTests(unittest.TestCase):
         self.assertIn('proxy_set_header X-Forwarded-For $http_x_forwarded_for;',config)
         self.assertNotIn('$proxy_add_x_forwarded_for',config)
         self.assertIn('location = / { return 302 /demo/; }',config)
+        # The public TLS origin differs from this internal HTTP port.
+        self.assertIn('server {\n  listen 8080;\n  absolute_redirect off;',config)
         self.assertIn('location / {\n   proxy_pass http://127.0.0.1:80;',config)
         self.assertIn('proxy_set_header X-Forwarded-Proto https;',config)
         for module_name in ('client_body','proxy','fastcgi','uwsgi','scgi'):
