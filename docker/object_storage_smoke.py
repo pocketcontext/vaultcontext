@@ -18,6 +18,12 @@ s = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(s)
 
 
+def protected_checksum(url):
+    request = urllib.request.Request(url, headers={'X-VaultContext-Release': s.auth.RELEASE_ID})
+    with urllib.request.urlopen(request, timeout=15) as response:
+        return hashlib.sha256(response.read()).hexdigest()
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--image', required=True)
@@ -110,8 +116,7 @@ def main(argv=None):
                 status,_,token=s.http('POST',origin+'/api/files/token',{},token=client.token)
                 s.check(status==200,'owner receives file token for exact remote object')
                 owner_token=s.secret(token['token'])
-                with urllib.request.urlopen(path+owner_token) as response:
-                    checksum=hashlib.sha256(response.read()).hexdigest()
+                checksum=protected_checksum(path+owner_token)
                 s.check(checksum==record[2],'exact authorization-test URL returns expected object bytes to owner')
                 foreign=s.Client(origin,'foreign@example.test',password,tmp/'foreign')
                 status,_,token=s.http('POST',origin+'/api/files/token',{},token=foreign.token)

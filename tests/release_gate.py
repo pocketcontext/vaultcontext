@@ -123,6 +123,15 @@ def main():
         path = '/api/files/version_chunks/' + chunk['id'] + '/' + chunk['ciphertext'] + '?token=' + file_token
         assert raw('GET', path, expected=403)['data']['code'] == 'client_upgrade_required'
         assert raw('GET', path, release=RELEASE['release_id']) == b'synthetic-file-bytes'
+        # Exercise the container primary-storage helper against the real gate;
+        # its owner download must claim the release without bypassing file auth.
+        import hashlib
+        import importlib.util
+        spec = importlib.util.spec_from_file_location('primary_storage_smoke', ROOT / 'docker/object_storage_smoke.py')
+        primary = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(primary)
+        assert primary.protected_checksum(request.base_url + path) == hashlib.sha256(b'synthetic-file-bytes').hexdigest()
+
     print('VaultContext exact release gate: PASS')
 
 
