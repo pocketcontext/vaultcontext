@@ -397,6 +397,42 @@ class OnceRuntimeStateTests(unittest.TestCase):
         self.assertTrue(candidate.status()['ready'])
         self.assertEqual(processes.contents(), before)
 
+    def test_release_can_transition_to_dedicated_demo_image_repository(self):
+        old, backend = self.populated()
+        before = backend.contents()
+        target = {'image': IMAGE.replace('/vaultcontext@', '/vaultcontext-demo@'),
+                  'revision': NEXT_REVISION}
+        prepared = old.prepare_release(target)
+        self.assertEqual(prepared['image'], target['image'])
+        self.assertFalse(backend.opened or backend.app or backend.contacts)
+        old.close()
+        candidate, processes = self.instance(NEXT_REVISION)
+        candidate.start()
+        self.assertFalse(processes.opened)
+        candidate.validate_release(target)
+        result = candidate.commit_release(target)
+        self.assertEqual(result['image'], target['image'])
+        self.assertTrue(result['ready'] and processes.opened)
+        self.assertEqual(processes.contents(), before)
+
+    def test_release_rejects_unrelated_or_unpinned_images_without_fencing(self):
+        value, backend = self.populated()
+        before = backend.contents()
+        for image in (
+            IMAGE.replace('/vaultcontext@', '/vaultcontext-other@'),
+            IMAGE.replace('/pocketcontext/', '/other/'),
+            IMAGE.replace('ghcr.io/', 'example.com/'),
+            'ghcr.io/pocketcontext/vaultcontext-demo:latest',
+            IMAGE.replace('/vaultcontext@', '/vaultcontext-demo@') + '0',
+            IMAGE.replace('/vaultcontext@', '/vaultcontext-demo@').replace('c' * 64, 'C' * 64),
+        ):
+            with self.subTest(image=image):
+                with self.assertRaises(self.module.RuntimeErrorSafe):
+                    value.prepare_release({'image': image, 'revision': NEXT_REVISION})
+                self.assertTrue(value.status()['ready'] and backend.opened)
+                self.assertFalse(value.pending.exists())
+                self.assertEqual(backend.contents(), before)
+
     def test_wrong_revision_restart_stays_fenced_without_reset(self):
         old, backend = self.populated()
         before = backend.contents()
