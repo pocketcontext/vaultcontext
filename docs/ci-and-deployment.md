@@ -53,3 +53,25 @@ python3 tests/deploy_workflow.py
 
 Validate workflow YAML with actionlint. Actual native CI and image recovery gates
 remain required before release; local validation does not replace either platform.
+
+## Verified base-image mirrors
+
+The application and local MinIO fixture use the existing public core GHCR mirrors
+`ghcr.io/pocketcontext/vaultcontext:base-golang-1.27.1-trixie` and
+`ghcr.io/pocketcontext/vaultcontext:base-debian-trixie-20260918-slim`, pinned to the
+original upstream index digests. Both indexes were verified by anonymous registry
+reads before adopting them. This avoids Docker Hub rate limits without changing
+base contents or supported architectures.
+
+`mirror-bases.yml` copies every platform with `--preserve-digests`, alternating
+Docker's ECR Public distribution and Docker Hub on retry. It verifies the complete
+index digest and requires Linux AMD64 and ARM64. The workflow only publishes base
+image tags; it never deploys the application. For future updates, publish and verify
+the new mirror before changing either Dockerfile. Keep the workflow's source pins
+and both consumers aligned. A failed copy or verification must block adoption.
+
+Platform digest exports and manifest inputs reject malformed digests explicitly
+before publication; manifest arguments are passed as an array. Application
+publication also depends on the copied remote launcher tests. Those tests must
+pass against this backend's exact release identifier: publish the matching client
+package and update the launcher pin before publishing its backend image.

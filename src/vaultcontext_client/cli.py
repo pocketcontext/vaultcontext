@@ -15,6 +15,7 @@ import resource
 import re
 import secrets
 import socket
+import stat
 import struct
 import sys
 import textwrap
@@ -42,6 +43,8 @@ def request(cfg, method, path, body=None):
                     if method == 'POST' and path == '/api/context/query'
                     else auth.call(cfg, method, path, body))
     if status >= 400:
+        if status == 409 and method == 'POST' and path == '/api/collections/vault_actions/records' and isinstance(body, dict) and body.get('op') == 'identity_init':
+            raise auth.Fail(4, 'Identity already initialized. Run vaultcontext unlock with your existing passphrase. init does not replace an identity or reset its passphrase.')
         raise auth.Fail(4 if status == 409 else 1, f'HTTP {status}; operation failed. Reread state before retrying; response content suppressed.')
     return data
 
@@ -81,7 +84,24 @@ def pin_path(cfg):
 
 def pins(cfg):
     try:
-        return json.loads(crypto.read_file(pin_path(cfg), max_size=65536))
+        path = pin_path(cfg)
+        with crypto._parent(path) as (directory, name):
+            parent = os.fstat(directory)
+            if parent.st_uid != os.getuid() or stat.S_IMODE(parent.st_mode) != 0o700:
+                raise auth.Fail(1, 'Unsafe fingerprint directory ownership or permissions.')
+            fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=directory)
+            with os.fdopen(fd, 'rb') as stream:
+                info = os.fstat(stream.fileno())
+                if (not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or
+                        stat.S_IMODE(info.st_mode) != 0o600 or info.st_nlink != 1 or info.st_size > 65536):
+                    raise auth.Fail(1, 'Unsafe fingerprint file ownership or permissions.')
+                value = json.loads(stream.read(65537))
+                after = os.fstat(stream.fileno())
+                if (info.st_mtime_ns, info.st_ctime_ns, info.st_size) != (after.st_mtime_ns, after.st_ctime_ns, after.st_size):
+                    raise auth.Fail(1, 'Fingerprint file changed during read.')
+                if not isinstance(value, dict) or any(not isinstance(k, str) or not isinstance(v, str) for k, v in value.items()):
+                    raise auth.Fail(1, 'Invalid fingerprint file.')
+                return value
     except FileNotFoundError:
         return {}
 
@@ -97,6 +117,10 @@ def verify_user(cfg, account, fingerprint=None):
         known[account] = actual
         path = pin_path(cfg)
         path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        with crypto._parent(path) as (directory, _):
+            info = os.fstat(directory)
+            if info.st_uid != os.getuid() or stat.S_IMODE(info.st_mode) != 0o700:
+                raise auth.Fail(1, 'Unsafe fingerprint directory ownership or permissions.')
         crypto.restore_file(path, encode(known).encode(), overwrite=True)
     elif known.get(account) != actual:
         raise auth.Fail(1, f'Unverified or changed public key for {account}; verify-user with an independently obtained fingerprint first.')
@@ -143,11 +167,23 @@ def download_chunk(cfg, chunk):
     path = '/api/files/version_chunks/' + urllib.parse.quote(chunk['id'], safe='') + '/' + urllib.parse.quote(chunk['ciphertext'], safe='')
     url = cfg['url'] + path + '?' + urllib.parse.urlencode({'token': token})
     try:
-        with auth.opener.open(urllib.request.Request(url, headers={'User-Agent': auth.USER_AGENT}), timeout=30) as response:
+        with auth.opener.open(urllib.request.Request(url, headers={'User-Agent': auth.USER_AGENT, 'X-VaultContext-Release': auth.RELEASE_ID}), timeout=30) as response:
             value = response.read(262145)
         if len(value) > 262144 or hashlib.sha256(value).hexdigest() != chunk['sha256']:
             raise ValueError('invalid chunk')
         return value.decode('utf-8')
+    except urllib.error.HTTPError as error:
+        try:
+            data = json.loads(error.read(65537))
+        except Exception:
+            data = None
+        finally:
+            error.close()
+        if (error.code == 403 and isinstance(data, dict) and
+                isinstance(data.get('data'), dict) and
+                data['data'].get('code') == 'client_upgrade_required'):
+            raise auth.UpgradeRequired() from None
+        raise auth.Fail(1, 'Protected chunk download failed; sensitive details suppressed.') from None
     except Exception:
         raise auth.Fail(1, 'Protected chunk download failed; sensitive details suppressed.') from None
 
@@ -224,11 +260,14 @@ def get_version(cfg, identity, account, document, version=None, content=True):
     return data, info, ver
 
 def execute(cfg, identity, account, args):
+    auth.require_release(cfg)
     command = args['command']
     if command == 'change-passphrase':
         secret = one(cfg, 'identity_secrets', 'account=' + quote(account))
         bundle = crypto.wrap_identity(identity, args['new_passphrase'], account)
-        return action(cfg, 'identity_rewrap', {'key_bundle': encode(bundle), 'expected_revision': secret['revision']})
+        payload = {'key_bundle': encode(bundle), 'expected_revision': secret['revision']}
+        payload['signature'] = crypto.sign_manifest(identity, dict(payload, account=account, purpose='identity-rewrap'))
+        return action(cfg, 'identity_rewrap', payload)
     if command == 'create':
         vault, key = uid(), crypto.new_vault_key()
         return action(cfg, 'vault_create', {'id': vault, 'metadata': metadata(key, {'name': args['name']}, {'kind': 'vault-metadata', 'vault': vault}), 'envelope': seal(cfg, identity, key, vault, account, 1, account)})
@@ -709,6 +748,8 @@ def run(args):
         crypto.restore_file(args.to, base64.b64decode(matches[0]['data'], validate=True), overwrite=args.overwrite)
         return {'restored': args.version}
     cfg = auth.config()
+    if args.command not in ('lock', 'logout', 'keychain-forget'):
+        auth.require_release(cfg)
     if args.command == 'login':
         (auth.google_login(cfg, args.port, args.timeout) if args.google else auth.login(cfg))
         return {'signed_in': True}
@@ -733,6 +774,10 @@ def run(args):
     if args.command == 'init':
         resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
         account = whoami(cfg)
+        # Check access and existing identity before prompting or generating keys.
+        # The write still checks concurrent initialization.
+        if rows(cfg, 'identities', 'account=' + quote(account)):
+            raise auth.Fail(4, 'Identity already initialized. Run vaultcontext unlock with your existing passphrase. init does not replace an identity or reset its passphrase.')
         identity = crypto.generate_identity()
         bundle = crypto.wrap_identity(identity, prompt_passphrase(confirm=True), account)
         pub = crypto.public_identity(identity)

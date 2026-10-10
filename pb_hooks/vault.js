@@ -41,7 +41,8 @@ function execute(app,actor,op,p) {
  }
  if(op==='identity_rewrap') {
   const r=get('identity_secrets',actor);if(p.expected_revision!==r.getInt('revision'))conflict();
-  r.set('key_bundle',str('key_bundle'));r.set('revision',r.getInt('revision')+1);app.save(r);return {id:actor,revision:r.getInt('revision')};
+  require(`${__hooks}/identity_signature.js`).verify(actor,identity(),p);
+  r.set('key_bundle',str('key_bundle'));r.set('revision',r.getInt('revision')+1);app.save(r);audit('',actor);return {id:actor,revision:r.getInt('revision')};
  }
  identity();
  if(op==='vault_create') {

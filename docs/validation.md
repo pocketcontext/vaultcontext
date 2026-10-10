@@ -438,3 +438,25 @@ and passed on retry. Existing historical archive tests remain for compatibility;
 they do not establish archive support in the new image. Native AMD64 execution,
 macOS-only checks, real R2 behavior and production deployment were not performed.
 No publication, deployment, cloud configuration or real application data changed.
+
+## Demo backports and exact client release — 10 October 2026
+
+Prepared core release `2026-10-10.1` from the source references in
+`docs/client-releases.md`. PocketContext remains pinned to
+`976ddf71a4734530adefe4a56633658a0894b449`, rebuilt with Go 1.27.1 and CGO.
+No application-data migration was needed; the audit SQL policy now includes only
+the requesting actor's identity-replacement events.
+
+Local synthetic validation passed: 114 unit tests (seven macOS-only skips),
+release-gate API/URL/realtime coverage, signed identity replacement and audit
+privacy, maintenance, integration, archive migration, auth, OAuth integration,
+realtime, source client/skill and terminal workflows, deployment, populated backup
+recovery and maximum-file limits. Additional checks passed: 43 entrypoint tests,
+five object-storage settings tests, 12 OAuth-client tests, workflow tests,
+actionlint and Playwright onboarding/mobile/keyboard/analytics checks. Sdist-to-wheel
+build preserved the canonical release resource. No real vault files were accessed.
+
+Docker is unavailable on this Ubuntu ARM64 host. Native container configuration,
+smoke and populated Litestream/MinIO recovery, macOS execution and published copied
+launcher verification remain release gates; local checks do not substitute for
+these. Later release evidence should record their actual results separately.

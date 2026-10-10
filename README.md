@@ -85,6 +85,11 @@ Production Google settings use a separate Web OAuth client, paired `VAULTCONTEXT
 
 ## Portable client
 
+The backend accepts exactly one matching client release. See [client releases and
+upgrades](docs/client-releases.md). Users upgrade explicitly when the server changes;
+old clients cannot use protected APIs. Public installation instructions and local
+lock/logout remain available. The release ID is a compatibility check, not authorization.
+
 Install [uv](https://docs.astral.sh/uv/getting-started/installation/) and copy the executable launcher onto your PATH:
 
 ```sh
@@ -149,6 +154,8 @@ Apple's Swift command-line tools on macOS; its rejection tests never access Keyc
 ```sh
 uv sync --locked
 uv run --locked python -m unittest discover -s tests -p 'test_*.py'
+uv run --locked python tests/release_gate.py --binary /absolute/path/to/pinned/pocketcontext
+uv run --locked python tests/identity_rewrap.py --binary /absolute/path/to/pinned/pocketcontext
 uv run --locked python tests/integration.py --binary /absolute/path/to/pinned/pocketcontext
 uv run --locked python tests/archive_migration.py --binary /absolute/path/to/pinned/pocketcontext
 uv run --locked python tests/realtime.py --binary /absolute/path/to/pinned/pocketcontext
@@ -171,7 +178,8 @@ Identity, OAuth and deployment patterns are adapted from RaiseContext; filtered 
 
 ## Client launcher releases
 
-Commit and push the tested package implementation first. Update `skills/vaultcontext/vaultcontext` to that full commit SHA, then validate the remotely installed client before committing and pushing the launcher:
+Follow the [release procedure](docs/client-releases.md#release-procedure). Publish the
+tested package implementation without deploying its backend first. Update `skills/vaultcontext/vaultcontext` to that full commit SHA, then validate the remotely installed client before committing and pushing the launcher:
 
 ```sh
 uv run --locked python tests/skill.py --binary /absolute/path/to/pinned/pocketcontext --client skills/vaultcontext/vaultcontext

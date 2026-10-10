@@ -1,0 +1,8 @@
+{
+  "package": "tweetnacl",
+  "version": "1.0.3",
+  "tarball": "https://registry.npmjs.org/tweetnacl/-/tweetnacl-1.0.3.tgz",
+  "integrity": "sha512-6rt+RN7aOi1nGMyC4Xa5DdYiukl2UWCbcJft7YhxReBGQD7OAM8Pbxw6YMo4r2diNEA8FEmu32YOn9rhaiE5yw==",
+  "adapted_file_sha256": "260fdec161bdf43ab8f8651d0a9914559e734bae659c16122b162af4fb591629",
+  "adaptation": "Disable Node crypto auto-PRNG initialization; verification only."
+}

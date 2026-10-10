@@ -74,10 +74,10 @@ def main():
         owner,owner_fp,a,owner_env=actors[0];colleague,colleague_fp,b,colleague_env=actors[1]
         cat_help=subprocess.run(command+['cat','--help'],cwd=tmp,capture_output=True)
         cat_available=cat_help.returncode==0
-        assert args.client or cat_available, 'source package must provide cat'
+        assert cat_available, 'matching client release must provide cat'
         compare_help=subprocess.run(command+['compare','--help'],cwd=tmp,capture_output=True)
         compare_available=compare_help.returncode==0
-        assert args.client or compare_available, 'source package must provide compare'
+        assert compare_available, 'matching client release must provide compare'
         try:
             vault=a('create','Synthetic isolated shared project')['id']
             source=Path(tmp)/'arbitrary.binary';content=b'\x00\xff\r\n'+os.urandom(8192);source.write_bytes(content)

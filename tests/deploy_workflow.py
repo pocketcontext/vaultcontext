@@ -163,5 +163,91 @@ class DeploymentTests(unittest.TestCase):
                     self.assertEqual(result.returncode == 0, success, result.stderr)
 
 
+    def test_manifest_rejects_bad_digests_even_without_errexit(self):
+        section = PUBLICATION.split('      - name: Create and push the manifest list\n', 1)[1]
+        body = section.split('        run: |\n', 1)[1].split('      - name:', 1)[0]
+        command = '\n'.join(line[10:] for line in body.splitlines() if line.startswith('          '))
+        with tempfile.TemporaryDirectory(prefix='manifest-digests-') as directory:
+            root = Path(directory)
+            bin_dir = root / 'bin'
+            bin_dir.mkdir()
+            calls = root / 'calls'
+            docker = bin_dir / 'docker'
+            docker.write_text('#!/bin/sh\nprintf "%s\\n" "$@" > "$SYNTHETIC_CALLS"\n')
+            docker.chmod(0o700)
+            digests = root / 'digests'
+            digests.mkdir()
+            (digests / ('a' * 64)).touch()
+            env = dict(os.environ, PATH=str(bin_dir)+':'+os.environ['PATH'],
+                       IMAGE='example/app', GITHUB_SHA='c'*40, SYNTHETIC_CALLS=str(calls))
+            for value, success in [('b'*64, True), ('bad', False), ('b'*63, False), ('B'*64, False)]:
+                with self.subTest(value=value):
+                    candidate = digests / value
+                    candidate.touch()
+                    calls.unlink(missing_ok=True)
+                    result = subprocess.run(['bash', '-c', command], cwd=digests,
+                                            env=env, capture_output=True, text=True)
+                    self.assertEqual(result.returncode == 0, success, result.stderr)
+                    self.assertEqual(calls.exists(), success)
+                    if success:
+                        self.assertEqual(calls.read_text().splitlines()[-2:],
+                                         ['example/app@sha256:'+'a'*64, 'example/app@sha256:'+'b'*64])
+                    candidate.unlink()
+
+    def test_mirror_workflow_matches_both_digest_pinned_consumers(self):
+        import re
+        mirror = (ROOT / '.github/workflows/mirror-bases.yml').read_text()
+        pins = re.findall(r'^          mirror (\S+) (\S+) (sha256:[0-9a-f]{64})$', mirror, re.M)
+        self.assertEqual(len(pins), 2)
+        for filename in ('Dockerfile', 'docker/minio.Dockerfile'):
+            dockerfile = (ROOT / filename).read_text()
+            for name, version, digest in pins:
+                self.assertIn('FROM ghcr.io/pocketcontext/vaultcontext:base-'+name+'-'+version+'@'+digest, dockerfile)
+        self.assertIn('--all --preserve-digests', mirror)
+        self.assertIn('test "$actual" = "$digest"', mirror)
+        self.assertIn('("linux","amd64"),("linux","arm64")', mirror)
+        self.assertNotIn('vaultcontext-demo', mirror)
+
+    def test_release_security_checks_and_remote_launcher_gate_publication(self):
+        application = (ROOT / '.github/workflows/test.yml').read_text()
+        self.assertIn('for check in release_gate identity_rewrap ', application)
+        self.assertIn('--client vaultcontext/skills/vaultcontext/vaultcontext', application)
+
+
+    def test_container_includes_identity_verifier_and_exercises_it(self):
+        ignores = (ROOT / '.dockerignore').read_text().splitlines()
+        for name in ('tweetnacl-1.0.3.js', 'tweetnacl-LICENSE', 'provenance.json', 'README.txt'):
+            relative = 'pb_hooks/vendor/' + name
+            self.assertIn('!' + relative, ignores)
+            self.assertTrue((ROOT / relative).is_file())
+        self.assertNotIn('!pb_hooks/vendor/*', ignores)
+        self.assertIn('COPY pb_hooks/ ./pb_hooks/', (ROOT / 'Dockerfile').read_text())
+        smoke = (ROOT / 'docker/smoke.py').read_text()
+        self.assertIn("action(client, 'identity_rewrap', replacement)", smoke)
+        self.assertIn("check(status == 403, 'unsigned identity replacement is rejected')", smoke)
+
+
+    def test_public_release_verification_accepts_only_matching_release(self):
+        with tempfile.TemporaryDirectory(prefix='public-release-') as directory:
+            root = Path(directory)
+            (root / 'pb_hooks').mkdir()
+            (root / 'pb_hooks/release.json').write_text(json.dumps({'release_id': 'synthetic-release'}))
+            curl = root / 'curl'
+            curl.write_text('#!/bin/sh\nprintf "%s" "$SYNTHETIC_RESPONSE"\nexit "$SYNTHETIC_EXIT"\n')
+            curl.chmod(0o700)
+            for body, status, success in [({'release_id': 'synthetic-release'}, '0', True),
+                                          ({'release_id': 'old-release'}, '0', False),
+                                          ({}, '0', False), ({'release_id': 'synthetic-release'}, '1', False)]:
+                with self.subTest(body=body, status=status):
+                    env = dict(os.environ, PATH=str(root)+':'+os.environ['PATH'],
+                               SYNTHETIC_RESPONSE=json.dumps(body), SYNTHETIC_EXIT=status)
+                    result = subprocess.run(['bash', '-e', '-o', 'pipefail', '-c', script('Verify public client release')],
+                                            cwd=root, env=env, capture_output=True, text=True)
+                    self.assertEqual(result.returncode == 0, success, result.stderr)
+        self.assertIn('ref: ${{ github.sha }}', DEPLOYMENT)
+        self.assertIn('persist-credentials: false', DEPLOYMENT)
+        self.assertIn('https://vault.pocketcontext.com/api/vaultcontext/compatibility', script('Verify public client release'))
+
+
 if __name__ == '__main__':
     unittest.main()

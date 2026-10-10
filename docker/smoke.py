@@ -24,7 +24,7 @@ import urllib.error
 import urllib.request
 
 ROOT = Path(__file__).resolve().parent.parent
-from vaultcontext_client import crypto
+from vaultcontext_client import crypto, auth
 # Build the withdrawn community image from pinned upstream sources for CI only.
 MINIO_IMAGE = os.environ.get('VAULTCONTEXT_TEST_MINIO_IMAGE', 'vaultcontext-minio-fixture:9e49d5e-7394ce0')
 STOP_LIMIT = 60  # seconds. `docker stop` waits 10 seconds by default before it kills.
@@ -112,6 +112,7 @@ def run_app(image, name, volume, env, network=None):
 def http(method, url, body=None, token=None, headers=None):
     """Returns (status, headers, parsed JSON or text). Status 0 means no HTTP response."""
     request = urllib.request.Request(url, method=method, data=None if body is None else json.dumps(body).encode())
+    request.add_header('X-VaultContext-Release', auth.RELEASE_ID)
     if body is not None:
         request.add_header('Content-Type', 'application/json')
     if token:
@@ -231,6 +232,20 @@ def write_record(client, user_id):
         action(client, 'identity_init', {'public_key': public['enc_public'], 'signing_key': public['sign_public'],
                'fingerprint': crypto.fingerprint(public),
                'key_bundle': json.dumps(crypto.wrap_identity(identity, passphrase, user_id))})
+    # Exercise the image's vendored verifier before accepting any recovery gate.
+    # Keep the synthetic passphrase constant so later restart/restore checks can
+    # unwrap the replacement bundle, whose fresh salt changes the ciphertext.
+    revision = client.sql(f"SELECT revision FROM identity_secrets WHERE account = '{user_id}'")[0][0]
+    replacement = {'expected_revision': revision,
+                   'key_bundle': json.dumps(crypto.wrap_identity(identity, passphrase, user_id))}
+    status, _, _ = http('POST', client.base + '/api/collections/vault_actions/records',
+                        {'op': 'identity_rewrap', 'payload': replacement}, token=client.token)
+    check(status == 403, 'unsigned identity replacement is rejected')
+    replacement['signature'] = crypto.sign_manifest(identity,
+        dict(replacement, account=user_id, purpose='identity-rewrap'))
+    action(client, 'identity_rewrap', replacement)
+    stored = client.sql(f"SELECT key_bundle, revision FROM identity_secrets WHERE account = '{user_id}'")
+    check(stored == [[replacement['key_bundle'], revision + 1]], 'signed identity replacement persists exactly once')
     public = crypto.public_identity(identity)
     vault, document, version = (secrets.token_hex(8)[:15] for _ in range(3))
     key = crypto.new_vault_key()
@@ -275,7 +290,7 @@ def check_records(client, document, expected):
     file_token = secret(file_auth['token'])
     parts = []
     for chunk_id, filename, checksum in chunks:
-        request = urllib.request.Request(client.base + '/api/files/version_chunks/' + chunk_id + '/' + filename + '?token=' + file_token)
+        request = urllib.request.Request(client.base + '/api/files/version_chunks/' + chunk_id + '/' + filename + '?token=' + file_token, headers={'X-VaultContext-Release': auth.RELEASE_ID})
         with urllib.request.urlopen(request, timeout=15) as response:
             content = response.read()
         check(hashlib.sha256(content).hexdigest() == checksum, 'protected ciphertext chunk hash matches')

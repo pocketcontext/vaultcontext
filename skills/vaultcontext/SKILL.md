@@ -52,3 +52,11 @@ Exports use a separately prompted archive passphrase and contain no identity pri
 ## Failures
 
 On a revision conflict, reread metadata and reassess before retrying. On an uncertain network result, inspect IDs/history/membership state rather than blindly resubmitting. Do not claim a failed operation completed. HTTP error details and internal exceptions are suppressed to avoid echoing secret content.
+
+## Client upgrades
+
+The backend supports one matching client release. If it rejects an old client, use
+the configured server public page and `/api/vaultcontext/compatibility` to identify
+the required release. Do not spoof the release header or bypass the gate. Install updates only within an explicit user request; lock before replacing the
+client, then have the user unlock privately. Do not run `init` again. Reuse unlocked
+sessions normally outside explicit upgrades. See the repository client release guide.

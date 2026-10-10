@@ -1,0 +1,63 @@
+name: Mirror pinned base images
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: [.github/workflows/mirror-bases.yml]
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: mirror-vaultcontext-bases
+  cancel-in-progress: false
+
+jobs:
+  mirror:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Install registry copy tool
+        run: sudo apt-get update -qq && sudo apt-get install -y skopeo
+      - name: Copy original indexes and all platforms without changing digests
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GHCR_USER: ${{ github.actor }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          authfile=$(mktemp)
+          trap 'rm -f "$authfile"' EXIT
+          printf '{"auths":{}}\n' > "$authfile"
+          printf '%s' "$GHCR_TOKEN" | skopeo login --authfile "$authfile" --username "$GHCR_USER" --password-stdin ghcr.io
+          mirror() {
+            local name="$1" version="$2" digest="$3"
+            # Docker's ECR Public distribution carries the same pinned index.
+            # Alternate registries on retry; never substitute another digest.
+            local source
+            local destination="docker://ghcr.io/pocketcontext/vaultcontext:base-$name-$version"
+            local copied=false
+            for attempt in 1 2 3 4 5 6; do
+              if (( attempt % 2 )); then
+                source="docker://public.ecr.aws/docker/library/$name@$digest"
+              else
+                source="docker://docker.io/library/$name@$digest"
+              fi
+              if skopeo copy --authfile "$authfile" --all --preserve-digests --retry-times 3 "$source" "$destination"; then
+                copied=true
+                break
+              fi
+              echo "Copy attempt $attempt failed; retrying after backoff."
+              sleep "$((attempt * 30))"
+            done
+            test "$copied" = true
+            local actual
+            actual="sha256:$(skopeo inspect --authfile "$authfile" --raw "$destination" | sha256sum | cut -d ' ' -f 1)"
+            test "$actual" = "$digest"
+            skopeo inspect --authfile "$authfile" --raw "$destination" | python3 -c 'import json,sys; m=json.load(sys.stdin); p={(x.get("platform",{}).get("os"),x.get("platform",{}).get("architecture")) for x in m["manifests"]}; assert {("linux","amd64"),("linux","arm64")} <= p'
+            echo "Verified $name index $actual, including linux/amd64 and linux/arm64."
+          }
+          mirror golang 1.27.1-trixie sha256:a4d1d139d0b0e7313de2fbe7cf4e27e3b934c164c5c58b33af44af2e9ba2fc4f
+          mirror debian trixie-20260918-slim sha256:a99cfc517144bc59b1978475ec53b46ecabec7e43635402ee5b77cc54cd1b20a

@@ -277,14 +277,9 @@ def main():
         try:vc.verify_user(a,bid,'0'*64)
         except vc.auth.Fail:pass
         else:raise AssertionError('wrong fingerprint accepted')
-        # The initial source-release CI still carries the previous launcher pin.
-        # Source cat coverage is mandatory; a copied launcher is tested when it advertises cat.
         help_result=subprocess.run(command+['cat','--help'],cwd=tmp,capture_output=True)
-        if not args.client or help_result.returncode == 0:
-            assert help_result.returncode == 0, help_result.stderr
-            cat_checks(command,tmp,req,users[0],users[2],doc,ver,content)
-        else:
-            print('Copied launcher predates cat; source cat checks run separately.')
+        assert help_result.returncode == 0, help_result.stderr
+        cat_checks(command,tmp,req,users[0],users[2],doc,ver,content)
         # Real fresh-process/socket lifecycle: no private material in cache, restore via broker, lock.
         with patch.object(vc,'prompt_passphrase',return_value='synthetic passphrase'):
             vc.unlock(a,30)

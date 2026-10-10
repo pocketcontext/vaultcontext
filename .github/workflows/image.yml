@@ -125,7 +125,10 @@ jobs:
         env:
           DIGEST: ${{ steps.build.outputs.digest }}
         run: |
-          test -n "$DIGEST"
+          if [[ ! "$DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo 'Invalid platform image digest.' >&2
+            exit 1
+          fi
           mkdir -p /tmp/digests
           touch "/tmp/digests/${DIGEST#sha256:}"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -172,16 +175,19 @@ jobs:
           set -- *
           echo "digests of this run: $*"
           test "$#" -eq 2
-          sources=""
+          sources=()
           for digest in "$@"; do
-            sources="$sources $IMAGE@sha256:$digest"
+            if [[ ! "$digest" =~ ^[0-9a-f]{64}$ ]]; then
+              echo 'Invalid platform image digest.' >&2
+              exit 1
+            fi
+            sources+=("$IMAGE@sha256:$digest")
           done
-          # shellcheck disable=SC2086 # one argument per digest
           docker buildx imagetools create \
             --tag "$IMAGE:latest" \
             --tag "$IMAGE:sha-${GITHUB_SHA::7}" \
             --tag "$IMAGE:sha-$GITHUB_SHA" \
-            $sources
+            "${sources[@]}"
       - name: Show what was published
         run: docker buildx imagetools inspect "$IMAGE:latest"
 
@@ -200,6 +206,10 @@ jobs:
       group: deploy-${{ vars.COLORS_PROFILE }}
       cancel-in-progress: false
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
       - name: Require current main revision
         env:
           GH_TOKEN: ${{ github.token }}
@@ -241,3 +251,10 @@ jobs:
             --connect-timeout 10 --max-time 20 \
             --retry 12 --retry-delay 5 --retry-max-time 180 --retry-all-errors \
             https://vault.pocketcontext.com/up
+      - name: Verify public client release
+        run: |
+          curl --fail --silent --show-error \
+            --connect-timeout 10 --max-time 20 \
+            --retry 12 --retry-delay 5 --retry-max-time 180 --retry-all-errors \
+            https://vault.pocketcontext.com/api/vaultcontext/compatibility \
+            | python3 -c 'import json,sys; from pathlib import Path; expected=json.loads(Path("pb_hooks/release.json").read_text())["release_id"]; actual=json.load(sys.stdin); sys.exit(0 if actual.get("release_id") == expected else "Deployed client release differs from this workflow release.")'

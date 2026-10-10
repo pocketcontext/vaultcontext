@@ -14,6 +14,11 @@ from unittest.mock import Mock, patch
 from vaultcontext_client import cli as vc
 
 class ClientTests(unittest.TestCase):
+    def setUp(self):
+        guard = patch.object(vc.auth, 'require_release')
+        guard.start()
+        self.addCleanup(guard.stop)
+
     def test_native_peer_credentials(self):
         left, right = socket.socketpair()
         with left, right:

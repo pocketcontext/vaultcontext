@@ -22,7 +22,7 @@ def multipart(request, table, fields, token, expected=200):
     content = b'Synthetic maintenance original'
     body = ''.join(f'--{boundary}\r\nContent-Disposition: form-data; name="{k}"\r\n\r\n{v}\r\n' for k,v in fields.items()).encode()
     body += (f'--{boundary}\r\nContent-Disposition: form-data; name="original"; filename="fixture.txt"\r\nContent-Type: text/plain\r\n\r\n').encode() + content + f'\r\n--{boundary}--\r\n'.encode()
-    req = urllib.request.Request(request.base_url + '/api/collections/' + table + '/records', body, {'Authorization':token, 'Content-Type':'multipart/form-data; boundary=' + boundary})
+    req = urllib.request.Request(request.base_url + '/api/collections/' + table + '/records', body, {'X-VaultContext-Release': json.loads((ROOT/'pb_hooks/release.json').read_text())['release_id'], 'Authorization':token, 'Content-Type':'multipart/form-data; boundary=' + boundary})
     try:
         with urllib.request.urlopen(req, timeout=10) as r: status, raw = r.status, r.read()
     except urllib.error.HTTPError as e: status, raw = e.code, e.read()
@@ -59,7 +59,7 @@ def frozen_restart(binary, request, admin, token, frozen, table):
         def call(method, path, body=None, identity=admin):
             req = urllib.request.Request(f'http://127.0.0.1:{port}' + path,
                 data=None if body is None else json.dumps(body).encode(),
-                headers={'Content-Type': 'application/json', 'Authorization': identity}, method=method)
+                headers={'X-VaultContext-Release': json.loads((ROOT/'pb_hooks/release.json').read_text())['release_id'], 'Content-Type': 'application/json', 'Authorization': identity}, method=method)
             with urllib.request.urlopen(req, timeout=10) as response:
                 return json.loads(response.read())
         with (Path(tmp) / 'server.log').open('w+') as log:
@@ -136,7 +136,9 @@ def main():
         for identity, allowed in [(token,True),(outsider,False),(None,False)]:
             ft=request('POST','/api/files/token',{},identity)['token'] if identity else ''
             try:
-                with urllib.request.urlopen(request.base_url+file_path+'?token='+ft,timeout=10) as response:
+                download = urllib.request.Request(request.base_url+file_path+'?token='+ft,
+                    headers={'X-VaultContext-Release': json.loads((ROOT/'pb_hooks/release.json').read_text())['release_id']})
+                with urllib.request.urlopen(download,timeout=10) as response:
                     assert allowed and response.read()==original
             except urllib.error.HTTPError as error:
                 assert not allowed and error.code in (401,403,404), error.code

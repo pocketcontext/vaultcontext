@@ -21,7 +21,7 @@ letters/digits. Encrypted structures are JSON serialized into opaque strings.
 | Operation | Payload |
 | --- | --- |
 | `identity_init` | `public_key`, `signing_key`, `fingerprint`, `key_bundle` |
-| `identity_rewrap` | `key_bundle`, `expected_revision` |
+| `identity_rewrap` | `key_bundle`, `expected_revision`, `signature` |
 | `vault_create` | `id`, encrypted `metadata`, own `envelope` |
 | `save` | `vault`, `document`, `version`, `expected_revision`, `expected_archive_revision`, `epoch`, encrypted `metadata`, `manifest`, `signature`, `chunks` |
 | `archive`, `unarchive` | `vault`, `document`, `expected_revision`, `expected_archive_revision` |
@@ -76,3 +76,16 @@ retry. On uncertain network results inspect the supplied document/version/vault 
 before another write. Membership state is enforced independently of client claims.
 The server treats ciphertext as opaque; clients verify fingerprints, envelope
 signatures and file manifests. Server metadata audits contain IDs and action names.
+
+## Client release and identity replacement
+
+Ordinary protected requests require the exact `X-VaultContext-Release` from the
+public `GET /api/vaultcontext/compatibility` response. A missing or different ID
+returns HTTP 403 with `data.code = client_upgrade_required`; normal authorization
+remains independent. See [release boundaries](client-releases.md).
+
+`identity_rewrap` requires the existing Ed25519 identity to sign the canonical
+manifest `{account, expected_revision, key_bundle, purpose: "identity-rewrap"}`
+using the existing `vaultcontext-manifest-v1` domain separator. Revision conflicts
+return 409; invalid or missing signatures return 403 without changing the bundle.
+Successful replacement and its actor-visible audit event commit atomically.

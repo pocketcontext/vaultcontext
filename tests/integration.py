@@ -38,7 +38,7 @@ onRecordCreateExecute((e) => {
         with open(Path(tmp)/'server.log','w+') as log:
             proc=subprocess.Popen(common+['serve','--http',f'127.0.0.1:{port}'],cwd=cwd,stdout=log,stderr=log)
             def request(method,path,body=None,token=None,expected=200):
-                headers={'Content-Type':'application/json'}
+                headers={'Content-Type':'application/json', 'X-VaultContext-Release': json.loads((ROOT/'pb_hooks/release.json').read_text())['release_id']}
                 if token: headers['Authorization']=token
                 req=urllib.request.Request(f'http://127.0.0.1:{port}'+path,data=None if body is None else json.dumps(body).encode(),headers=headers,method=method)
                 try:
@@ -76,7 +76,12 @@ def main():
         def query(token,sql):
             r=request('POST','/api/context/query',{'sql':sql},token)
             return [dict(zip(r['columns'],row)) for row in r['rows']]
-        for uid,t in accounts:act(t,'identity_init',{'public_key':'synthetic-public','signing_key':'synthetic-signing','fingerprint':'synthetic-fingerprint','key_bundle':'encrypted-bundle'})
+        from vaultcontext_client import crypto
+        identities = {}
+        for uid,t in accounts:
+            identities[uid] = crypto.generate_identity()
+            public = crypto.public_identity(identities[uid])
+            act(t,'identity_init',{'public_key':public['enc_public'],'signing_key':public['sign_public'],'fingerprint':crypto.fingerprint(public),'key_bundle':'encrypted-bundle'})
         assert len(query(at,'SELECT * FROM identity_secrets'))==1
         assert query(at,'SELECT * FROM identity_secrets')[0]['account']==alice
         v='syntheticvault1';d='syntheticdoc001';ver='syntheticver001'
@@ -198,7 +203,9 @@ def main():
                 request('DELETE',path(table)+'/'+row['id'],token=token,expected=(403,404))
                 request('POST',path(table),{'id':'z'*15},token,403)
         # Rewrap is private and revision checked; server never changes public keys.
-        act(at,'identity_rewrap',{'key_bundle':'new-encrypted-bundle','expected_revision':1})
+        replacement = {'key_bundle':'new-encrypted-bundle','expected_revision':1}
+        replacement['signature'] = crypto.sign_manifest(identities[alice], dict(replacement, account=alice, purpose='identity-rewrap'))
+        act(at,'identity_rewrap',replacement)
         act(at,'identity_rewrap',{'key_bundle':'stale','expected_revision':1},409)
         assert query(at,'SELECT key_bundle FROM identity_secrets')[0]['key_bundle']=='new-encrypted-bundle'
         assert query(bt,'SELECT key_bundle FROM identity_secrets')[0]['key_bundle']=='encrypted-bundle'

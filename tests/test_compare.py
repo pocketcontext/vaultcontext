@@ -12,6 +12,9 @@ from vaultcontext_client import cli as vc
 
 class CompareTests(unittest.TestCase):
     def setUp(self):
+        guard = patch.object(vc.auth, 'require_release')
+        guard.start()
+        self.addCleanup(guard.stop)
         self.identity = vc.crypto.generate_identity()
         self.key = vc.crypto.new_vault_key()
         self.data = b'synthetic\x00file\xff'

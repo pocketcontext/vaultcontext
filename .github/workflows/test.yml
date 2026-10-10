@@ -58,7 +58,7 @@ jobs:
           uv run --locked --project vaultcontext python vaultcontext/tests/oauth.py
       - name: Isolated application, identity, OAuth, portable skill and deployment checks
         run: |
-          for check in maintenance integration archive_migration auth oauth_integration realtime skill cli_forward deploy backup_integration limits; do
+          for check in release_gate identity_rewrap maintenance integration archive_migration auth oauth_integration realtime skill cli_forward deploy backup_integration limits; do
             uv run --locked --project vaultcontext python "vaultcontext/tests/$check.py" --binary "$PWD/pocketcontext/bin/pocketcontext"
           done
       - name: Copied standalone launcher and memory session

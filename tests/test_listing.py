@@ -11,6 +11,9 @@ from vaultcontext_client import cli as vc
 
 class ListingTests(unittest.TestCase):
     def setUp(self):
+        guard = patch.object(vc.auth, 'require_release')
+        guard.start()
+        self.addCleanup(guard.stop)
         self.db = sqlite3.connect(':memory:')
         self.addCleanup(self.db.close)
         self.db.row_factory = sqlite3.Row

@@ -34,7 +34,8 @@ SCHEMA_FILE = files('vaultcontext_client').joinpath('schema.json')
 STAMPS = ('created_by', 'updated_by')
 ID_ALPHABET = 'abcdefghijklmnopqrstuvwxyz0123456789'
 TIMEOUT = 30
-USER_AGENT = 'VaultContext/1.0'
+RELEASE_ID = json.loads(files('vaultcontext_client').joinpath('release.json').read_text())['release_id']
+USER_AGENT = 'VaultContext/' + RELEASE_ID
 hidden = []  # The password and tokens. say() masks them in everything it prints.
 
 
@@ -42,6 +43,21 @@ class Fail(Exception):
     def __init__(self, code, message):
         super().__init__(message)
         self.code = code
+
+
+class UpgradeRequired(Fail):
+    def __init__(self):
+        super().__init__(1, 'VaultContext client release does not match the backend. Lock this session before updating the client using the installation instructions at your server URL, then unlock privately. No operation was retried.')
+
+
+def require_release(cfg):
+    status, data = send(cfg, 'GET', '/api/vaultcontext/compatibility')
+    if status == 404:
+        raise UpgradeRequired()
+    if status != 200 or not isinstance(data, dict) or not isinstance(data.get('release_id'), str):
+        raise Fail(1, 'Cannot verify the server release; check availability and retry. No operation was attempted.')
+    if data['release_id'] != RELEASE_ID:
+        raise UpgradeRequired()
 
 
 def hide(value):
@@ -125,7 +141,7 @@ opener = urllib.request.build_opener(NoRedirect)
 
 def send(cfg, method, path, body=None, token=None, timeout=TIMEOUT):
     """Send one request. Returns (status, parsed JSON body, or the text when it is not JSON)."""
-    headers = {'Content-Type': 'application/json', 'User-Agent': USER_AGENT}
+    headers = {'Content-Type': 'application/json', 'User-Agent': USER_AGENT, 'X-VaultContext-Release': RELEASE_ID}
     if token:
         headers['Authorization'] = token
     data = None if body is None else json.dumps(body).encode()
@@ -142,9 +158,12 @@ def send(cfg, method, path, body=None, token=None, timeout=TIMEOUT):
         raise Fail(1, f'cannot reach {cfg["url"]}: {reason}')
     text = raw.decode('utf-8', 'replace')
     try:
-        return status, json.loads(text) if text else None
+        value = json.loads(text) if text else None
     except ValueError:
         return status, text[:2000]
+    if status == 403 and isinstance(value, dict) and isinstance(value.get('data'), dict) and value['data'].get('code') == 'client_upgrade_required':
+        raise UpgradeRequired()
+    return status, value
 
 
 def login(cfg):
@@ -176,6 +195,8 @@ def auth_session(cfg, data, method):
 def oauth_send(cfg, method, path, body=None, token=None):
     try:
         return send(cfg, method, path, body, token)
+    except UpgradeRequired:
+        raise
     except Fail:
         # Redirect locations and transport errors may contain authorization credentials.
         raise Fail(1, 'OAuth authentication request failed; check the server URL and connection, then retry.') from None

@@ -31,3 +31,9 @@ Explicit enrollment validates the entered passphrase against the authenticated a
 A signed native helper retrieves the secret with Apple's `userPresence` access control. Touch ID or a macOS credential may satisfy this requirement; this is not a guarantee that no password prompt will appear. Authentication gates retrieval for a new session, not each file operation. The same-user CLI and agents retain the existing unlocked-session authority. The host, signing identity and installed helper are part of the trusted computing base. Secrets cross private process pipes in memory, never shell arguments, environment variables or files.
 
 `unlock --keychain` fails on cancellation, unavailable credentials or helper errors without silently falling back to a terminal passphrase. `lock`, expiry and `logout` do not delete enrollment. `keychain-forget` removes the current server/account's saved credential; use `lock` separately to end any active memory session. Changing the vault passphrase does not update the enrolled credential; enroll again with the new passphrase or forget the stale credential. Keychain removal cannot recall a previously disclosed passphrase. See [macOS setup](macos-keychain.md) for installation and on-device checks.
+
+Encrypted identity-bundle replacement requires a signature from the immutable
+existing signing identity, binding the account, expected bundle revision and exact
+replacement bundle. An application token alone cannot replace the bundle. Successful
+replacement writes a metadata-only audit event visible only to that account through
+filtered SQL. Rejected replacement leaves the bundle and audit unchanged.
