@@ -469,3 +469,25 @@ real terminal prompts, fresh memory workers, protected files and revocation.
 The final launcher pins that exact package. Workflow validation passed 15 tests;
 the container smoke's record/write/recovery assertions also passed against an
 isolated pinned standalone server. Actual container execution remains CI-only.
+
+### Published release and deployment
+
+Final backend release `5058fb1d0a00859503c80901fd136c5acffd2d63` passed
+[CI run 38031428433](https://github.com/pocketcontext/vaultcontext/actions/runs/38031428433):
+application/remote copied-launcher checks on Linux AMD64, Linux ARM64 and macOS;
+native container configuration, smoke and populated recovery on both Linux
+architectures; image publication; restricted deployment; and public release-ID
+verification. The earlier run stopped before publication because a recovery-test
+helper omitted the release header. The helper and a real-server regression were
+fixed; no client or backend contract change was needed.
+
+Independent public checks verified `2026-10-10.1`, rejection of missing/outdated
+release IDs, and HTTP 401 for an unauthenticated request carrying the correct ID.
+The published client code successfully fetched compatibility from production.
+Public JS/CSS matched source bytes; root HTML matched after removing Cloudflare's
+existing Rocket Loader script rewrites. Cloudflare rejects the generic Python
+urllib user agent; the actual VaultContext client user agent and curl succeeded.
+
+This evidence uses the deployment workflow and public behavior, not a fresh
+private container-metadata inspection. No real user login, unlock or stored-file
+operation was performed. Installed user launchers were not automatically replaced.
