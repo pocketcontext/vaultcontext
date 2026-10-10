@@ -460,3 +460,12 @@ Docker is unavailable on this Ubuntu ARM64 host. Native container configuration,
 smoke and populated Litestream/MinIO recovery, macOS execution and published copied
 launcher verification remain release gates; local checks do not substitute for
 these. Later release evidence should record their actual results separately.
+
+The package implementation was published as
+`64ac04800f8e12681fd45673abae04ec21b7759b` without triggering backend deployment.
+Both remote copied-launcher checks (`tests/skill.py` and `tests/cli_forward.py`)
+then passed against that package from unrelated temporary directories, including
+real terminal prompts, fresh memory workers, protected files and revocation.
+The final launcher pins that exact package. Workflow validation passed 15 tests;
+the container smoke's record/write/recovery assertions also passed against an
+isolated pinned standalone server. Actual container execution remains CI-only.
