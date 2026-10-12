@@ -273,12 +273,20 @@ def execute(cfg, identity, account, args):
         return action(cfg, 'vault_create', {'id': vault, 'metadata': metadata(key, {'name': args['name']}, {'kind': 'vault-metadata', 'vault': vault}), 'envelope': seal(cfg, identity, key, vault, account, 1, account)})
     if command == 'vaults':
         result = []
-        for vault in rows(cfg, 'vaults'):
+        where = '1=1' if args.get('all') else 'archived=' + ('1' if args.get('archived') else '0')
+        for vault in rows(cfg, 'vaults', where):
             key = vault_key(cfg, identity, account, vault['id'], 1)
-            result.append(dict(id=vault['id'], **decrypt_metadata(key, vault['metadata'], {'kind': 'vault-metadata', 'vault': vault['id']}), role=one(cfg, 'memberships', f'vault={quote(vault["id"])} AND account={quote(account)} AND active=1')['role']))
+            result.append(dict(id=vault['id'], **decrypt_metadata(key, vault['metadata'], {'kind': 'vault-metadata', 'vault': vault['id']}), archived=bool(vault['archived']), role=one(cfg, 'memberships', f'vault={quote(vault["id"])} AND account={quote(account)} AND active=1')['role']))
         return result
+    if command in ('archive-vault', 'unarchive-vault'):
+        vault = one(cfg, 'vaults', 'id=' + quote(args['vault']))
+        return action(cfg, 'vault_archive' if command == 'archive-vault' else 'vault_unarchive',
+                      {'vault': vault['id'], 'expected_revision': vault['revision'],
+                       'expected_archive_revision': vault['archive_revision']})
     if command == 'save':
         vault = one(cfg, 'vaults', 'id=' + quote(args['vault']))
+        if vault['archived']:
+            raise auth.Fail(1, 'Vault is archived; its owner must unarchive it before saving.')
         document, version = args.get('document') or uid(), uid()
         current = one(cfg, 'documents', 'id=' + quote(document)) if args.get('document') else None
         if current and current['vault'] != vault['id']:
@@ -296,7 +304,7 @@ def execute(cfg, identity, account, args):
         ciphertext = encode(crypto.encrypt_bytes(key, data, context))
         manifest = {'context': context, 'author': account, 'revision': revision + 1, 'metadata': encrypted_info, 'sha256': hashlib.sha256(ciphertext.encode()).hexdigest()}
         chunks = [ciphertext[i:i + 192 * 1024] for i in range(0, len(ciphertext), 192 * 1024)]
-        return action(cfg, 'save', {'vault': vault['id'], 'document': document, 'version': version, 'expected_revision': revision, 'expected_archive_revision': archive_revision, 'epoch': epoch, 'metadata': encrypted_info, 'manifest': encode(manifest), 'signature': crypto.sign_manifest(identity, manifest), 'chunks': chunks})
+        return action(cfg, 'save', {'vault': vault['id'], 'document': document, 'version': version, 'expected_revision': revision, 'expected_archive_revision': archive_revision, 'expected_vault_archive_revision': vault['archive_revision'], 'epoch': epoch, 'metadata': encrypted_info, 'manifest': encode(manifest), 'signature': crypto.sign_manifest(identity, manifest), 'chunks': chunks})
     if command in ('archive', 'unarchive'):
         doc = one(cfg, 'documents', 'id=' + quote(args['document']))
         return action(cfg, command, {'vault': doc['vault'], 'document': doc['id'],
@@ -520,10 +528,10 @@ Manual: https://github.com/pocketcontext/vaultcontext/blob/main/skills/vaultcont
             q.add_argument(arg, metavar=metavar, help=help_text)
         return q
 
-    def archive_filters(q):
+    def archive_filters(q, entity='documents'):
         group = q.add_mutually_exclusive_group()
-        group.add_argument('--archived', action='store_true', help='include only archived documents')
-        group.add_argument('--all', action='store_true', help='include active and archived documents')
+        group.add_argument('--archived', action='store_true', help=f'include only archived {entity}')
+        group.add_argument('--all', action='store_true', help=f'include active and archived {entity}')
 
     def destination(q):
         q.add_argument('--to', required=True, metavar='PATH',
@@ -591,15 +599,25 @@ Manual: https://github.com/pocketcontext/vaultcontext/blob/main/skills/vaultcont
         'An existing unlocked session can change a forgotten passphrase; there are no recovery keys. '
         'Saved Keychain credentials are not updated; run vaultcontext keychain-enroll again afterward.',
         'change-passphrase')
-    add('vaults', 'List accessible vault names, IDs and roles',
-        unlocked + 'Decrypt vault names and list your active vault memberships.', 'vaults')
+    q = add('vaults', 'List accessible vault names, IDs and roles',
+        unlocked + 'Decrypt vault names and list active vaults by default, with your role and archive status.', 'vaults --all')
+    archive_filters(q, 'vaults')
+    add('archive-vault', 'Archive a vault for all members',
+        unlocked + 'Only the owner can archive a vault. Hides it from default vault listings and blocks '
+        'saves, document archive changes, new invitations and invitation acceptance. Existing reads, '
+        'exports, revocation and key rotation remain available. Does not change individual document '
+        'archive states, delete history or revoke access. Repeated requests are harmless.',
+        'archive-vault VAULT_ID', 'vault')
+    add('unarchive-vault', 'Return a vault to active listings',
+        unlocked + 'Only the owner can unarchive a vault. Preserves document archive states and any '
+        'key-rotation freeze. Repeated requests are harmless.', 'unarchive-vault VAULT_ID', 'vault')
     add('create', 'Create a private vault',
         unlocked + 'Create a vault you own and return its ID. Use vaultcontext share to invite members.',
         "create 'Personal'", 'name')
     q = add('save', 'Save a file or add an immutable version',
             unlocked + 'Owners and editors can save exact file bytes, up to 8 MiB. By default '
             'creates a new document; --document adds an immutable version to an existing document '
-            'in the same vault. Archived documents must be unarchived first. Names are encrypted; '
+            'in the same vault. Archived vaults and documents must be unarchived first. Names are encrypted; '
             'the default preserves the exact source path argument as a label, without normalization. '
             'Names are not unique and never select restore destinations. Symlink sources and ancestors are rejected.',
             'save VAULT_ID /path/to/file --document DOCUMENT_ID', 'vault', 'path')
@@ -727,7 +745,7 @@ Manual: https://github.com/pocketcontext/vaultcontext/blob/main/skills/vaultcont
 
     groups = [
         ('Account and keys', ('login', 'whoami', 'logout', 'check', 'init', 'unlock', 'lock', 'change-passphrase', 'keychain-enroll', 'keychain-forget')),
-        ('Vaults and files', ('vaults', 'create', 'save', 'list', 'search', 'history', 'compare', 'cat', 'restore', 'archive', 'unarchive')),
+        ('Vaults and files', ('vaults', 'create', 'archive-vault', 'unarchive-vault', 'save', 'list', 'search', 'history', 'compare', 'cat', 'restore', 'archive', 'unarchive')),
         ('Sharing', ('directory', 'verify-user', 'members', 'share', 'invitations', 'accept', 'revoke', 'rotate')),
         ('Encrypted archives', ('export', 'inspect-export', 'restore-export')),
     ]

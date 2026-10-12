@@ -5,7 +5,7 @@ Metadata reads use authenticated `/api/context/schema` and `/api/context/query`;
 - `user_directory`: registered user IDs, display names, emails.
 - `identities`: registered public encryption/signing keys and fingerprints.
 - `identity_secrets`: only the requester's encrypted private-key bundle and revision.
-- `vaults`, `memberships`: accessible vaults, roles, current encryption epoch, revision and frozen state.
+- `vaults`, `memberships`: accessible vaults, roles, current encryption epoch, revision, frozen state and vault `archived` / `archive_revision` state.
 - `key_envelopes`: only the requester's encrypted vault keys; pending invitees can obtain their invitation envelopes.
 - `documents`, `versions`, `version_chunks`: current document pointers, reversible `archived` state and its `archive_revision` concurrency marker, immutable signed manifests and protected encrypted file chunks. Chunk SQL records expose filenames and hashes, not ciphertext bytes. Names and sizes are inside encrypted metadata.
 - `invitations`: explicit owner invitations, recipient acceptance and status.
@@ -18,3 +18,16 @@ Files are encrypted as a complete authenticated message, split into protected fi
 `archive`/`unarchive` actions require owner/editor membership, an unfrozen vault, and matching `expected_revision` and `expected_archive_revision`. Only an actual state change increments the archive marker and creates an audit event. Content revisions and signed manifests remain unchanged. Saves reject archived documents and stale archive markers. Archived files retain independent read/download permissions and are included in exports and backups.
 
 New versions carry `plaintext_sha256` only inside encrypted, signed version metadata. It is not a clear server field or a listing field. `compare` decrypts this metadata locally and returns equality/status, never the digest. Older versions use verified in-memory content download instead. Ciphertext transport/backup checksums do not identify plaintext content.
+
+Vault owners can use `vaultcontext archive-vault VAULT_ID` and
+`vaultcontext unarchive-vault VAULT_ID`. Archiving applies to all members and hides
+the vault from default `vaults`; `vaults --archived` selects archived vaults and
+`vaults --all` selects both. Listings include `archived`. Existing files, history,
+protected downloads, comparisons and exports remain accessible by ID. Archived
+vaults reject saves, document archive changes, new invitations and invitation
+acceptance. Pending invitations remain pending and can be accepted after
+unarchiving. Revocation and key rotation remain available. Individual document
+archive states and any rotation freeze remain unchanged. Archiving neither
+revokes access nor deletes data or reclaims storage. Repeated requests with current
+revisions are harmless. Complete backups retain vault archive state; encrypted
+file exports retain their existing v2 format and do not recreate vault lifecycle.

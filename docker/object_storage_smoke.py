@@ -101,6 +101,8 @@ def main(argv=None):
             doc,meta=s.write_record(client,user)
             s.action(client,'archive',{'vault':meta['vault'],'document':doc,'expected_revision':1,'expected_archive_revision':0})
             meta['archived']=True
+            s.action(client,'vault_archive',{'vault':meta['vault'],'expected_revision':1,'expected_archive_revision':0})
+            meta['vault_archived']=True
             s.check_records(client,doc,meta)
             s.check('initial replica synchronization complete' in s.logs(first), 'initial remote sync precedes HTTP')
             s.check(s.docker('exec',first,'sh','-c','find /storage/pb_data/storage -type f 2>/dev/null || true')[1].strip()=='',
@@ -168,6 +170,10 @@ def main(argv=None):
                 {'readOnly':False,'expectedGeneration':state['generation']},token=admin)
             s.check(status==200 and thawed['state']=='writable','destination thaws only after source volume destroyed')
             restored=s.Client(base,'recovery@example.test',password,tmp/'home-b'); s.check_records(restored,doc,meta)
+            status,_,_=s.http('POST',base+'/api/collections/vault_actions/records',
+                {'op':'save','payload':{'vault':meta['vault'],'document':doc,'expected_revision':1,
+                 'expected_vault_archive_revision':1,'epoch':1}},token=restored.token)
+            s.check(status==409,'archived vault rejects writes after restored server is thawed')
             check_foreign(base)
             s.check('restored verified database and originals' not in s.logs(second),'legacy archive restore absent')
             late_doc,late_meta=s.write_record(restored,user)

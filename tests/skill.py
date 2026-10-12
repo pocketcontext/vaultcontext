@@ -264,6 +264,9 @@ def main():
         assert archived['archived'] is True
         assert run(a,ai,aid,'list',vault=vault)==[]
         assert run(a,ai,aid,'list',vault=vault,archived=True)[0]['id']==doc
+        assert run(a,ai,aid,'archive-vault',vault=vault)['archived'] is True
+        assert run(a,ai,aid,'vaults')==[]
+        assert run(a,ai,aid,'vaults',archived=True)[0]['id']==vault
         archive=Path(tmp)/'export';run(a,ai,aid,'export',vault=vault,to=str(archive),export_passphrase='separate archive passphrase')
         exported=json.loads(crypto.decrypt_export(json.loads(archive.read_text()),'separate archive passphrase'));assert len(exported['files'])==2
         assert exported['format']=='vaultcontext-export-v2'
@@ -272,6 +275,8 @@ def main():
         parsed=vc.parser().parse_args(['restore-export',str(archive),'--document',doc,'--version',ver,'--to',str(restored_export)])
         with patch.object(vc,'prompt_passphrase',return_value='separate archive passphrase'):vc.run(parsed)
         assert restored_export.read_bytes()==content
+        assert run(a,ai,aid,'unarchive-vault',vault=vault)['archived'] is False
+        assert run(a,ai,aid,'list',vault=vault)==[]
         run(a,ai,aid,'unarchive',document=doc)
         # Wrong public-key pins fail closed, even if the directory itself is valid.
         try:vc.verify_user(a,bid,'0'*64)

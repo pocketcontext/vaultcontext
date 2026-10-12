@@ -62,6 +62,10 @@ def main():
         run('unarchive', document=first['id'])
         archived = run('archive', document=first['id'])
         active = run('save', vault=vault, path=str(source), name='Active recovery document')
+        run('archive-vault', vault=vault)
+        run('unarchive-vault', vault=vault)
+        archived_vault = run('archive-vault', vault=vault)
+        vault_before = vc.one(cfg, 'vaults', 'id=' + vc.quote(vault))
         history = run('history', document=first['id'])
         before = vc.query(cfg, 'SELECT * FROM documents WHERE vault=' + vc.quote(vault) + ' ORDER BY id')
         audit_before = vc.query(cfg, 'SELECT * FROM audit_log WHERE vault=' + vc.quote(vault) + ' ORDER BY id')
@@ -93,6 +97,16 @@ def main():
                 vc.verify_user(cfg, owner, meta['fingerprint'])
                 assert vc.query(cfg, 'SELECT * FROM documents WHERE vault=' + vc.quote(vault) + ' ORDER BY id') == before
                 assert vc.query(cfg, 'SELECT * FROM audit_log WHERE vault=' + vc.quote(vault) + ' ORDER BY id') == audit_before
+                assert vc.one(cfg, 'vaults', 'id=' + vc.quote(vault)) == vault_before
+                assert archived_vault['archive_revision'] == 3 and archived_vault['archived']
+                assert not vc.query(cfg, 'SELECT id FROM vaults WHERE archived=0 AND id=' + vc.quote(vault))
+                assert vault in {row['id'] for row in run('vaults', archived=True)}
+                try:
+                    run('save', vault=vault, path=str(source))
+                except vc.auth.Fail as error:
+                    assert 'archived' in str(error).lower()
+                else:
+                    raise AssertionError('archived vault accepted a file after recovery')
                 assert archived['archive_revision'] == 3 and archived['revision'] == 2
                 assert run('list', vault=vault)[0]['id'] == active['id']
                 assert run('list', vault=vault, archived=True)[0]['id'] == first['id']

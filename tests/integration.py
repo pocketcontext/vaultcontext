@@ -22,7 +22,7 @@ def server(binary, *, migrations=None, data_dir=None, cwd=ROOT):
         shutil.copytree(ROOT/'pb_hooks',hooks)
         (hooks/'failure_fixture.pb.js').write_text('''
 onRecordCreateExecute((e) => {
-  if(e.record.getString('target') === 'auditfailure001' || (e.record.getString('target') === 'auditfailure002' && e.record.getString('action') === 'archive')) throw new Error('Synthetic audit failure');
+  if(e.record.getString('target') === 'auditfailure001' || (e.record.getString('target') === 'auditfailure002' && e.record.getString('action') === 'archive') || (e.record.getString('target') === 'auditfailure003' && e.record.getString('action') === 'vault_archive')) throw new Error('Synthetic audit failure');
   e.next();
 }, 'audit_log');
 onRecordCreateExecute((e) => {
@@ -209,6 +209,8 @@ def main():
         act(at,'identity_rewrap',{'key_bundle':'stale','expected_revision':1},409)
         assert query(at,'SELECT key_bundle FROM identity_secrets')[0]['key_bundle']=='new-encrypted-bundle'
         assert query(bt,'SELECT key_bundle FROM identity_secrets')[0]['key_bundle']=='encrypted-bundle'
+        from vault_archive_checks import run as run_vault_archive_checks
+        run_vault_archive_checks(request, accounts)
         request('PATCH',path('users')+'/'+alice,{'disabled':True},admin)
         act(at,'identity_rewrap',{'key_bundle':'forged','expected_revision':2},(401,403))
         request('POST','/api/context/query',{'sql':'SELECT * FROM vaults'},at,(401,403))

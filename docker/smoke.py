@@ -267,6 +267,11 @@ def write_record(client, user_id):
 def check_records(client, document, expected):
     """Recover keys from server state and authenticate/decrypt recovered exact bytes."""
     user, vault, version = expected['user'], expected['vault'], expected['version']
+    if expected.get('vault_archived'):
+        state = client.sql(f"SELECT archived, archive_revision, revision, frozen FROM vaults WHERE id = '{vault}'")
+        check(state == [[1, 1, 2, 0]], 'vault archive state survives complete restore independently of rotation freeze')
+        audit = client.sql(f"SELECT action FROM audit_log WHERE target = '{vault}' AND action = 'vault_archive'")
+        check(audit == [['vault_archive']], 'vault archive audit survives complete restore')
     if 'archived' in expected:
         state = client.sql(f"SELECT archived, archive_revision, revision FROM documents WHERE id = '{document}'")
         check(state == [[1, 1, 1]], 'archived document state survives complete restore without changing content revision')

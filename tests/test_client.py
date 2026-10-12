@@ -126,6 +126,38 @@ class ClientTests(unittest.TestCase):
                     self.assertTrue(all(row['archived'] is archived for row in result))
                     self.assertEqual(len(queries), 2)
 
+    def test_vault_archive_filters_retain_pagination(self):
+        for flag, archived in ((None, False), ('archived', True), ('all', False)):
+            with self.subTest(flag=flag):
+                vaults = [dict(id=str(index), archived=archived, metadata='synthetic') for index in range(51)]
+                queries = []
+                def query(cfg, sql):
+                    queries.append(sql)
+                    where = '1=1' if flag == 'all' else 'archived=' + ('1' if archived else '0')
+                    expected = 'SELECT * FROM vaults WHERE ' + where + ' ORDER BY id LIMIT 50 OFFSET '
+                    self.assertTrue(sql.startswith(expected), sql)
+                    offset = int(sql[len(expected):])
+                    return vaults[offset:offset + 50]
+                values = dict(command='vaults')
+                if flag:
+                    values[flag] = True
+                with patch.object(vc, 'query', side_effect=query), \
+                     patch.object(vc, 'one', return_value={'role': 'owner'}), \
+                     patch.object(vc, 'vault_key', return_value=b'synthetic'), \
+                     patch.object(vc, 'decrypt_metadata', return_value={'name': 'Synthetic vault'}):
+                    result = vc.execute({}, {}, 'owner', values)
+                self.assertEqual([row['id'] for row in result], [str(index) for index in range(51)])
+                self.assertTrue(all(row['archived'] is archived for row in result))
+                self.assertEqual(len(queries), 2)
+
+    def test_archived_vault_save_rejected_before_local_read(self):
+        with patch.object(vc, 'one', return_value={'id': 'vault', 'archived': True}), \
+             patch.object(vc.crypto, 'read_file') as read, patch.object(vc, 'action') as write:
+            with self.assertRaises(vc.auth.Fail):
+                vc.execute({}, {}, 'owner', dict(command='save', vault='vault', path='/synthetic/missing'))
+            read.assert_not_called()
+            write.assert_not_called()
+
     def test_archive_export_versions_are_explicit(self):
         entry = dict(document='d' * 15, version='v' * 15, revision=1, name='./synthetic/file', data='')
         def parse(version, record):

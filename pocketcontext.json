@@ -29,7 +29,9 @@
       "epoch",
       "revision",
       "frozen",
-      "created"
+      "created",
+      "archived",
+      "archive_revision"
     ],
     "memberships": [
       "id",

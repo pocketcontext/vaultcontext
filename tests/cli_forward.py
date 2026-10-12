@@ -164,6 +164,28 @@ def main():
                 a('save',vault,relative,'--document',saved['id'])
                 assert a('list',vault)[0]['name']==relative
                 print('VaultContext literal path names and archive CLI: PASS')
+                # Vault lifecycle applies to every member while direct reads remain available.
+                archived_vault=a('archive-vault',vault)
+                assert archived_vault['archived'] is True
+                assert a('archive-vault',vault)==archived_vault
+                assert a('vaults')==[] and b('vaults')==[]
+                for flags in (['--archived'],['--all']):
+                    for cli in (a,b):
+                        listing=cli('vaults',*flags)
+                        assert len(listing)==1 and listing[0]['id']==vault and listing[0]['archived'] is True
+                assert b('list',vault)[0]['archived'] is False
+                assert cat().stdout==source.read_bytes()
+                for words,environment in ((['save',vault,str(source)],owner_env),
+                                          (['save',vault,str(source),'--document',saved['id']],owner_env),
+                                          (['unarchive-vault',vault],colleague_env),
+                                          (['archive-vault',vault],colleague_env),
+                                          (['vaults','--archived','--all'],owner_env)):
+                    denied=subprocess.run(command+words,env=environment,cwd=tmp,capture_output=True)
+                    assert denied.returncode!=0 and denied.stdout==b''
+                assert a('unarchive-vault',vault)['archived'] is False
+                assert b('vaults')[0]['archived'] is False
+                a('save',vault,relative,'--document',saved['id'])
+                print('VaultContext vault archive CLI and shared-reader permissions: PASS')
                 a('revoke',vault,colleague)
                 denied=cat()
                 assert denied.returncode!=0 and denied.stdout==b''

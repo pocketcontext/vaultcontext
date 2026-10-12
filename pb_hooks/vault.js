@@ -28,6 +28,7 @@ function execute(app,actor,op,p) {
   return [v,m];
  };
  const owner=v=>{if(v.getString('owner')!==actor)denied();if(p.expected_revision!==v.getInt('revision'))conflict();};
+ const writable=v=>{if(v.getBool('archived'))throw new ApiError(409,'Vault archived; unarchive before writing.',{});};
  const bump=v=>{v.set('revision',v.getInt('revision')+1);app.save(v);};
  const envelope=(v,a,epoch,value)=>{
   if(typeof value!=='string'||value.length<1||value.length>65536)bad('Invalid envelope');
@@ -47,15 +48,15 @@ function execute(app,actor,op,p) {
  identity();
  if(op==='vault_create') {
   const key=id('id');
-  put('vaults',{id:key,owner:actor,metadata:str('metadata'),epoch:1,revision:1,frozen:false});
+  put('vaults',{id:key,owner:actor,metadata:str('metadata'),epoch:1,revision:1,frozen:false,archived:false,archive_revision:0});
   put('memberships',{vault:key,account:actor,role:'owner',active:true});envelope(key,actor,1,str('envelope'));audit(key);
-  return {id:key,revision:1,epoch:1};
+  return {id:key,revision:1,epoch:1,archived:false,archive_revision:0};
  }
  if(op==='accept') {
   const inv=get('invitations',id('invitation'));
   if(inv.getString('account')!==actor || inv.getString('status')!=='pending')denied();
   const v=get('vaults',inv.getString('vault'));
-  if(v.getBool('frozen'))conflict();
+  writable(v);if(v.getBool('frozen'))conflict();
   const m=membership(v.id,actor);if(!m)bad('Missing membership');
   const keys=rows('key_envelopes','vault = {:v} && account = {:a}',{v:v.id,a:actor});
   if(keys.length!==v.getInt('epoch'))bad('Incomplete key history');
@@ -64,9 +65,18 @@ function execute(app,actor,op,p) {
   return {id:v.id,revision:v.getInt('revision')};
  }
  const [v,m]=vault();
+ if(op==='vault_archive'||op==='vault_unarchive') {
+  owner(v);
+  if(p.expected_archive_revision!==v.getInt('archive_revision'))conflict();
+  const archived=op==='vault_archive';
+  if(v.getBool('archived')!==archived) {
+   v.set('archived',archived);v.set('archive_revision',v.getInt('archive_revision')+1);bump(v);audit(v.id);
+  }
+  return {id:v.id,revision:v.getInt('revision'),archived:v.getBool('archived'),archive_revision:v.getInt('archive_revision')};
+ }
  if(op==='archive'||op==='unarchive') {
   if(!['owner','editor'].includes(m.getString('role')))denied();
-  if(v.getBool('frozen'))conflict();
+  writable(v);if(v.getBool('frozen'))conflict();
   const doc=get('documents',id('document'));
   if(doc.getString('vault')!==v.id)denied();
   if(p.expected_revision!==doc.getInt('revision')||p.expected_archive_revision!==doc.getInt('archive_revision'))conflict();
@@ -78,7 +88,9 @@ function execute(app,actor,op,p) {
  }
  if(op==='save') {
   if(m.getString('role')==='reader')denied();
-  if(v.getBool('frozen')||p.epoch!==v.getInt('epoch'))conflict();
+  writable(v);if(v.getBool('frozen')||p.epoch!==v.getInt('epoch'))conflict();
+  // Reject uploads prepared before an archive/unarchive cycle, even when the vault is active again.
+  if((p.expected_vault_archive_revision===undefined?0:p.expected_vault_archive_revision)!==v.getInt('archive_revision'))conflict();
   const d=id('document'),version=id('version');
   const found=rows('documents','id = {:id}',{id:d});let doc=found[0];
   if(doc&&doc.getString('vault')!==v.id)denied();
@@ -99,7 +111,7 @@ function execute(app,actor,op,p) {
   return {id:d,version,revision:revision+1};
  }
  if(op==='share') {
-  owner(v);if(v.getBool('frozen'))conflict();
+  owner(v);writable(v);if(v.getBool('frozen'))conflict();
   const account=id('account');if(account===actor)bad('Owner already has access');
   const user=get('users',account);if(user.getBool('disabled'))denied();get('identities',account);
   if(!['reader','editor'].includes(p.role))bad('Invalid role');

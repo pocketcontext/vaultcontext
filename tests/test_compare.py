@@ -115,13 +115,14 @@ class CompareTests(unittest.TestCase):
             restore.assert_not_called()
 
     def test_save_keeps_digest_only_inside_signed_encrypted_metadata(self):
-        with patch.object(vc, 'one', return_value={'id': 'vault', 'epoch': 1}), \
+        with patch.object(vc, 'one', return_value={'id': 'vault', 'epoch': 1, 'archived': False, 'archive_revision': 3}), \
              patch.object(vc, 'vault_key', return_value=self.key), \
              patch.object(vc, 'action', side_effect=lambda cfg, op, payload: payload):
             payload = vc.execute({}, self.identity, 'owner', {'command': 'save', 'vault': 'vault', 'path': str(self.path)})
         digest = hashlib.sha256(self.data).hexdigest()
         self.assertNotIn(digest, vc.encode(payload))
         self.assertNotIn('plaintext_sha256', vc.encode(payload))
+        self.assertEqual(payload['expected_vault_archive_revision'], 3)
         manifest = json.loads(payload['manifest'])
         vc.crypto.verify_manifest(vc.crypto.public_identity(self.identity), manifest, payload['signature'])
         self.assertEqual(manifest['metadata'], payload['metadata'])

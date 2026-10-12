@@ -177,6 +177,28 @@ Owners and editors can archive a whole document and its versions; readers cannot
 
 Archived documents remain accessible through `history`, `compare` and `restore` by ID; user-operated private viewing with `cat` also remains available. Unarchive before saving another version. Repeated archive/unarchive requests are harmless. Concurrent changes can return revision conflicts; reread state before retrying. Archiving does not delete ciphertext, reclaim storage or revoke access. Complete backups, encrypted exports and whole-vault sharing retain archived documents and history. An archived document is distinct from an encrypted export archive.
 
+## Archive and unarchive vaults
+
+```sh
+vaultcontext archive-vault VAULT_ID
+vaultcontext vaults --archived
+vaultcontext vaults --all
+vaultcontext unarchive-vault VAULT_ID
+```
+
+Vault owners can use `vaultcontext archive-vault VAULT_ID` and
+`vaultcontext unarchive-vault VAULT_ID`. Archiving applies to all members and hides
+the vault from default `vaults`; `vaults --archived` selects archived vaults and
+`vaults --all` selects both. Listings include `archived`. Existing files, history,
+protected downloads, comparisons and exports remain accessible by ID. Archived
+vaults reject saves, document archive changes, new invitations and invitation
+acceptance. Pending invitations remain pending and can be accepted after
+unarchiving. Revocation and key rotation remain available. Individual document
+archive states and any rotation freeze remain unchanged. Archiving neither
+revokes access nor deletes data or reclaims storage. Repeated requests with current
+revisions are harmless. Complete backups retain vault archive state; encrypted
+file exports retain their existing v2 format and do not recreate vault lifecycle.
+
 ## Shared project vaults
 
 ```sh

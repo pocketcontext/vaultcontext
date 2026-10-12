@@ -37,3 +37,21 @@ existing signing identity, binding the account, expected bundle revision and exa
 replacement bundle. An application token alone cannot replace the bundle. Successful
 replacement writes a metadata-only audit event visible only to that account through
 filtered SQL. Rejected replacement leaves the bundle and audit unchanged.
+
+Vault owners can use `vaultcontext archive-vault VAULT_ID` and
+`vaultcontext unarchive-vault VAULT_ID`. Archiving applies to all members and hides
+the vault from default `vaults`; `vaults --archived` selects archived vaults and
+`vaults --all` selects both. Listings include `archived`. Existing files, history,
+protected downloads, comparisons and exports remain accessible by ID. Archived
+vaults reject saves, document archive changes, new invitations and invitation
+acceptance. Pending invitations remain pending and can be accepted after
+unarchiving. Revocation and key rotation remain available. Individual document
+archive states and any rotation freeze remain unchanged. Archiving neither
+revokes access nor deletes data or reclaims storage. Repeated requests with current
+revisions are harmless. Complete backups retain vault archive state; encrypted
+file exports retain their existing v2 format and do not recreate vault lifecycle.
+
+Vault archive state is operational metadata. A separate monotonically increasing
+vault archive revision protects saves across archive/unarchive cycles; transitions
+also increment the existing vault revision used for ownership operations. State
+changes and their audit entries commit or roll back together.

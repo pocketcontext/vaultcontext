@@ -21,6 +21,8 @@
     "revision"
   ],
   "vaults": [
+    "archive_revision",
+    "archived",
     "created",
     "epoch",
     "frozen",

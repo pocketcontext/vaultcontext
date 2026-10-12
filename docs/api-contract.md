@@ -23,7 +23,8 @@ letters/digits. Encrypted structures are JSON serialized into opaque strings.
 | `identity_init` | `public_key`, `signing_key`, `fingerprint`, `key_bundle` |
 | `identity_rewrap` | `key_bundle`, `expected_revision`, `signature` |
 | `vault_create` | `id`, encrypted `metadata`, own `envelope` |
-| `save` | `vault`, `document`, `version`, `expected_revision`, `expected_archive_revision`, `epoch`, encrypted `metadata`, `manifest`, `signature`, `chunks` |
+| `vault_archive`, `vault_unarchive` | `vault`, `expected_revision`, `expected_archive_revision` |
+| `save` | `vault`, `document`, `version`, `expected_revision`, `expected_archive_revision`, `expected_vault_archive_revision`, `epoch`, encrypted `metadata`, `manifest`, `signature`, `chunks` |
 | `archive`, `unarchive` | `vault`, `document`, `expected_revision`, `expected_archive_revision` |
 | `share` | `vault`, `account`, `role` (`reader` or `editor`), `expected_revision`, `envelopes:[{epoch,envelope}]` |
 | `accept` | `invitation` |
@@ -56,6 +57,20 @@ protected downloads, history, whole-vault sharing, exports and complete backups
 retain archived documents. Default client list/search filters exclude them; SQL
 snapshots expose both states under the same membership rules. Archive state is
 operational metadata visible to the server, not encrypted file metadata.
+
+Vaults start with `archived=false`, `archive_revision=0`, including migrated
+records. Only the owner can call `vault_archive` / `vault_unarchive`; both expected
+revisions must match. Actual transitions increment vault `revision` and
+`archive_revision` and audit atomically. No-op requests return current state without
+incrementing or auditing. Results contain `id`, `revision`, `archived`,
+`archive_revision`. These actions preserve `frozen`, including during key rotation.
+Save also checks `expected_vault_archive_revision` (omitted means 0), so a completed
+archive/unarchive cycle invalidates stale saves. Archived vaults reject save,
+document archive/unarchive, share and accept with HTTP 409. Revocation and rotation
+remain permitted. Pending invitations are preserved. SQL and protected-download
+membership rules are unchanged; archive state never grants or revokes access.
+Default CLI vault listings filter active vaults; `--archived` and `--all` select the
+other states. Document archive flags are never cascaded.
 
 Sharing is owner-only and supplies exactly one envelope for every epoch. A pending
 recipient can inspect the invitation and their own envelopes, but cannot read vault

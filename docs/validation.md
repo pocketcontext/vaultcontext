@@ -491,3 +491,34 @@ urllib user agent; the actual VaultContext client user agent and curl succeeded.
 This evidence uses the deployment workflow and public behavior, not a fresh
 private container-metadata inspection. No real user login, unlock or stored-file
 operation was performed. Installed user launchers were not automatically replaced.
+
+## Vault archiving — 2026-10-12
+
+Local implementation uses server pin `976ddf71a4734530adefe4a56633658a0894b449`,
+built in an isolated checkout. Only synthetic users/files and isolated databases
+were used. No production records or installed skills were changed.
+
+Passed the locked unit suite (116 tests, 7 platform skips), release gate, identity
+rewrap, integration, populated archive migration, realtime, limits, complete backup
+integration, account auth, OAuth integration/client, skill, CLI forwarding, deployment
+settings/workflow, maintenance, entrypoint and object-storage configuration checks.
+Both skill and CLI-forward suites also passed with a copied standalone launcher
+using a locally built wheel from outside the repository.
+
+New coverage includes owner-only lifecycle actions, repeated and stale requests,
+audit rollback, concurrent saves and archive requests, archive/unarchive cycle
+protection, invitation blocking, preserved reads and protected downloads, independent
+document archive state, revocation/rotation while archived, both pre-document and
+pre-vault archive migration states, and populated archived-vault recovery.
+
+The source client/backend release ID is `2026-10-12.1`. The published launcher pin
+is intentionally unchanged until the package publication stage in
+[client releases](client-releases.md). Remote copied-launcher validation, publication
+and deployment remain release work; local wheel validation does not replace that gate.
+Encrypted file exports retain v2 and do not restore vault lifecycle metadata.
+
+The local Docker image also passed configuration, smoke and populated complete
+restore gates. The restore drill verified archived vault state and audit across
+frozen handoff and empty-volume recovery, exact protected-file recovery and
+continued write rejection after maintenance thaw. Synthetic containers, volumes
+and networks were removed by the test harness.
