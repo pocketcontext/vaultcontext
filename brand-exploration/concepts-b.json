@@ -1,0 +1,233 @@
+[
+  {
+    "id": 35,
+    "name": "File stack",
+    "family": "Private files",
+    "description": "Three visible sheets sit behind a central document.",
+    "body": "<path d=\"M40 18H98V92H40Z M28 31V104H86 M16 44V116H74 M56 43H81 M56 61H81\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"7\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
+  },
+  {
+    "id": 36,
+    "name": "Opaque page",
+    "family": "Private files",
+    "description": "A solid folded file has only an abstract inset.",
+    "body": "<path d=\"M28 18H78V45H103V109H28Z M44 66V81H86V66Z M87 18 103 34H87Z\" fill=\"currentColor\"/>"
+  },
+  {
+    "id": 37,
+    "name": "Version page",
+    "family": "Private files",
+    "description": "A side tab introduces retained versions.",
+    "body": "<path d=\"M25 20H88V108H25Z M88 42H105V108H88 M43 45H69 M43 65H69 M43 85H56\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
+  },
+  {
+    "id": 38,
+    "name": "File aperture",
+    "family": "Private files",
+    "description": "A circular aperture interrupts a page outline.",
+    "body": "<path d=\"M32 47V18H83L102 37V110H32V80 M83 18V38H102\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><circle cx=\"36\" cy=\"64\" r=\"17\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"8\"/><path d=\"M60 62H82 M60 82H76\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
+  },
+  {
+    "id": 39,
+    "name": "Bound bytes",
+    "family": "Private files",
+    "description": "A document splits into three broad coded bands.",
+    "body": "<path d=\"M26 21H102V107H26Z M43 43H85 M43 65H60 M76 65H85 M43 87H85\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"9\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
+  },
+  {
+    "id": 40,
+    "name": "File capsule",
+    "family": "Private files",
+    "description": "A rounded document encloses a vertical pill.",
+    "body": "<path d=\"M36 18H92Q106 18 106 32V96Q106 110 92 110H36Q22 110 22 96V32Q22 18 36 18Z\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M64 40V88\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"16\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
+  },
+  {
+    "id": 41,
+    "name": "Sealed envelope",
+    "family": "Envelopes & grants",
+    "description": "A simple envelope gains a central verification seal.",
+    "body": "<path d=\"M19 35H109V99H19Z M20 37 64 70 108 37 M20 99 47 75 M108 99 81 75\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><circle cx=\"64\" cy=\"70\" r=\"9\" fill=\"currentColor\"/>"
+  },
+  {
+    "id": 42,
+    "name": "Chosen recipient",
+    "family": "Envelopes & grants",
+    "description": "A diamond envelope terminates at a recipient point.",
+    "body": "<path d=\"M20 53 64 20 108 53V105H20Z M20 53 64 83 108 53\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><circle cx=\"64\" cy=\"49\" r=\"9\" fill=\"currentColor\"/>"
+  },
+  {
+    "id": 43,
+    "name": "Envelope key",
+    "family": "Envelopes & grants",
+    "description": "A key-ring seal sits at the envelope fold.",
+    "body": "<path d=\"M19 29H109V101H19Z M19 29 49 53 M109 29 79 53\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><circle cx=\"64\" cy=\"61\" r=\"13\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"8\"/><path d=\"M64 74V89 M64 85H75\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
+  },
+  {
+    "id": 44,
+    "name": "Wrapped file",
+    "family": "Envelopes & grants",
+    "description": "Crossed wrapping bands gather around a page.",
+    "body": "<path d=\"M35 18H94V110H35Z M18 43 110 85 M18 85 110 43\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
+  },
+  {
+    "id": 45,
+    "name": "Private post",
+    "family": "Envelopes & grants",
+    "description": "An upright envelope has an unusually compact fold.",
+    "body": "<path d=\"M30 18H98V110H30Z M30 18 64 52 98 18 M30 110 64 79 98 110 M64 61V69\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
+  },
+  {
+    "id": 46,
+    "name": "Grant stamp",
+    "family": "Envelopes & grants",
+    "description": "A round seal and deliberate check sit inside a frame.",
+    "body": "<path d=\"M24 25H104V103H24Z\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><circle cx=\"64\" cy=\"64\" r=\"25\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"8\"/><path d=\"M51 64 61 74 78 54\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"7\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
+  },
+  {
+    "id": 47,
+    "name": "Split envelope",
+    "family": "Envelopes & grants",
+    "description": "Two separate folded halves leave breathing room at the centre.",
+    "body": "<path d=\"M18 31H57V62L18 89Z M71 31H110V89L71 62Z M18 101H110\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
+  },
+  {
+    "id": 48,
+    "name": "Folded grant",
+    "family": "Envelopes & grants",
+    "description": "A folded corner wraps around a check mark.",
+    "body": "<path d=\"M24 25H104V105H24Z M24 25 64 62 104 25 M48 82 59 92 82 69\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
+  },
+  {
+    "id": 49,
+    "name": "Envelope orbit",
+    "family": "Envelopes & grants",
+    "description": "An oblique orbit surrounds a small envelope.",
+    "body": "<path d=\"M22 49 91 20 110 78 41 108Z M43 48H88V83H43Z M43 48 65 67 88 48\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"7\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
+  },
+  {
+    "id": 50,
+    "name": "Signed packet",
+    "family": "Envelopes & grants",
+    "description": "A wide packet carries one confident signing stroke.",
+    "body": "<path d=\"M20 28H108V100H20Z M20 28 64 60 108 28 M43 79Q53 62 59 79T82 76\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
+  },
+  {
+    "id": 51,
+    "name": "Vault V",
+    "family": "V monograms",
+    "description": "A broad V is anchored by a squared bottom.",
+    "body": "<path d=\"M17 24H37L64 81 91 24H111L73 106H55Z\" fill=\"currentColor\"/>"
+  },
+  {
+    "id": 52,
+    "name": "Double V",
+    "family": "V monograms",
+    "description": "A slender inner V echoes its outer companion.",
+    "body": "<path d=\"M18 24 64 106 110 24 M44 24 64 59 84 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"10\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
+  },
+  {
+    "id": 53,
+    "name": "V chamber",
+    "family": "V monograms",
+    "description": "A V-shaped room is enclosed by a soft arch.",
+    "body": "<path d=\"M21 48Q21 18 64 18Q107 18 107 48V109H21Z M40 49 64 88 88 49\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"9\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
+  },
+  {
+    "id": 54,
+    "name": "V cut",
+    "family": "V monograms",
+    "description": "A angular V emerges from two offset planes.",
+    "body": "<path d=\"M17 23H42L65 69 52 99Z M76 106H52L96 23H115Z\" fill=\"currentColor\"/>"
+  },
+  {
+    "id": 55,
+    "name": "Context V",
+    "family": "V monograms",
+    "description": "An open circular C encloses a compact V.",
+    "body": "<path d=\"M99 33A43 43 0 1 0 99 95 M43 42 64 86 85 42\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"10\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
+  },
+  {
+    "id": 56,
+    "name": "V brackets",
+    "family": "V monograms",
+    "description": "Open brackets frame a bold V.",
+    "body": "<path d=\"M34 21H20V107H34 M94 21H108V107H94 M42 46 64 86 86 46\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"9\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
+  },
+  {
+    "id": 57,
+    "name": "V gate",
+    "family": "V monograms",
+    "description": "Two upright stems meet a chevron entrance.",
+    "body": "<path d=\"M23 23V60L64 105 105 60V23 M43 24V53L64 76 85 53V24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"9\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
+  },
+  {
+    "id": 58,
+    "name": "V dot",
+    "family": "V monograms",
+    "description": "A solitary centre above the V gives a personal accent.",
+    "body": "<path d=\"M25 40 64 106 103 40\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"13\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><circle cx=\"64\" cy=\"29\" r=\"12\" fill=\"currentColor\"/>"
+  },
+  {
+    "id": 59,
+    "name": "Faceted V",
+    "family": "V monograms",
+    "description": "Three sharply joined planes construct the initial.",
+    "body": "<path d=\"M16 26 37 18 66 79 53 106Z M53 106 77 95 112 25 91 18 66 79Z\" fill=\"currentColor\"/>"
+  },
+  {
+    "id": 60,
+    "name": "V ribbon",
+    "family": "V monograms",
+    "description": "A broad continuous ribbon bends into a pointed centre.",
+    "body": "<path d=\"M24 27H45L64 70 83 27H104L70 103H58Z\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"7\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
+  },
+  {
+    "id": 61,
+    "name": "Two holders",
+    "family": "Deliberate sharing",
+    "description": "Two distinct nodes hold a shared central file.",
+    "body": "<circle cx=\"27\" cy=\"64\" r=\"12\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"8\"/><circle cx=\"101\" cy=\"64\" r=\"12\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"8\"/><path d=\"M39 64H48 M80 64H89 M48 34H80V94H48Z\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"7\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
+  },
+  {
+    "id": 62,
+    "name": "Verified bridge",
+    "family": "Deliberate sharing",
+    "description": "A bridge connects two peers beneath one check.",
+    "body": "<circle cx=\"28\" cy=\"83\" r=\"12\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"8\"/><circle cx=\"100\" cy=\"83\" r=\"12\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"8\"/><path d=\"M40 83H88 M43 42 58 57 85 28\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"9\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
+  },
+  {
+    "id": 63,
+    "name": "Granted circle",
+    "family": "Deliberate sharing",
+    "description": "One selected node joins a ring of relationships.",
+    "body": "<circle cx=\"64\" cy=\"65\" r=\"31\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"8\"/><circle cx=\"64\" cy=\"24\" r=\"11\" fill=\"currentColor\"/><path d=\"M38 93 27 105 M90 93 101 105\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
+  },
+  {
+    "id": 64,
+    "name": "Shared chamber",
+    "family": "Deliberate sharing",
+    "description": "Two adjacent doorways meet at a shared partition.",
+    "body": "<path d=\"M18 32H64V102H18Z M64 32H110V102H64Z M42 57V77 M86 57V77\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><circle cx=\"64\" cy=\"19\" r=\"6\" fill=\"currentColor\"/>"
+  },
+  {
+    "id": 65,
+    "name": "Permission fork",
+    "family": "Deliberate sharing",
+    "description": "A central key branches into two chosen paths.",
+    "body": "<circle cx=\"64\" cy=\"28\" r=\"12\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"8\"/><path d=\"M64 40V66 M64 66 31 90 M64 66 97 90\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><circle cx=\"26\" cy=\"96\" r=\"11\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"8\"/><circle cx=\"102\" cy=\"96\" r=\"11\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"8\"/>"
+  },
+  {
+    "id": 66,
+    "name": "Handshake links",
+    "family": "Deliberate sharing",
+    "description": "Two thick links meet in a clean central crossing.",
+    "body": "<path d=\"M58 40 46 28Q32 14 20 29Q9 42 23 56L48 81 M70 88 82 100Q96 114 108 99Q119 86 105 72L80 47 M45 64 83 64\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"9\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
+  },
+  {
+    "id": 67,
+    "name": "Private circle",
+    "family": "Deliberate sharing",
+    "description": "Three peers form a ring around a private centre.",
+    "body": "<circle cx=\"64\" cy=\"64\" r=\"16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"8\"/><circle cx=\"64\" cy=\"22\" r=\"11\" fill=\"currentColor\"/><circle cx=\"27\" cy=\"85\" r=\"11\" fill=\"currentColor\"/><circle cx=\"101\" cy=\"85\" r=\"11\" fill=\"currentColor\"/><path d=\"M44 26 25 61 M84 26 103 61 M44 101H84\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"7\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
+  }
+]

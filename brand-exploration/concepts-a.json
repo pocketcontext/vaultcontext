@@ -1,0 +1,240 @@
+[
+  {
+    "id": 1,
+    "name": "Dial room",
+    "family": "Vault doors",
+    "description": "A round combination dial anchors a square vault.",
+    "body": "<path d=\"M23 20H105V108H23Z M18 39H29 M18 88H29\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><circle cx=\"66\" cy=\"64\" r=\"24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"8\"/><path d=\"M66 48V64L79 73\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
+  },
+  {
+    "id": 2,
+    "name": "Three bolts",
+    "family": "Vault doors",
+    "description": "A compact vault with three radial locking arms.",
+    "body": "<circle cx=\"64\" cy=\"64\" r=\"43\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"8\"/><circle cx=\"64\" cy=\"64\" r=\"10\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"8\"/><path d=\"M64 54V35 M55 69 38 79 M73 69 90 79\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
+  },
+  {
+    "id": 3,
+    "name": "Door within",
+    "family": "Vault doors",
+    "description": "Nested door frames give the mark architectural weight.",
+    "body": "<path d=\"M20 20H108V108H20Z M39 36H94V93H39Z M72 55V75 M26 44H44 M26 83H44\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
+  },
+  {
+    "id": 4,
+    "name": "Vault cross",
+    "family": "Vault doors",
+    "description": "Four broad spokes turn a wheel into a confident symbol.",
+    "body": "<circle cx=\"64\" cy=\"64\" r=\"42\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"10\"/><path d=\"M64 39V89 M39 64H89\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"12\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
+  },
+  {
+    "id": 5,
+    "name": "Hinge",
+    "family": "Vault doors",
+    "description": "An offset wheel and visible hinges suggest a physical safe.",
+    "body": "<path d=\"M28 18H102V110H28Z M18 34H38 M18 94H38\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><circle cx=\"73\" cy=\"64\" r=\"19\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"8\"/><circle cx=\"73\" cy=\"64\" r=\"5\" fill=\"currentColor\"/>"
+  },
+  {
+    "id": 6,
+    "name": "Turnpoint",
+    "family": "Vault doors",
+    "description": "A quarter-turn arrow gives the vault a clear centre.",
+    "body": "<circle cx=\"64\" cy=\"64\" r=\"42\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"8\"/><path d=\"M42 77A25 25 0 1 1 89 59 M89 44V59H74\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><circle cx=\"64\" cy=\"64\" r=\"6\" fill=\"currentColor\"/>"
+  },
+  {
+    "id": 7,
+    "name": "Hex chamber",
+    "family": "Vault doors",
+    "description": "A hexagonal vault door frames a six-sided dial.",
+    "body": "<path d=\"M64 16 106 40V88L64 112 22 88V40Z M64 44 81 54V74L64 84 47 74V54Z\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
+  },
+  {
+    "id": 8,
+    "name": "Split door",
+    "family": "Vault doors",
+    "description": "Two inset panels meet around a central latch.",
+    "body": "<path d=\"M22 24H106V104H22Z M60 24V47 M60 82V104 M48 49H78V79H48Z M72 64H92\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
+  },
+  {
+    "id": 9,
+    "name": "Dial arc",
+    "family": "Vault doors",
+    "description": "A partial outer casing places the emphasis on the wheel.",
+    "body": "<path d=\"M48 22H104V106H22V50\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><circle cx=\"57\" cy=\"61\" r=\"24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"8\"/><path d=\"M57 43V61L70 74\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><circle cx=\"28\" cy=\"28\" r=\"6\" fill=\"currentColor\"/>"
+  },
+  {
+    "id": 10,
+    "name": "Corner bolts",
+    "family": "Vault doors",
+    "description": "Four corners hold a bold central hub.",
+    "body": "<path d=\"M20 43V20H43 M85 20H108V43 M108 85V108H85 M43 108H20V85\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><circle cx=\"64\" cy=\"64\" r=\"23\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"10\"/><path d=\"M64 53V75 M53 64H75\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
+  },
+  {
+    "id": 11,
+    "name": "Keyline",
+    "family": "Keys & access",
+    "description": "A broad ring leads to a stepped key blade.",
+    "body": "<circle cx=\"41\" cy=\"42\" r=\"23\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"10\"/><path d=\"M57 59 101 103 M82 84 94 72 M94 96 106 84\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"10\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
+  },
+  {
+    "id": 12,
+    "name": "Personal key",
+    "family": "Keys & access",
+    "description": "An upright key has a generous circular bow.",
+    "body": "<circle cx=\"64\" cy=\"38\" r=\"21\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"10\"/><path d=\"M64 59V108 M64 85H85 M64 101H80\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"10\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
+  },
+  {
+    "id": 13,
+    "name": "Double ward",
+    "family": "Keys & access",
+    "description": "A horizontal key with two distinct teeth.",
+    "body": "<circle cx=\"36\" cy=\"64\" r=\"21\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"10\"/><path d=\"M57 64H107 M82 64V85 M101 64V80\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"10\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
+  },
+  {
+    "id": 14,
+    "name": "Key window",
+    "family": "Keys & access",
+    "description": "A square bow gives a familiar key a geometric profile.",
+    "body": "<path d=\"M22 22H64V64H22Z M64 64 102 102 M81 82 94 69 M92 94 105 81\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"10\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
+  },
+  {
+    "id": 15,
+    "name": "Keyhole",
+    "family": "Keys & access",
+    "description": "One continuous outline traces a simple keyhole.",
+    "body": "<path d=\"M46 66A27 27 0 1 1 82 66L93 107H35Z\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"10\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
+  },
+  {
+    "id": 16,
+    "name": "Chosen turn",
+    "family": "Keys & access",
+    "description": "A turning key creates an open circle of access.",
+    "body": "<path d=\"M44 29A41 41 0 1 0 105 64 M81 20H108V47 M68 58V88 M68 78H81\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><circle cx=\"68\" cy=\"47\" r=\"11\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"8\"/>"
+  },
+  {
+    "id": 17,
+    "name": "Key pair",
+    "family": "Keys & access",
+    "description": "Two interlocking key bows express deliberate sharing.",
+    "body": "<circle cx=\"44\" cy=\"43\" r=\"22\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"8\"/><circle cx=\"82\" cy=\"82\" r=\"22\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"8\"/><path d=\"M27 59 18 70 M64 100 53 111 M99 65 110 54\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
+  },
+  {
+    "id": 18,
+    "name": "Ribbon key",
+    "family": "Keys & access",
+    "description": "A ribbon-shaped bow flows into one clean blade.",
+    "body": "<path d=\"M42 18 66 40 42 63 18 40Z M60 57 102 99 M83 80 97 66\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"10\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
+  },
+  {
+    "id": 19,
+    "name": "Access notch",
+    "family": "Keys & access",
+    "description": "A solid key uses a single circular opening.",
+    "body": "<path d=\"M21 21H73V73H56V107H40V59H57V37H37V57H21Z\" fill=\"currentColor\"/>"
+  },
+  {
+    "id": 20,
+    "name": "Key compass",
+    "family": "Keys & access",
+    "description": "A central ring sends one blade toward a clear direction.",
+    "body": "<circle cx=\"55\" cy=\"71\" r=\"29\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"10\"/><path d=\"M76 50 105 21 M88 38 77 27 M100 26 89 15\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"10\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
+  },
+  {
+    "id": 21,
+    "name": "Shielded file",
+    "family": "Protective forms",
+    "description": "A single page sits inside a broad shield.",
+    "body": "<path d=\"M64 18 105 32V61Q104 92 64 111Q24 92 23 61V32Z\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M49 42H70L80 52V81H49Z M70 42V53H80\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
+  },
+  {
+    "id": 22,
+    "name": "Shield V",
+    "family": "Protective forms",
+    "description": "An emphatic V settles into a protective perimeter.",
+    "body": "<path d=\"M64 18 105 32V61Q104 92 64 111Q24 92 23 61V32Z\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M44 52 64 81 84 52\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"10\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
+  },
+  {
+    "id": 23,
+    "name": "Shield latch",
+    "family": "Protective forms",
+    "description": "A short latch spans the centre of the shield.",
+    "body": "<path d=\"M64 18Q84 31 104 30V62Q103 96 64 110Q25 96 24 62V30Q44 31 64 18Z\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><circle cx=\"64\" cy=\"57\" r=\"12\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"8\"/><path d=\"M64 69V86\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
+  },
+  {
+    "id": 24,
+    "name": "Layered shield",
+    "family": "Protective forms",
+    "description": "An inner contour repeats the outer protection motif.",
+    "body": "<path d=\"M64 18 106 40V80L64 110 22 80V40Z\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M64 37 86 45V61Q85 78 64 91Q43 78 42 61V45Z\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
+  },
+  {
+    "id": 25,
+    "name": "Shield seam",
+    "family": "Protective forms",
+    "description": "A vertical seam balances a split shield.",
+    "body": "<path d=\"M64 18 105 32V61Q104 92 64 111Q24 92 23 61V32Z\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M64 20V109 M40 46H49 M80 78H89\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
+  },
+  {
+    "id": 26,
+    "name": "Archive crest",
+    "family": "Protective forms",
+    "description": "Three horizontal file layers form a heraldic centre.",
+    "body": "<path d=\"M25 20H103V61Q103 95 64 112Q25 95 25 61Z\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M44 47H84 M44 63H84 M50 79H78\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
+  },
+  {
+    "id": 27,
+    "name": "Open crest",
+    "family": "Protective forms",
+    "description": "A broken upper edge puts a separate seal above the shield.",
+    "body": "<path d=\"M41 25 23 32V61Q24 92 64 111Q104 92 105 61V32L87 25\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><circle cx=\"64\" cy=\"34\" r=\"13\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"8\"/><path d=\"M47 70 60 82 83 58\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
+  },
+  {
+    "id": 28,
+    "name": "Angular shelter",
+    "family": "Protective forms",
+    "description": "A sharply folded shield creates a strong V silhouette.",
+    "body": "<path d=\"M18 24 64 38 110 24V65L64 110 18 65Z M34 44V59L64 88 94 59V44L64 55Z\" fill=\"currentColor\"/>"
+  },
+  {
+    "id": 29,
+    "name": "Shield orbit",
+    "family": "Protective forms",
+    "description": "A protective outline and an off-axis centre suggest stewardship.",
+    "body": "<path d=\"M64 19Q85 19 103 35V73Q92 98 64 110Q36 98 25 73V35Q43 19 64 19Z\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><circle cx=\"67\" cy=\"62\" r=\"19\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"8\"/><circle cx=\"43\" cy=\"87\" r=\"6\" fill=\"currentColor\"/>"
+  },
+  {
+    "id": 30,
+    "name": "Gate crest",
+    "family": "Protective forms",
+    "description": "A pair of gate posts flank the inner shield.",
+    "body": "<path d=\"M20 24V104 M108 24V104 M64 27 89 39V66L64 94 39 66V39Z M64 45V75\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
+  },
+  {
+    "id": 31,
+    "name": "File lock",
+    "family": "Private files",
+    "description": "A folded page carries a compact lock.",
+    "body": "<path d=\"M28 16H78L101 40V110H28Z M78 16V40H101\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M49 69H80V93H49Z M55 69V60Q64 43 74 60V69\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
+  },
+  {
+    "id": 32,
+    "name": "Hidden folio",
+    "family": "Private files",
+    "description": "Two offset pages and a keyhole form a restrained file mark.",
+    "body": "<path d=\"M40 19H101V99H40Z M26 34H19V111H80\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><circle cx=\"70\" cy=\"52\" r=\"10\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"8\"/><path d=\"M70 62V80\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
+  },
+  {
+    "id": 33,
+    "name": "Sealed corner",
+    "family": "Private files",
+    "description": "A corner fold becomes a broad, deliberate seal.",
+    "body": "<path d=\"M29 18H83L106 41V110H29Z M82 18V43H106 M48 66H75 M48 84H68\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><circle cx=\"86\" cy=\"86\" r=\"10\" fill=\"currentColor\"/>"
+  },
+  {
+    "id": 34,
+    "name": "File V",
+    "family": "Private files",
+    "description": "A file outline and central V connect name and purpose.",
+    "body": "<path d=\"M30 18H80L101 39V110H30Z M80 18V40H101 M45 61 64 88 83 61\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
+  }
+]

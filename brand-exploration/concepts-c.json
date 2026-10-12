@@ -1,0 +1,233 @@
+[
+  {
+    "id": 68,
+    "name": "Grant window",
+    "family": "Deliberate sharing",
+    "description": "A selected window is marked within a sharing frame.",
+    "body": "<path d=\"M22 22H58V58H22Z M70 70H106V106H70Z M80 22H106V48 M22 80V106H48 M73 47 82 56 104 34\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"7\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
+  },
+  {
+    "id": 69,
+    "name": "Equal access",
+    "family": "Deliberate sharing",
+    "description": "Two independent forms connect through one controlled bridge.",
+    "body": "<path d=\"M21 30H48V98H21Z M80 30H107V98H80Z M48 55H80 M48 73H80\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
+  },
+  {
+    "id": 70,
+    "name": "Chosen pair",
+    "family": "Deliberate sharing",
+    "description": "Two circles meet under a protective arch.",
+    "body": "<path d=\"M18 70V61A46 46 0 0 1 110 61V70\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><circle cx=\"46\" cy=\"80\" r=\"20\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"8\"/><circle cx=\"82\" cy=\"80\" r=\"20\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"8\"/>"
+  },
+  {
+    "id": 71,
+    "name": "Retained stack",
+    "family": "Versions & continuity",
+    "description": "Three layers preserve a shared geometric centre.",
+    "body": "<path d=\"M19 40 64 18 109 40 64 62Z M19 62 64 84 109 62 M19 85 64 107 109 85\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
+  },
+  {
+    "id": 72,
+    "name": "History dial",
+    "family": "Versions & continuity",
+    "description": "A returning arrow circles an immutable central page.",
+    "body": "<path d=\"M22 58A43 43 0 1 1 33 96 M22 33V59H48 M51 42H78V86H51Z\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
+  },
+  {
+    "id": 73,
+    "name": "Version steps",
+    "family": "Versions & continuity",
+    "description": "Three rising solid steps express successive versions.",
+    "body": "<path d=\"M18 78H42V110H18Z M51 48H75V110H51Z M84 18H108V110H84Z\" fill=\"currentColor\"/>"
+  },
+  {
+    "id": 74,
+    "name": "File echoes",
+    "family": "Versions & continuity",
+    "description": "Offset document contours retain their earlier outlines.",
+    "body": "<path d=\"M57 18H105V76H57Z M41 34H28V94H88V88 M24 51H14V111H71V104\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"7\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
+  },
+  {
+    "id": 75,
+    "name": "Continuity loop",
+    "family": "Versions & continuity",
+    "description": "An angular loop surrounds one small retained unit.",
+    "body": "<path d=\"M24 44V24H104V104H24V76 M24 76 13 87 M24 76 36 88\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M50 50H78V78H50Z\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
+  },
+  {
+    "id": 76,
+    "name": "Archive trail",
+    "family": "Versions & continuity",
+    "description": "Three sequential nodes follow a protective boundary.",
+    "body": "<path d=\"M20 24H108V103H20Z M39 63H89\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><circle cx=\"39\" cy=\"63\" r=\"8\" fill=\"currentColor\"/><circle cx=\"64\" cy=\"63\" r=\"8\" fill=\"currentColor\"/><circle cx=\"89\" cy=\"63\" r=\"8\" fill=\"currentColor\"/>"
+  },
+  {
+    "id": 77,
+    "name": "Version rings",
+    "family": "Versions & continuity",
+    "description": "Three nested rings share an offset registration point.",
+    "body": "<circle cx=\"64\" cy=\"64\" r=\"44\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"7\"/><circle cx=\"76\" cy=\"64\" r=\"29\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"7\"/><circle cx=\"87\" cy=\"64\" r=\"14\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"7\"/>"
+  },
+  {
+    "id": 78,
+    "name": "Byte bridge",
+    "family": "Versions & continuity",
+    "description": "Retained blocks span an unbroken foundation.",
+    "body": "<path d=\"M19 100H109\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"10\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M22 22H43V79H22Z M54 41H75V79H54Z M86 22H107V79H86Z\" fill=\"currentColor\"/>"
+  },
+  {
+    "id": 79,
+    "name": "History fold",
+    "family": "Versions & continuity",
+    "description": "A zigzag ribbon places earlier folds behind the current one.",
+    "body": "<path d=\"M23 26H105L80 51H23L48 77H105L80 103H23\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"9\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
+  },
+  {
+    "id": 80,
+    "name": "Version anchor",
+    "family": "Versions & continuity",
+    "description": "A central file is held between two retained layers.",
+    "body": "<path d=\"M44 21H84V107H44Z M30 37H19V91H30 M98 37H109V91H98 M58 48H70 M58 67H70\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
+  },
+  {
+    "id": 81,
+    "name": "Pocket vault",
+    "family": "Enclosures & containers",
+    "description": "A rounded pocket meets a high protective lip.",
+    "body": "<path d=\"M20 23H108V69Q108 108 64 108Q20 108 20 69Z M20 43H108 M47 67 64 85 81 67\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
+  },
+  {
+    "id": 82,
+    "name": "Lidded box",
+    "family": "Enclosures & containers",
+    "description": "A simple storage box has a separate inset lid.",
+    "body": "<path d=\"M18 24H110V45H18Z M27 45V107H101V45 M51 62H77\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
+  },
+  {
+    "id": 83,
+    "name": "Corner chamber",
+    "family": "Enclosures & containers",
+    "description": "Four solid corners frame a small inset chamber.",
+    "body": "<path d=\"M18 18H53V31H31V53H18Z M75 18H110V53H97V31H75Z M110 75V110H75V97H97V75Z M53 110H18V75H31V97H53Z\" fill=\"currentColor\"/><circle cx=\"64\" cy=\"64\" r=\"13\" fill=\"currentColor\"/>"
+  },
+  {
+    "id": 84,
+    "name": "Safe harbour",
+    "family": "Enclosures & containers",
+    "description": "An arched canopy shelters a compact file box.",
+    "body": "<path d=\"M18 69V61A46 46 0 0 1 110 61V69 M32 67H96V108H32Z M51 82H77\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"9\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
+  },
+  {
+    "id": 85,
+    "name": "Cube vault",
+    "family": "Enclosures & containers",
+    "description": "An isometric cube has an inset central latch.",
+    "body": "<path d=\"M64 17 108 42V90L64 112 20 90V42Z M20 42 64 67 108 42 M64 67V112 M81 67V86\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
+  },
+  {
+    "id": 86,
+    "name": "Inset chest",
+    "family": "Enclosures & containers",
+    "description": "A wide chest gains a centred square latch.",
+    "body": "<path d=\"M18 32H110V101H18Z M18 55H50 M78 55H110 M50 43H78V75H50Z\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
+  },
+  {
+    "id": 87,
+    "name": "Shelved",
+    "family": "Enclosures & containers",
+    "description": "A thick outer frame contains three distinct compartments.",
+    "body": "<path d=\"M22 20H106V108H22Z M22 52H106 M64 52V108\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"10\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
+  },
+  {
+    "id": 88,
+    "name": "Capsule vault",
+    "family": "Enclosures & containers",
+    "description": "A horizontal capsule frames a vertical keyhole.",
+    "body": "<path d=\"M43 29H85Q109 29 109 64Q109 99 85 99H43Q19 99 19 64Q19 29 43 29Z\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><circle cx=\"64\" cy=\"56\" r=\"12\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"8\"/><path d=\"M64 68V82\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
+  },
+  {
+    "id": 89,
+    "name": "Mountain room",
+    "family": "Enclosures & containers",
+    "description": "A pentagonal enclosure combines home and V-shaped entry.",
+    "body": "<path d=\"M21 50 64 18 107 50V108H21Z M42 59 64 87 86 59\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"9\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
+  },
+  {
+    "id": 90,
+    "name": "Bound container",
+    "family": "Enclosures & containers",
+    "description": "Two wraparound bands brace an open square form.",
+    "body": "<path d=\"M30 20H98V108H30Z M18 45H110 M18 83H110 M53 59H75\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"9\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
+  },
+  {
+    "id": 91,
+    "name": "Fingerprint arc",
+    "family": "Abstract trust marks",
+    "description": "Three broad concentric arcs make a restrained identity cue.",
+    "body": "<path d=\"M20 90V59A44 44 0 0 1 108 59V90 M39 98V60A25 25 0 0 1 89 60V98 M64 59V110\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
+  },
+  {
+    "id": 92,
+    "name": "Fourfold",
+    "family": "Abstract trust marks",
+    "description": "Four inward-facing brackets hold a clear empty centre.",
+    "body": "<path d=\"M22 45V22H45 M83 22H106V45 M106 83V106H83 M45 106H22V83 M45 45H83V83H45Z\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
+  },
+  {
+    "id": 93,
+    "name": "Woven access",
+    "family": "Abstract trust marks",
+    "description": "Two angular bands cross in an ordered weave.",
+    "body": "<path d=\"M20 39 64 19 108 39 64 59 20 39V87L64 108 108 87V63 M64 59V108\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
+  },
+  {
+    "id": 94,
+    "name": "Twin arches",
+    "family": "Abstract trust marks",
+    "description": "Mirrored arches create a narrow private chamber.",
+    "body": "<path d=\"M20 103V60Q20 22 53 22V103 M75 103V22Q108 22 108 60V103\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"9\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
+  },
+  {
+    "id": 95,
+    "name": "Cipher tiles",
+    "family": "Abstract trust marks",
+    "description": "Four asymmetric solid tiles form one compact identity.",
+    "body": "<path d=\"M20 20H59V45H20Z M72 20H108V59H83V45H72Z M20 59H45V83H59V108H20Z M72 72H108V108H72Z\" fill=\"currentColor\"/>"
+  },
+  {
+    "id": 96,
+    "name": "Trust aperture",
+    "family": "Abstract trust marks",
+    "description": "Four bent blades frame an open square centre.",
+    "body": "<path d=\"M22 49V22H75 M79 22H106V75 M106 79V106H53 M49 106H22V53 M48 48H80V80H48Z\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
+  },
+  {
+    "id": 97,
+    "name": "Memory chamber",
+    "family": "Abstract trust marks",
+    "description": "A central chip-like chamber has calm, symmetric terminals.",
+    "body": "<path d=\"M38 38H90V90H38Z M51 19V38 M77 19V38 M51 90V109 M77 90V109 M19 51H38 M19 77H38 M90 51H109 M90 77H109\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
+  },
+  {
+    "id": 98,
+    "name": "Quiet centre",
+    "family": "Abstract trust marks",
+    "description": "A compact core sits inside two opposing crescent forms.",
+    "body": "<path d=\"M49 22Q20 31 20 64Q20 97 49 106 M79 22Q108 31 108 64Q108 97 79 106\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"10\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M51 46H77V82H51Z\" fill=\"currentColor\"/>"
+  },
+  {
+    "id": 99,
+    "name": "Bound diamond",
+    "family": "Abstract trust marks",
+    "description": "A diamond enclosure is held by four inward strokes.",
+    "body": "<path d=\"M64 16 112 64 64 112 16 64Z M64 16V37 M112 64H91 M64 112V91 M16 64H37\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><circle cx=\"64\" cy=\"64\" r=\"10\" fill=\"currentColor\"/>"
+  },
+  {
+    "id": 100,
+    "name": "Vault star",
+    "family": "Abstract trust marks",
+    "description": "Four rounded arms converge around a separate central square.",
+    "body": "<path d=\"M46 20H82V40 M108 46V82H88 M82 108H46V88 M20 82V46H40\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"9\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M51 51H77V77H51Z\" fill=\"currentColor\"/>"
+  }
+]
