@@ -511,10 +511,10 @@ protection, invitation blocking, preserved reads and protected downloads, indepe
 document archive state, revocation/rotation while archived, both pre-document and
 pre-vault archive migration states, and populated archived-vault recovery.
 
-The source client/backend release ID is `2026-10-12.1`. The published launcher pin
-is intentionally unchanged until the package publication stage in
-[client releases](client-releases.md). Remote copied-launcher validation, publication
-and deployment remain release work; local wheel validation does not replace that gate.
+The source client/backend release ID is `2026-10-12.1`. The launcher pins published package commit
+`ec385b867658e27f54697c02a1406a76ee6acf69`. Both remote copied-launcher
+checks (`skill.py` and `cli_forward.py`) passed against the pinned server before
+the launcher release commit. Deployment remains subject to CI release gates.
 Encrypted file exports retain v2 and do not restore vault lifecycle metadata.
 
 The local Docker image also passed configuration, smoke and populated complete
