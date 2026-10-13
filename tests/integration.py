@@ -4,6 +4,7 @@ import argparse
 import concurrent.futures
 import contextlib
 import json
+import os
 from pathlib import Path
 import socket
 import shutil
@@ -16,7 +17,7 @@ import urllib.request
 ROOT = Path(__file__).resolve().parents[1]
 
 @contextlib.contextmanager
-def server(binary, *, migrations=None, data_dir=None, cwd=ROOT):
+def server(binary, *, migrations=None, data_dir=None, cwd=ROOT, workspace_domain=None):
     with tempfile.TemporaryDirectory(prefix='vaultcontext-test-') as tmp:
         hooks=Path(tmp)/'pb_hooks'
         shutil.copytree(ROOT/'pb_hooks',hooks)
@@ -30,13 +31,15 @@ onRecordCreateExecute((e) => {
   e.next();
 }, 'user_directory');
 ''')
+        environment=dict(os.environ)
+        if workspace_domain is not None: environment['VAULTCONTEXT_GOOGLE_WORKSPACE_DOMAIN']=workspace_domain
         common = [str(Path(binary).resolve()), '--dir', str(data_dir or Path(tmp)/'pb_data'), '--migrationsDir', str(migrations or ROOT/'pb_migrations'), '--hooksDir', str(hooks)]
-        result = subprocess.run(common+['superuser','upsert','admin@example.com','SyntheticAdminPassword123!'],cwd=cwd,capture_output=True,text=True)
+        result = subprocess.run(common+['superuser','upsert','admin@example.com','SyntheticAdminPassword123!'],cwd=cwd,capture_output=True,text=True,env=environment)
         assert result.returncode == 0, result.stdout+result.stderr
         with socket.socket() as sock:
             sock.bind(('127.0.0.1',0)); port=sock.getsockname()[1]
         with open(Path(tmp)/'server.log','w+') as log:
-            proc=subprocess.Popen(common+['serve','--http',f'127.0.0.1:{port}'],cwd=cwd,stdout=log,stderr=log)
+            proc=subprocess.Popen(common+['serve','--http',f'127.0.0.1:{port}'],cwd=cwd,stdout=log,stderr=log,env=environment)
             def request(method,path,body=None,token=None,expected=200):
                 headers={'Content-Type':'application/json', 'X-VaultContext-Release': json.loads((ROOT/'pb_hooks/release.json').read_text())['release_id']}
                 if token: headers['Authorization']=token
@@ -61,12 +64,12 @@ onRecordCreateExecute((e) => {
 
 def main():
     parser=argparse.ArgumentParser();parser.add_argument('--binary',required=True);args=parser.parse_args()
-    with server(args.binary) as request:
+    with server(args.binary, workspace_domain='example.com') as request:
         path=lambda t:'/api/collections/'+t+'/records'
         admin=request('POST','/api/collections/_superusers/auth-with-password',{'identity':'admin@example.com','password':'SyntheticAdminPassword123!'})['token']
         accounts=[]
         for n in ['alice','bob','eve']:
-            u=request('POST',path('users'),{'email':n+'@example.com','name':n,'password':'SyntheticUserPassword123!','passwordConfirm':'SyntheticUserPassword123!'},admin)
+            u=request('POST',path('users'),{'email':n+'@example.com','workspace_google_email':n+'@example.com','workspace_google_domain':'example.com','name':n,'password':'SyntheticUserPassword123!','passwordConfirm':'SyntheticUserPassword123!'},admin)
             t=request('POST','/api/collections/users/auth-with-password',{'identity':n+'@example.com','password':'SyntheticUserPassword123!'})['token']
             accounts.append((u['id'],t))
         (alice,at),(bob,bt),(eve,et)=accounts
@@ -104,11 +107,30 @@ def main():
         assert len(query(at,'SELECT * FROM versions'))==1
         request('POST',path('versions'),save,at,403)
         request('GET',path('versions')+'/'+ver,token=at,expected=403)
+        assert query(at,"SELECT sharing_eligible FROM user_directory WHERE id='"+bob+"'")[0]['sharing_eligible'] in (True,1)
+        for fields in [{'workspace_google_email':''},{'workspace_google_domain':'outside.com'},{'email':'renamed@example.com'},{'disabled':True}]:
+            request('PATCH',path('users')+'/'+bob,fields,admin)
+            assert not query(at,"SELECT sharing_eligible FROM user_directory WHERE id='"+bob+"'")[0]['sharing_eligible']
+            act(at,'share',{'vault':v,'account':bob,'role':'reader','expected_revision':1,'envelopes':[{'epoch':1,'envelope':'bob-envelope'}]},403)
+            request('PATCH',path('users')+'/'+bob,{'workspace_google_email':'bob@example.com','workspace_google_domain':'example.com','email':'bob@example.com','disabled':False},admin)
+        # Disabling or changing email refreshes token state; restore a valid token.
+        bt=request('POST','/api/collections/users/auth-with-password',{'identity':'bob@example.com','password':'SyntheticUserPassword123!'})['token']
+        accounts[1]=(bob,bt)
+        bft=request('POST','/api/files/token',{},bt)['token']
         inv=act(at,'share',{'vault':v,'account':bob,'role':'reader','expected_revision':1,'envelopes':[{'epoch':1,'envelope':'bob-envelope'}]})
+        repeat_payload={'vault':v,'account':bob,'role':'reader','expected_revision':inv['revision'],'envelopes':[{'epoch':1,'envelope':'must-not-replace'}]}
+        before=query(at,'SELECT * FROM audit_log')
+        assert act(at,'share',repeat_payload)==inv
+        act(at,'share',dict(repeat_payload,role='editor'),400)
+        assert query(at,'SELECT * FROM audit_log')==before
+        assert query(bt,'SELECT envelope FROM key_envelopes')[0]['envelope']=='bob-envelope'
         assert query(bt,'SELECT * FROM vaults')==[]
         assert len(query(bt,'SELECT * FROM key_envelopes'))==1
         act(et,'accept',{'invitation':inv['id']},403)
         accepted=act(bt,'accept',{'invitation':inv['id']})
+        active=act(at,'share',dict(repeat_payload,expected_revision=accepted['revision']))
+        assert active['status']=='active' and active['revision']==accepted['revision']
+        act(at,'share',dict(repeat_payload,expected_revision=accepted['revision'],role='editor'),400)
         assert len(query(bt,'SELECT * FROM versions'))==1
         assert request('GET',file_path+'?token='+bft)==b'encrypted-binary-chunk'
         act(bt,'save',dict(save,version='b'*15,expected_revision=1),403)

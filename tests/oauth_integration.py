@@ -106,12 +106,19 @@ def main():
         # Existing explicitly provisioned accounts must keep their identity.
         assert request('GET', '/api/collections/users/records', token=admin)['totalItems'] == 0
         user = request('POST', '/api/collections/users/records', signup, admin)
+        directory_path='/api/collections/user_directory/records/'+user['id']
+        assert not request('GET',directory_path,token=admin)['sharing_eligible']
         for options in [{'hd': None}, {'hd': 'outside.com'}, {'verified': False}, {'verified': 'true'},
                         {'email': 'member@outside.com'}, {'wrong_verifier': True}]:
             exchange(**options, expected=(400, 403))
+        assert not request('GET',directory_path,token=admin)['sharing_eligible']
         auth = exchange(create_data={'disabled': True, 'name': 'Forged', 'id': 'forged000000001'})
         assert auth['record']['id'] == user['id'] and auth['record']['name'] == signup['name']
         assert not auth['record']['disabled']
+        assert 'workspace_google_email' not in auth['record']
+        assert request('GET',directory_path,token=admin)['sharing_eligible']
+        exchange(subject='different-google-account',expected=(400,403))
+        assert request('GET',directory_path,token=admin)['sharing_eligible']
         assert exchange()['record']['id'] == user['id']
         assert exchange(email='MEMBER@example.com', subject='member@example.com')['record']['id'] == user['id']
         token = auth['token']
@@ -121,6 +128,7 @@ def main():
         assert abs(claims['exp'] - time.time() - 604800) < 30
         path = '/api/collections/users/records/' + user['id']
         request('PATCH', path, {'disabled': True}, admin)
+        assert not request('GET',directory_path,token=admin)['sharing_eligible']
         exchange(expected=(400, 403))
         request('GET', '/api/context/schema', token=token, expected=(401, 403))
         request('PATCH', path, {'disabled': False}, admin)
@@ -131,11 +139,13 @@ def main():
         # First verified Workspace login creates a standard users identity and
         # directory entry, ignoring every untrusted client provisioning field.
         forged = {**signup, 'id': 'forged000000001', 'disabled': True, 'name': 'Forged', 'email': 'attacker@outside.com'}
+        forged.update(workspace_google_email='attacker@outside.com',workspace_google_domain='outside.com')
         fresh = exchange(email='new@example.com', create_data=forged)
         new_user = fresh['record']
         assert new_user['collectionName'] == 'users' and new_user['id'] != forged['id']
         assert new_user['email'] == 'new@example.com' and new_user['name'] == 'Google name'
         assert new_user['verified'] and not new_user['disabled']
+        assert request('GET','/api/collections/user_directory/records/'+new_user['id'],token=admin)['sharing_eligible']
         assert request('GET', '/api/collections/user_directory/records/' + new_user['id'], token=admin)['name'] == 'Google name'
         assert exchange(email='new@example.com')['record']['id'] == new_user['id']
         request('POST', '/api/collections/users/auth-with-password', {
@@ -151,7 +161,28 @@ def main():
         request('GET', '/api/context/schema', token=fresh['token'], expected=(401, 403))
         assert exchange(email='new@example.com')['record']['id'] == new_user['id']
     no_domain_checks(args.binary)
+    domain_restart_checks(args.binary)
     print('PASS: Google Workspace JIT, trusted identity claims, PKCE, existing identity preservation and revocation')
+
+
+def domain_restart_checks(binary):
+    # Directory eligibility follows configuration changes on normal restart.
+    import tempfile
+    from pathlib import Path
+    with tempfile.TemporaryDirectory(prefix='vault-sharing-domain-') as tmp:
+        data=Path(tmp)/'pb_data'
+        account=None
+        for domain, expected in [('example.com',True),('outside.com',False),('example.com',True)]:
+            with server(binary,data_dir=data,workspace_domain=domain) as request:
+                admin=request('POST','/api/collections/_superusers/auth-with-password',{
+                    'identity':'admin@example.com','password':'SyntheticAdminPassword123!'})['token']
+                if account is None:
+                    account=request('POST','/api/collections/users/records',{
+                        'email':'domain@example.com','name':'Synthetic domain fixture',
+                        'password':'SyntheticPassword123!','passwordConfirm':'SyntheticPassword123!',
+                        'workspace_google_email':'domain@example.com','workspace_google_domain':'example.com'},admin)['id']
+                row=request('GET','/api/collections/user_directory/records/'+account,token=admin)
+                assert row['sharing_eligible'] is expected, row
 
 
 def no_domain_checks(binary):
@@ -178,6 +209,7 @@ def no_domain_checks(binary):
             'password': 'SyntheticPassword123!', 'passwordConfirm': 'SyntheticPassword123!',
         }, admin)
         assert exchange(200)['record']['id'] == existing['id']
+        assert not request('GET','/api/collections/user_directory/records/'+existing['id'],token=admin)['sharing_eligible']
 
 
 if __name__ == '__main__':

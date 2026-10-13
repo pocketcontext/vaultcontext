@@ -3,7 +3,8 @@
     "created",
     "email",
     "id",
-    "name"
+    "name",
+    "sharing_eligible"
   ],
   "identities": [
     "account",

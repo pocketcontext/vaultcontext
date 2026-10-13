@@ -56,11 +56,11 @@ def cat_checks(command, temporary, request, owner, other, document, historical, 
 
         # Fingerprint checks are repeated during reading, even in an unlocked session.
         pinned = vc.pin_path(cfg).read_bytes()
-        vc.pin_path(cfg).write_text('{}')
+        vc.pin_path(cfg).write_text(json.dumps({account:'0'*64}))
         try:
             result = cat()
             rejected(result)
-            assert b'Unverified' in result.stderr
+            assert b'key' in result.stderr.lower(), result.stderr
         finally:
             vc.pin_path(cfg).write_bytes(pinned)
 
@@ -225,13 +225,13 @@ def main():
     parser=argparse.ArgumentParser();parser.add_argument('--binary',required=True)
     parser.add_argument('--client',help='Copy and execute this standalone launcher outside the repository')
     args=parser.parse_args()
-    with tempfile.TemporaryDirectory(prefix='vault-skill-') as tmp, server(args.binary) as req:
+    with tempfile.TemporaryDirectory(prefix='vault-skill-') as tmp, server(args.binary, workspace_domain='example.com') as req:
         command=client_command(args.client,tmp)
         os.environ['XDG_CACHE_HOME']=str(Path(tmp)/'cache')
         admin=req('POST','/api/collections/_superusers/auth-with-password',{'identity':'admin@example.com','password':'SyntheticAdminPassword123!'})['token']
         users=[]
         for name in ['alice','bob','eve']:
-            row=req('POST','/api/collections/users/records',{'email':name+'@example.com','name':name,'password':'SyntheticUserPassword123!','passwordConfirm':'SyntheticUserPassword123!'},admin)
+            row=req('POST','/api/collections/users/records',{'email':name+'@example.com','workspace_google_email':name+'@example.com','workspace_google_domain':'example.com','name':name,'password':'SyntheticUserPassword123!','passwordConfirm':'SyntheticUserPassword123!'},admin)
             cfg={'url':req.base_url.replace('127.0.0.1', 'localhost'),'email':name+'@example.com','password':'SyntheticUserPassword123!'}
             vc.auth.login(cfg)
             identity=crypto.generate_identity();pub=crypto.public_identity(identity);fingerprint=crypto.fingerprint(pub)
@@ -248,13 +248,13 @@ def main():
         assert run(a,ai,aid,'search',vault=vault,text='binary')[0]['id']==doc
         out=Path(tmp)/'restored';run(a,ai,aid,'restore',document=doc,to=str(out));assert out.read_bytes()==content;assert out.stat().st_mode&0o777==0o600
         assert run(e,ei,eid,'vaults')==[]
-        inv=run(a,ai,aid,'share',vault=vault,account=bid,role='reader',fingerprint=bf)['id']
-        run(b,bi,bid,'accept',invitation=inv,fingerprint=af)
+        inv=run(a,ai,aid,'share',vault=vault,account='BOB@example.com',role='reader')['id']
+        run(b,bi,bid,'accept',invitation=inv)
         bout=Path(tmp)/'bob';run(b,bi,bid,'restore',document=doc,to=str(bout));assert bout.read_bytes()==content
         try:run(b,bi,bid,'save',vault=vault,path=str(source))
         except vc.auth.Fail:pass
         else:raise AssertionError('reader wrote')
-        run(a,ai,aid,'revoke',vault=vault,account=bid)
+        run(a,ai,aid,'revoke',vault=vault,account='bob@example.com')
         assert run(b,bi,bid,'vaults')==[]
         assert run(a,ai,aid,'vaults')[0]['name']=='Personal test'
         source.write_bytes(b'new bytes')

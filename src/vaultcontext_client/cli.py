@@ -6,6 +6,7 @@ Private keys are stored encrypted on the server and decrypted only in memory.
 import argparse
 import base64
 import ctypes
+import fcntl
 import getpass
 import hashlib
 import json
@@ -111,20 +112,59 @@ def verify_user(cfg, account, fingerprint=None):
     if actual != row['fingerprint']:
         raise auth.Fail(1, 'Directory fingerprint mismatch.')
     known = pins(cfg)
-    if fingerprint is not None:
-        if not secrets.compare_digest(fingerprint, actual):
-            raise auth.Fail(1, 'Fingerprint does not match the independently verified value.')
-        known[account] = actual
+    if account in known and not secrets.compare_digest(known[account], actual):
+        raise auth.Fail(1, f'Unverified or changed public key for {account}; the saved key must not be silently replaced.')
+    if fingerprint is not None and not secrets.compare_digest(fingerprint, actual):
+        raise auth.Fail(1, 'Fingerprint does not match the independently verified value.')
+    if account not in known:
         path = pin_path(cfg)
         path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-        with crypto._parent(path) as (directory, _):
+        with crypto._parent(path) as (directory, name):
             info = os.fstat(directory)
             if info.st_uid != os.getuid() or stat.S_IMODE(info.st_mode) != 0o700:
                 raise auth.Fail(1, 'Unsafe fingerprint directory ownership or permissions.')
-        crypto.restore_file(path, encode(known).encode(), overwrite=True)
-    elif known.get(account) != actual:
-        raise auth.Fail(1, f'Unverified or changed public key for {account}; verify-user with an independently obtained fingerprint first.')
+            lock_name = name + '.lock'
+            fd = os.open(lock_name, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW | os.O_NONBLOCK,
+                         0o600, dir_fd=directory)
+            try:
+                info = os.fstat(fd)
+                if (not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or
+                        stat.S_IMODE(info.st_mode) != 0o600 or info.st_nlink != 1):
+                    raise auth.Fail(1, 'Unsafe fingerprint lock.')
+                try:
+                    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                except BlockingIOError:
+                    raise auth.Fail(1, 'Another key verification is busy; retry the command.') from None
+                current = os.stat(lock_name, dir_fd=directory, follow_symlinks=False)
+                if (info.st_dev, info.st_ino) != (current.st_dev, current.st_ino):
+                    raise auth.Fail(1, 'Fingerprint lock changed; retry after inspection.')
+                # Re-read under the persistent lock, retaining concurrent additions
+                # and rejecting a conflicting first-use pin from another process.
+                known = pins(cfg)
+                if account in known and not secrets.compare_digest(known[account], actual):
+                    raise auth.Fail(1, f'Unverified or changed public key for {account}.')
+                known[account] = actual
+                crypto.restore_file(path, encode(known).encode(), overwrite=True)
+            finally:
+                os.close(fd)
     return public(row)
+
+def resolve_recipient(cfg, recipient, *, sharing=False):
+    """Resolve exact email or stable ID; never infer identity from an email suffix."""
+    where = ('lower(email)=' + quote(recipient.lower()) if '@' in recipient
+             else 'id=' + quote(recipient))
+    matches = rows(cfg, 'user_directory', where)
+    if len(matches) != 1:
+        raise auth.Fail(1, 'Expected one registered account for that email or account ID; the recipient must sign in first.')
+    user = matches[0]
+    if sharing and user.get('sharing_eligible') not in (True, 1):
+        raise auth.Fail(1, 'Recipient must be an active Google-verified Workspace account.')
+    if sharing and len(rows(cfg, 'identities', 'account=' + quote(user['id']))) != 1:
+        raise auth.Fail(1, 'Recipient must initialize encryption with vaultcontext init before sharing.')
+    return user
+
+def resolve_account(cfg, recipient, *, sharing=False):
+    return resolve_recipient(cfg, recipient, sharing=sharing)['id']
 
 def key_context(vault, account, epoch, signer):
     return {'kind': 'vault-key', 'vault': vault, 'recipient': account, 'epoch': epoch, 'signer': signer}
@@ -348,15 +388,33 @@ def execute(cfg, identity, account, args):
     if command == 'members':
         return rows(cfg, 'memberships', 'vault=' + quote(args['vault']) + ' AND active=1')
     if command == 'share':
-        verify_user(cfg, args['account'], args['fingerprint'])
+        recipient_record = resolve_recipient(cfg, args['account'], sharing=True)
+        recipient = recipient_record['id']
+        def share_result(payload):
+            result = action(cfg, 'share', payload)
+            return dict(result, email=recipient_record['email'], scope='whole-vault-and-retained-history')
         vault = one(cfg, 'vaults', 'id=' + quote(args['vault']))
-        envelopes = [{'epoch': epoch, 'envelope': seal(cfg, identity, vault_key(cfg, identity, account, vault['id'], epoch), vault['id'], args['account'], epoch, account)} for epoch in range(1, int(vault['epoch']) + 1)]
-        return action(cfg, 'share', {'vault': vault['id'], 'account': args['account'], 'role': args['role'], 'expected_revision': vault['revision'], 'envelopes': envelopes})
+        role = args.get('role', 'reader')
+        selected = f'vault={quote(vault["id"])} AND account={quote(recipient)}'
+        existing = (rows(cfg, 'memberships', selected + ' AND active=1') +
+                    rows(cfg, 'invitations', selected + " AND status='pending'"))
+        if existing:
+            if any(record['role'] != role for record in existing):
+                raise auth.Fail(1, 'Recipient already has a different role; revoke and share again to change it.')
+            if args.get('fingerprint') is not None:
+                verify_user(cfg, recipient, args['fingerprint'])
+            # Ask the server to confirm the existing grant transactionally, without
+            # redistributing keys. A concurrent revocation makes this fail closed.
+            return share_result({'vault': vault['id'], 'account': recipient,
+                          'role': role, 'expected_revision': vault['revision'], 'envelopes': []})
+        verify_user(cfg, recipient, args.get('fingerprint'))
+        envelopes = [{'epoch': epoch, 'envelope': seal(cfg, identity, vault_key(cfg, identity, account, vault['id'], epoch), vault['id'], recipient, epoch, account)} for epoch in range(1, int(vault['epoch']) + 1)]
+        return share_result({'vault': vault['id'], 'account': recipient, 'role': args.get('role', 'reader'), 'expected_revision': vault['revision'], 'envelopes': envelopes})
     if command == 'invitations':
         return rows(cfg, 'invitations', "status='pending'")
     if command == 'accept':
         invitation = one(cfg, 'invitations', 'id=' + quote(args['invitation']))
-        verify_user(cfg, invitation['invited_by'], args['fingerprint'])
+        verify_user(cfg, invitation['invited_by'], args.get('fingerprint'))
         offered = rows(cfg, 'key_envelopes', f'vault={quote(invitation["vault"])} AND account={quote(account)}')
         if not offered or sorted(int(e['epoch']) for e in offered) != list(range(1, len(offered) + 1)):
             raise auth.Fail(1, 'Incomplete invitation key history.')
@@ -366,7 +424,7 @@ def execute(cfg, identity, account, args):
     if command in ('revoke', 'rotate'):
         vault = one(cfg, 'vaults', 'id=' + quote(args['vault']))
         if command == 'revoke':
-            action(cfg, 'revoke', {'vault': vault['id'], 'account': args['account'], 'expected_revision': vault['revision']})
+            action(cfg, 'revoke', {'vault': vault['id'], 'account': resolve_account(cfg, args['account']), 'expected_revision': vault['revision']})
             vault = one(cfg, 'vaults', 'id=' + quote(vault['id']))
         key, epoch = crypto.new_vault_key(), int(vault['epoch']) + 1
         members = rows(cfg, 'memberships', f'vault={quote(vault["id"])} AND active=1')
@@ -509,7 +567,7 @@ Manual: https://github.com/pocketcontext/vaultcontext/blob/main/skills/vaultcont
     positional_help = {
         'vault': ('VAULT_ID', 'vault ID from vaultcontext vaults or vaultcontext create'),
         'document': ('DOCUMENT_ID', 'document ID from vaultcontext list or vaultcontext search'),
-        'account': ('ACCOUNT_ID', 'account ID from vaultcontext directory or vaultcontext members'),
+        'account': ('ACCOUNT_ID', 'account ID from directory or members; share/revoke also accept exact email'),
         'invitation': ('INVITATION_ID', 'invitation ID from vaultcontext invitations'),
         'path': ('PATH', 'source file path; at most 8 MiB; symlinks rejected'),
         'name': ('NAME', 'display name for the new vault (encrypted on the server)'),
@@ -539,8 +597,8 @@ Manual: https://github.com/pocketcontext/vaultcontext/blob/main/skills/vaultcont
         q.add_argument('--overwrite', action='store_true',
                        help='replace an existing destination (default: refuse overwrite)')
 
-    def fingerprint(q, person):
-        q.add_argument('--fingerprint', required=True, metavar='FINGERPRINT',
+    def fingerprint(q, person, required=False):
+        q.add_argument('--fingerprint', required=required, metavar='FINGERPRINT',
                        help=f'{person} public-key fingerprint, verified through an independent trusted channel')
 
     unlocked = 'Requires login and an unlocked session (vaultcontext unlock). '
@@ -680,21 +738,22 @@ Manual: https://github.com/pocketcontext/vaultcontext/blob/main/skills/vaultcont
     destination(q)
     add('directory', 'List registered accounts and public keys',
         'Requires login; no unlock needed. List user names, emails, account IDs and public keys. '
-        'Directory values are not independent proof of identity; verify fingerprints through a trusted channel.',
+        'First-use keys are trusted from this authenticated directory and pinned locally; later changes are rejected.',
         'directory')
     q = add('verify-user', 'Pin an independently verified fingerprint',
             'Requires login; no unlock needed. Compare the supplied fingerprint with the account\'s '
-            'public keys and pin it locally for this server and user. Verify owners and writers '
-            'before reading their signed data; verify recipients before sharing.',
+            'public keys and pin it locally for this server and user. Optional independent verification '
+            'adds first-use assurance; existing pins cannot be overridden.',
             'verify-user ACCOUNT_ID --fingerprint VERIFIED_FINGERPRINT', 'account')
-    fingerprint(q, 'account')
+    fingerprint(q, 'account', required=True)
     add('members', 'List active vault members and roles',
         unlocked + 'List active owner, editor and reader memberships with account IDs.', 'members VAULT_ID', 'vault')
     q = add('share', 'Invite a reader or editor to the whole vault',
-            unlocked + 'Owner only. Verify the recipient fingerprint independently. Acceptance '
+            unlocked + 'Owner only. Select an active Google-verified Workspace account by email or ID. Keys are trusted '
+            'on first use and pinned; changed keys are rejected. Acceptance '
             'grants the whole vault and all retained history. Use a dedicated vault for a single-file '
             'share. To change an active member\'s role, revoke/rotate and then invite again.',
-            'share VAULT_ID ACCOUNT_ID --role reader --fingerprint VERIFIED_RECIPIENT_FINGERPRINT',
+            'share VAULT_ID name.surname@pocketcontext.com',
             'vault', 'account')
     q.add_argument('--role', choices=['reader', 'editor'], default='reader',
                    help='reader can restore; editor can also save (default: %(default)s)')
@@ -703,19 +762,20 @@ Manual: https://github.com/pocketcontext/vaultcontext/blob/main/skills/vaultcont
         unlocked + 'List pending invitations and their IDs. Use vaultcontext accept for an invitation addressed to you.',
         'invitations')
     q = add('accept', 'Accept a vault invitation',
-            unlocked + 'Verify the owner\'s fingerprint independently, authenticate the offered '
+            unlocked + 'Trust and pin the owner\'s key on first use, authenticate the offered '
             'key history, then accept your invitation.',
-            'accept INVITATION_ID --fingerprint VERIFIED_OWNER_FINGERPRINT', 'invitation')
+            'accept INVITATION_ID', 'invitation')
     fingerprint(q, 'owner')
     add('revoke', 'Remove a member and rotate future-write keys',
-        unlocked + 'Owner only; owners cannot remove themselves. Revoke the member, cancel pending '
+        unlocked + 'Owner only; select the member by email or account ID. Owners cannot remove themselves. '
+        'Revoke the member, cancel pending '
         'invitations and freeze writes before rotating keys for remaining members. Previously '
         'downloaded plaintext and keys cannot be recalled; rotation protects future versions. '
-        'If rotation fails, verify remaining members and run vaultcontext rotate. Reissue canceled invitations afterward.',
-        'revoke VAULT_ID ACCOUNT_ID', 'vault', 'account')
+        'If rotation fails, resolve any key mismatch and run vaultcontext rotate. Reissue canceled invitations afterward.',
+        'revoke VAULT_ID name.surname@pocketcontext.com', 'vault', 'account')
     add('rotate', 'Rotate vault keys or finish a failed revocation',
-        unlocked + 'Owner only. Independently verify and pin all remaining member fingerprints '
-        'with vaultcontext verify-user first. Publish keys for a new generation and unfreeze writes after '
+        unlocked + 'Owner only. Remaining member keys are trusted and pinned on first use; changed keys are rejected. '
+        'Publish keys for a new generation and unfreeze writes after '
         'revocation. Existing versions keep their original keys; reissue canceled invitations afterward.',
         'rotate VAULT_ID', 'vault')
     q = add('export', 'Export retained files to an encrypted archive',

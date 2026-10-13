@@ -46,12 +46,14 @@ def frozen_restart(binary, request, admin, token, frozen, table):
                 return (db.execute('SELECT * FROM _params ORDER BY id').fetchall(),
                         db.execute('SELECT * FROM _collections ORDER BY id').fetchall(),
                         db.execute('SELECT * FROM users ORDER BY id').fetchall(),
+                        db.execute('SELECT * FROM user_directory ORDER BY id').fetchall(),
                         db.execute('SELECT * FROM _superusers ORDER BY id').fetchall())
         stored = config_rows(data / 'data.db')
         with socket.socket() as sock:
             sock.bind(('127.0.0.1', 0))
             port = sock.getsockname()[1]
         env = dict(os.environ, BASE_URL='https://must-not-apply.example.test',
+                   VAULTCONTEXT_GOOGLE_WORKSPACE_DOMAIN='changed.example.test',
                    VAULTCONTEXT_GOOGLE_CLIENT_ID='synthetic-changed-client',
                    VAULTCONTEXT_GOOGLE_CLIENT_SECRET='synthetic-changed-secret')
         common = [str(Path(binary).resolve()), '--dir', str(data),
@@ -103,11 +105,11 @@ def frozen_restart(binary, request, admin, token, frozen, table):
 
 def main():
     parser=argparse.ArgumentParser(); parser.add_argument('--binary',required=True); args=parser.parse_args()
-    with server(args.binary) as request:
+    with server(args.binary, workspace_domain='example.test') as request:
         records='/api/collections/'
         admin=request('POST',records+'_superusers/auth-with-password',{'identity':'admin@example.com','password':'SyntheticAdminPassword123!'})['token']
         password='SyntheticUserPassword123!'
-        user=request('POST',records+'users/records',{'name':'Synthetic owner','email':'owner@example.test','password':password,'passwordConfirm':password},admin)
+        user=request('POST',records+'users/records',{'name':'Synthetic owner','email':'owner@example.test','workspace_google_email':'owner@example.test','workspace_google_domain':'example.test','password':password,'passwordConfirm':password},admin)
         foreign=request('POST',records+'users/records',{'name':'Synthetic foreign','email':'foreign@example.test','password':password,'passwordConfirm':password},admin)
         token=request('POST',records+'users/auth-with-password',{'identity':'owner@example.test','password':password})['token']
         outsider=request('POST',records+'users/auth-with-password',{'identity':'foreign@example.test','password':password})['token']

@@ -522,3 +522,33 @@ restore gates. The restore drill verified archived vault state and audit across
 frozen handoff and empty-volume recovery, exact protected-file recovery and
 continued write rejection after maintenance thaw. Synthetic containers, volumes
 and networks were removed by the test harness.
+
+## Email sharing and first-use key trust — 2026-10-13
+
+Release `2026-10-13.1` uses unchanged server pin
+`976ddf71a4734530adefe4a56633658a0894b449`, built in its isolated checkout.
+All checks used synthetic identities/files and isolated databases. No production
+records or installed user launchers were changed during local validation.
+
+Passed the locked unit suite (126 tests, 7 platform skips), release gate, signed
+identity replacement, integration, archive migration, sharing migration, sharing
+client integration, realtime, maximum-file limits, complete backup integration,
+account auth, Google OAuth integration/client, packaged skill, CLI forwarding,
+deployment settings/workflow, maintenance, entrypoint and object-storage settings.
+Offline onboarding browser checks passed, including mobile and keyboard behavior.
+The final local container passed configuration, smoke and populated complete
+Litestream/MinIO restore gates; its synthetic resources were cleaned up.
+
+New checks cover exact case-insensitive email resolution, Google-attested recipient
+eligibility, forged claims, Google-subject reassignment rejection, domain changes,
+frozen startup without directory writes, unchanged populated upgrades, duplicate
+sharing without key replacement, first-use pins and concurrent pin-write safety,
+changed-key rejection even with an explicit fingerprint, multiple file authors,
+disabled historical authors, email revocation and remaining-member key rotation.
+Existing users retain memberships and keys but must sign in with Google once after
+upgrade before receiving new shares. First-use key trust relies on VaultContext's
+directory; independent fingerprint verification remains optional.
+
+Remote copied-launcher validation and CI release results are recorded separately
+after the implementation package is published. Local Linux results do not replace
+the CI checks on both Linux architectures and macOS.

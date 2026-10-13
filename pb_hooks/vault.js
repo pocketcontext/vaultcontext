@@ -113,10 +113,18 @@ function execute(app,actor,op,p) {
  if(op==='share') {
   owner(v);writable(v);if(v.getBool('frozen'))conflict();
   const account=id('account');if(account===actor)bad('Owner already has access');
-  const user=get('users',account);if(user.getBool('disabled'))denied();get('identities',account);
+  const user=get('users',account);if(!require(`${__hooks}/user_directory.js`).eligible(user))throw new ForbiddenError('Recipient must sign in with their verified Workspace Google account.');get('identities',account);
   if(!['reader','editor'].includes(p.role))bad('Invalid role');
-  const old=membership(v.id,account);if(old&&old.getBool('active'))bad('Already a member');
-  if(rows('invitations','vault = {:v} && account = {:a} && status = "pending"',{v:v.id,a:account}).length)bad('Invitation already pending');
+  const old=membership(v.id,account);
+  if(old&&old.getBool('active')) {
+   if(old.getString('role')!==p.role)bad('Member already has a different role; revoke and share again to change it');
+   return {id:old.id,vault:v.id,account,role:p.role,status:'active',revision:v.getInt('revision')};
+  }
+  const pending=rows('invitations','vault = {:v} && account = {:a} && status = "pending"',{v:v.id,a:account})[0];
+  if(pending) {
+   if(pending.getString('role')!==p.role)bad('Invitation already has a different role; revoke and share again to change it');
+   return {id:pending.id,vault:v.id,account,role:p.role,status:'pending',revision:v.getInt('revision')};
+  }
   if(!Array.isArray(p.envelopes)||p.envelopes.length!==v.getInt('epoch'))bad('Full key history required');
   // Remove obsolete envelopes only for this inactive recipient before a fresh invitation.
   rows('key_envelopes','vault = {:v} && account = {:a}',{v:v.id,a:account}).forEach(r=>app.delete(r));
@@ -124,7 +132,7 @@ function execute(app,actor,op,p) {
   if(!old)put('memberships',{vault:v.id,account,role:p.role,active:false});
   else {old.set('role',p.role);app.save(old);}
   const invitation=put('invitations',{vault:v.id,account,role:p.role,status:'pending',invited_by:actor});bump(v);audit(v.id,account);
-  return {id:invitation.id,revision:v.getInt('revision')};
+  return {id:invitation.id,vault:v.id,account,role:p.role,status:'pending',revision:v.getInt('revision')};
  }
  if(op==='revoke') {
   owner(v);const account=id('account');if(account===actor)bad('Cannot revoke owner');

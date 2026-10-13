@@ -37,7 +37,7 @@ vaultcontext unlock --timeout 900
 vaultcontext create 'Personal'
 ```
 
-`init` runs once per account and prompts for a passphrase twice. Keep its public fingerprint for independent verification. There is no recovery key. Google callback uses port 8765; on SSH forward it with `ssh -L 8765:127.0.0.1:8765 user@host` and open the provided URL on the browser machine. This does not move vault decryption from the execution host to the browser machine. `VAULTCONTEXT_USER_PASSWORD` supports ordinary provisioned test/password accounts; it is not the vault passphrase.
+`init` runs once per account and prompts for a passphrase twice. Its public fingerprint is available for optional independent verification. There is no recovery key. Google callback uses port 8765; on SSH forward it with `ssh -L 8765:127.0.0.1:8765 user@host` and open the provided URL on the browser machine. This does not move vault decryption from the execution host to the browser machine. `VAULTCONTEXT_USER_PASSWORD` supports ordinary provisioned test/password accounts; it is not the vault passphrase.
 
 Application tokens and public fingerprint pins are local, privately permissioned, and scoped by server/user. Only encrypted private keys persist on the server. `change-passphrase` prompts for a new passphrase while unlocked and updates the server bundle. Reuse an existing unlocked session across commands and tasks; do not lock or log out as end-of-task cleanup. Lock on user request or before replacing the client or clearing its runtime cache. The default 900-second lifetime runs from unlock and is not extended by activity; the user may choose `unlock --timeout 3600` for up to one hour. `lock` terminates the memory session; expiration rejects new requests, while an operation already running may finish. `logout` locks and deletes the local application token, but does not revoke copied tokens.
 
@@ -203,17 +203,21 @@ file exports retain their existing v2 format and do not recreate vault lifecycle
 
 ```sh
 vaultcontext directory
-vaultcontext share VAULT_ID RECIPIENT_ACCOUNT_ID --role editor --fingerprint VERIFIED_RECIPIENT_FINGERPRINT
+vaultcontext share VAULT_ID name.surname@pocketcontext.com
+# Add --role editor only when editing is authorized.
 vaultcontext invitations
-vaultcontext accept INVITATION_ID --fingerprint VERIFIED_OWNER_FINGERPRINT
-vaultcontext verify-user WRITER_ACCOUNT_ID --fingerprint VERIFIED_WRITER_FINGERPRINT
+vaultcontext accept INVITATION_ID
 vaultcontext members VAULT_ID
-vaultcontext revoke VAULT_ID RECIPIENT_ACCOUNT_ID
+vaultcontext revoke VAULT_ID name.surname@pocketcontext.com
 ```
 
-`directory` returns registered user names/emails and public keys, not proof those keys belong to the intended person. Verify separately. Sharing grants the whole vault and all retained history. For a single-file request, use a dedicated vault containing only the authorized file; do not expose unrelated personal files. Owners alone invite/revoke; owners/editors save; readers restore. Active members cannot be reinvited to change roles: revoke/rotate then invite with the new role. Owners cannot remove themselves.
+`directory` returns registered user names/emails, sharing eligibility and public keys. `share` accepts an exact, case-insensitive email or account ID and defaults to reader access. The recipient must log in with verified Workspace Google authentication and initialize encryption first. Existing accounts must sign in with Google once after upgrade to establish sharing eligibility. An email suffix or password login alone is insufficient; the server must have a configured Workspace domain. Permissions bind to stable account IDs, not email addresses; changing or reassigning an email does not transfer existing grants. `revoke` also accepts email or account ID, including an ineligible or disabled existing recipient. Use the account ID to revoke an original member whose email has changed.
 
-`revoke` cancels pending invitations and freezes writes before rotating keys for remaining active members. If rotation fails, verify remaining member fingerprints and run `vaultcontext rotate VAULT_ID`. Reissue canceled invitations afterward. Old versions remain decryptable by their original recipients; rotation applies to future versions.
+Public keys are automatically pinned on first use for sharing, accepting, reading and rotation. This trusts VaultContext’s initial account-to-key mapping; Google authenticates the account but does not certify its encryption key. A compromised server can substitute a key on first contact, including on a new machine without pins. Known changed keys are rejected; do not delete pins to bypass this error. To independently verify a key, obtain its fingerprint through a separate trusted channel and run `vaultcontext verify-user ACCOUNT_ID --fingerprint VERIFIED_FINGERPRINT`. `share` and `accept` also accept optional `--fingerprint` for independent verification. Existing manually verified pins remain enforced.
+
+Repeating `share` for the same recipient and role returns the existing pending invitation or active membership. The result includes the resolved email, account ID, role, status and whole-vault/history scope. Sharing grants the whole vault and all retained history. For a single-file request, use a dedicated vault containing only the authorized file; do not expose unrelated personal files. Owners alone invite/revoke; owners/editors save; readers restore. Active members cannot be reinvited to change roles: revoke/rotate then invite with the new role. Owners cannot remove themselves.
+
+`revoke` cancels pending invitations and freezes writes before rotating keys for remaining active members. If rotation fails, resolve the reported error without bypassing any changed-key rejection and run `vaultcontext rotate VAULT_ID`. Reissue canceled invitations afterward. Old versions remain decryptable by their original recipients; rotation applies to future versions.
 
 ## Encrypted export
 

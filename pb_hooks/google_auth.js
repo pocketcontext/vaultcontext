@@ -56,7 +56,20 @@ function authenticate(e) {
   // names. Google supplies identity, PocketBase generates the account password.
   const name = typeof user.name === "string" ? user.name.trim().slice(0, 200) : "";
   e.createData = {email: email, name: name || email.split("@")[0].slice(0, 200)};
-  return e.next();
+  // Persist validated claims after PocketBase creates/resolves the account,
+  // atomically with authentication. Hidden fields never come from createData.
+  const original = e.app;
+  let result;
+  original.runInTransaction(tx => {
+    e.app = tx;
+    try {
+      result = e.next();
+      e.record.set("workspace_google_email", workspace ? email.toLowerCase() : "");
+      e.record.set("workspace_google_domain", workspace);
+      tx.save(e.record);
+    } finally { e.app = original; }
+  });
+  return result;
 }
 
 module.exports = {domain, authenticate};

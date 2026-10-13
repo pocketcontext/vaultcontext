@@ -5,6 +5,7 @@
       "id",
       "name",
       "email",
+      "sharing_eligible",
       "created"
     ],
     "identities": [

@@ -56,12 +56,12 @@ def main():
     p=argparse.ArgumentParser();p.add_argument('--binary',required=True)
     p.add_argument('--client',help='Copy and execute this standalone launcher outside the repository')
     args=p.parse_args()
-    with tempfile.TemporaryDirectory(prefix='vault-forward-') as tmp, server(args.binary) as request:
+    with tempfile.TemporaryDirectory(prefix='vault-forward-') as tmp, server(args.binary, workspace_domain='example.com') as request:
         command=client_command(args.client,tmp)
         admin=request('POST','/api/collections/_superusers/auth-with-password',{'identity':'admin@example.com','password':'SyntheticAdminPassword123!'})['token']
         actors=[]
         for name in ['owner','colleague']:
-            user=request('POST','/api/collections/users/records',{'email':name+'@example.com','name':name,'password':'SyntheticUserPassword123!','passwordConfirm':'SyntheticUserPassword123!'},admin)
+            user=request('POST','/api/collections/users/records',{'email':name+'@example.com','workspace_google_email':name+'@example.com','workspace_google_domain':'example.com','name':name,'password':'SyntheticUserPassword123!','passwordConfirm':'SyntheticUserPassword123!'},admin)
             env=dict(os.environ,VAULTCONTEXT_URL=request.base_url,VAULTCONTEXT_USER_EMAIL=name+'@example.com',VAULTCONTEXT_USER_PASSWORD='SyntheticUserPassword123!',XDG_CACHE_HOME=str(Path(tmp)/'cache'))
             def cli(*words,env=env):
                 result=subprocess.run(command+list(words),env=env,cwd=tmp,capture_output=True,text=True)
@@ -90,9 +90,9 @@ def main():
             assert a('list',vault)[0]['name']=='Explicit display name'
             assert b('vaults')==[]
             a('archive',saved['id'])
-            # Fingerprints originate from each user's own init output and are explicitly exchanged.
-            invitation=a('share',vault,colleague,'--role','reader','--fingerprint',colleague_fp)['id']
-            b('accept',invitation,'--fingerprint',owner_fp)
+            # Email-only sharing and automatic key pinning work through the copied CLI.
+            invitation=a('share',vault,'COLLEAGUE@example.com')['id']
+            b('accept',invitation)
             assert b('list',vault)==[]
             assert b('list',vault,'--archived')[0]['id']==saved['id']
             a('unarchive',saved['id'])
@@ -186,7 +186,7 @@ def main():
                 assert b('vaults')[0]['archived'] is False
                 a('save',vault,relative,'--document',saved['id'])
                 print('VaultContext vault archive CLI and shared-reader permissions: PASS')
-                a('revoke',vault,colleague)
+                a('revoke',vault,'colleague@example.com')
                 denied=cat()
                 assert denied.returncode!=0 and denied.stdout==b''
                 assert denied.stderr and b'Traceback' not in denied.stderr

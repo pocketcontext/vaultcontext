@@ -72,11 +72,30 @@ membership rules are unchanged; archive state never grants or revokes access.
 Default CLI vault listings filter active vaults; `--archived` and `--all` select the
 other states. Document archive flags are never cascaded.
 
-Sharing is owner-only and supplies exactly one envelope for every epoch. A pending
+The authenticated `user_directory` includes names, emails and `sharing_eligible`.
+Eligibility requires an active account whose current email and configured Workspace
+domain match a successful, server-validated Google OAuth login. This attestation is
+operator-protected; an email suffix or password login alone does not establish it.
+Existing users must sign in with Google once after upgrade. With no Workspace
+domain configured, new sharing recipients are ineligible. Identity initialization
+is also required before sharing. Existing memberships are not transferred or
+revoked by an email change; normal account disabling still blocks access.
+
+The CLI resolves exact, case-insensitive email addresses to stable account IDs for
+share and revoke. The API continues to accept account IDs. Revoke does not require
+the target to remain eligible for new sharing.
+
+Sharing is owner-only. A new invitation supplies exactly one envelope for every
+epoch; a same-role repeat can supply an empty envelope list. A pending
 recipient can inspect the invitation and their own envelopes, but cannot read vault
 contents until acceptance. Accept increments the vault revision and activates the
-membership. All retained history becomes readable. Share returns the invitation
-`id` and new vault `revision`; accept returns vault `id` and `revision`.
+membership. All retained history becomes readable. Share returns `id`, `vault`, `account`, `role`, `status` and vault `revision`.
+For `status: "pending"`, `id` identifies the invitation; for `status: "active"`,
+it identifies the membership. Repeating the same recipient and role returns the
+existing pending invitation or active membership without changing revision,
+envelopes or audit history. A different role is rejected. The CLI adds the resolved `email` and
+`scope: "whole-vault-and-retained-history"` to its share result. Accept returns vault
+`id` and `revision`.
 
 Revoke is owner-only, removes recipient envelopes and active membership, cancels
 all pending invitations, increments the revision and freezes writes. Canceled
@@ -89,8 +108,10 @@ implemented; changing a role requires revoke, rotate and a fresh invitation.
 Revision conflicts return HTTP 409. Clients must reread and reassess; do not blindly
 retry. On uncertain network results inspect the supplied document/version/vault IDs
 before another write. Membership state is enforced independently of client claims.
-The server treats ciphertext as opaque; clients verify fingerprints, envelope
-signatures and file manifests. Server metadata audits contain IDs and action names.
+The server treats ciphertext as opaque; clients automatically pin first-use public
+keys and reject changes to known fingerprints, then verify envelope signatures and
+file manifests. Independent fingerprint verification is optional. First-use trust
+relies on the server’s account-to-key mapping; Google does not certify those keys. Server metadata audits contain IDs and action names.
 
 ## Client release and identity replacement
 
