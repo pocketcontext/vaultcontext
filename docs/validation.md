@@ -549,6 +549,10 @@ Existing users retain memberships and keys but must sign in with Google once aft
 upgrade before receiving new shares. First-use key trust relies on VaultContext's
 directory; independent fingerprint verification remains optional.
 
-Remote copied-launcher validation and CI release results are recorded separately
-after the implementation package is published. Local Linux results do not replace
-the CI checks on both Linux architectures and macOS.
+Implementation package `c3116337092d11197e0282d1cc0d2b608357ba6c` was published
+with `[skip ci]` before updating the standalone launcher. Both remote copied-launcher
+checks (`skill.py` and `cli_forward.py`) passed against that exact package from
+unrelated temporary directories, including email-only sharing, acceptance and
+revocation. The launcher pins this tested package. Local Linux results do not
+replace the CI checks on both Linux architectures and macOS; release workflow
+results remain separate evidence.
