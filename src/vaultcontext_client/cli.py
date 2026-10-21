@@ -615,6 +615,7 @@ Manual: https://github.com/pocketcontext/vaultcontext/blob/main/skills/vaultcont
                    help='Google callback port, 1–65535; with --google (default: %(default)s)')
     q.add_argument('--timeout', type=int, default=180,
                    help='Google sign-in wait in seconds, 1–600; with --google (default: %(default)s)')
+    q.add_argument('--no-browser', action='store_true', help='print the sign-in URL without opening a browser (use over SSH)')
     add('whoami', 'Show your authenticated account ID',
         'Refresh the application token and return your account ID. Requires login; no unlock needed.', 'whoami')
     add('logout', 'Lock and remove the local sign-in token',
@@ -829,7 +830,7 @@ def run(args):
     if args.command not in ('lock', 'logout', 'keychain-forget'):
         auth.require_release(cfg)
     if args.command == 'login':
-        (auth.google_login(cfg, args.port, args.timeout) if args.google else auth.login(cfg))
+        (auth.google_login(cfg, args.port, args.timeout, not args.no_browser) if args.google else auth.login(cfg))
         return {'signed_in': True}
     if args.command == 'logout':
         return session.stop(cfg, logout=True)

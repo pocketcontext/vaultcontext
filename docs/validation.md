@@ -556,3 +556,17 @@ unrelated temporary directories, including email-only sharing, acceptance and
 revocation. The launcher pins this tested package. Local Linux results do not
 replace the CI checks on both Linux architectures and macOS; release workflow
 results remain separate evidence.
+
+## Browser-opening Google login — 21 October 2026
+
+`login --google` opens the printed URL with the standard library browser module
+unless `--no-browser` is given, `SSH_CONNECTION`/`SSH_TTY` is set or, outside macOS
+and Windows, no graphical display is available. A failed open never fails login.
+OAuth client tests mock the browser module; other suites use password login and
+never invoke Google login. The locked unit suite (126 tests), release gate, identity
+rewrap, integration, archive/sharing migrations, sharing client integration,
+realtime, limits, complete backup integration, auth, OAuth integration, OAuth
+client (15), packaged skill, CLI forwarding, deployment settings/workflow,
+maintenance, entrypoint and object-storage settings checks passed on macOS against
+server `976ddf71a4734530adefe4a56633658a0894b449`. The release ID and backend were
+unchanged. Onboarding page and container checks were not rerun locally.
