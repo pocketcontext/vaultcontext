@@ -6,6 +6,7 @@ The default command requires an existing database or a recoverable replica.
 Python replaces itself with Litestream/PocketContext once preparation is done.
 """
 import argparse
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import closing
 import hashlib
 import json
@@ -28,6 +29,8 @@ CONFIG = '/etc/litestream.yml'
 SOCKET = '/run/litestream.sock'
 S3_FIELDS = {'bucket': 'BUCKET', 'endpoint': 'ENDPOINT', 'region': 'REGION',
              'accessKey': 'ACCESS_KEY_ID', 'secret': 'SECRET_ACCESS_KEY'}
+# Parallel object downloads; ONCE allows a fixed 120 s before the app must be ready.
+VERIFY_CONCURRENCY = 16
 
 
 class StartupError(RuntimeError):
@@ -60,6 +63,7 @@ def validate_config():
             raise StartupError('missing required configuration: ' + ', '.join(missing))
     if os.environ.get('VAULTCONTEXT_S3_FORCE_PATH_STYLE', 'true') not in ('true', 'false'):
         raise StartupError('invalid object storage path style')
+    verify_concurrency()
     for left, right in (('VAULTCONTEXT_GOOGLE_CLIENT_ID', 'VAULTCONTEXT_GOOGLE_CLIENT_SECRET'),
                         ('VAULTCONTEXT_SUPERUSER_EMAIL', 'VAULTCONTEXT_SUPERUSER_PASSWORD')):
         if bool(os.environ.get(left)) != bool(os.environ.get(right)):
@@ -184,10 +188,33 @@ def verify_frozen_storage(data):
         raise StartupError('frozen object storage configuration differs from stored settings; startup refused')
 
 
+def verify_concurrency():
+    value = os.environ.get('VAULTCONTEXT_VERIFY_CONCURRENCY', str(VERIFY_CONCURRENCY))
+    if not value.isascii() or not value.isdigit() or not 1 <= int(value) <= 64:
+        raise StartupError('VAULTCONTEXT_VERIFY_CONCURRENCY must be an integer from 1 to 64')
+    return int(value)
+
+
+def verify_object(client, bucket, name, expected):
+    response = client.get_object(Bucket=bucket, Key=name)
+    with closing(response['Body']) as body:
+        checksum = hashlib.sha256()
+        received = 0
+        for chunk in iter(lambda: body.read(1024 * 1024), b''):
+            checksum.update(chunk)
+            received += len(chunk)
+    if 'ContentLength' in response and response['ContentLength'] != received:
+        raise StartupError('incomplete remote original; startup refused')
+    if expected is not None and checksum.hexdigest() != expected:
+        raise StartupError('missing or corrupt remote original; startup refused')
+
+
 def verify_remote(data, client=None):
     config = {name: os.environ.get('VAULTCONTEXT_S3_' + name, '').strip() for name in S3_FIELDS.values()}
     if not all(config.values()):
         raise StartupError('incomplete object storage configuration')
+    workers = verify_concurrency()
+    objects = refs(data)
     if client is None:
         import boto3
         from botocore.config import Config
@@ -197,19 +224,19 @@ def verify_remote(data, client=None):
         client = boto3.client('s3', endpoint_url=endpoint, region_name=config['REGION'],
             aws_access_key_id=config['ACCESS_KEY_ID'], aws_secret_access_key=config['SECRET_ACCESS_KEY'],
             config=Config(connect_timeout=10, read_timeout=60, retries={'max_attempts': 3},
+                max_pool_connections=workers,
                 s3={'addressing_style': 'path' if os.environ.get('VAULTCONTEXT_S3_FORCE_PATH_STYLE', 'true') == 'true' else 'virtual'}))
-    for name, expected in refs(data).items():
-        response = client.get_object(Bucket=config['BUCKET'], Key=name)
-        with closing(response['Body']) as body:
-            checksum = hashlib.sha256()
-            received = 0
-            for chunk in iter(lambda: body.read(1024 * 1024), b''):
-                checksum.update(chunk)
-                received += len(chunk)
-        if 'ContentLength' in response and response['ContentLength'] != received:
-            raise StartupError('incomplete remote original; startup refused')
-        if expected is not None and checksum.hexdigest() != expected:
-            raise StartupError('missing or corrupt remote original; startup refused')
+    # One shared client: botocore clients are thread-safe and pool their connections.
+    # The first failure cancels queued checks and refuses startup with its own error.
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        futures = [pool.submit(verify_object, client, config['BUCKET'], name, expected)
+                   for name, expected in objects.items()]
+        try:
+            for future in as_completed(futures):
+                future.result()
+        except BaseException:
+            pool.shutdown(wait=True, cancel_futures=True)
+            raise
 
 
 def verify(data):

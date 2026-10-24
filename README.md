@@ -241,7 +241,10 @@ Litestream into a temporary directory. It verifies database integrity and stream
 every referenced remote file before installing the restored database. Ciphertext
 chunks must match their stored SHA-256; other file fields, including avatars, are
 checked for readability and complete responses because they have no stored hash.
-No legacy archive scheduler or restore remains in the container. Direct pinned-server
+Every start, including restarts on an existing volume, downloads these objects
+in parallel (`VAULTCONTEXT_VERIFY_CONCURRENCY`, 1–64, default 16) so the server
+becomes ready within ONCE's fixed 120-second deployment wait; the first failure
+refuses startup. No legacy archive scheduler or restore remains in the container. Direct pinned-server
 development may still use local synthetic storage. Keep object retention independent of replica retention;
 SQLite replication alone cannot recover deleted objects. Unexpected crashes can
 lose database writes since Litestream is asynchronous.
