@@ -66,17 +66,20 @@ A writable recovery can recreate auxiliary state, not its prior history.
 
 ## Single-writer updates and rollback
 
-Use the maintained `once-pocketcontext-v2` stop-first policy and its restricted
-shared deployment dispatcher. Preserve the volume and exact configuration, fence the
+Production runs on the private `pocketdeploy-v2` scaffold, which moved it from
+`once-pocketcontext-v2` on 24 October 2026 by recovery from the replica. Use its
+stop-first policy. ONCE v0.3.3 waits a fixed 120 seconds for readiness, so remote
+ciphertext verification runs in parallel (`VAULTCONTEXT_VERIFY_CONCURRENCY`).
+Preserve the volume and exact configuration, fence the
 old publisher and writer, and keep ONCE automatic updates disabled. Host-local
 locks and maintenance state do not provide cross-host fencing. Never run a recovery
 copy against the active replica.
 
 The image workflow deploys only after the tested multi-architecture manifest is
-published. Set `COLORS_PROFILE=once-v2` to select the GitHub environment
-holding the app-specific `SSH_PRIVATE_KEY` secret and `SERVER_IP`, `SERVER_USER`,
+published. Set `COLORS_PROFILE=pocketdeploy-v2` to select the GitHub environment
+holding the PocketDeploy `SSH_PRIVATE_KEY` secret and `SERVER_IP`, `SERVER_USER`,
 `SSH_KNOWN_HOSTS` variables. The job requires pinned SSH host keys and sends no remote
-command: the restricted key invokes the maintained dispatcher for VaultContext only.
+command: the key triggers PocketDeploy, which deploys every host it owns.
 Preserve its stop-first locking, one-writer checks, graceful shutdown and pending-state checks; there is no automatic
 rollback. Keep ONCE's own automatic updates disabled; GitHub handles deployment.
 Deployment jobs serialize without cancelling a running update, then check
