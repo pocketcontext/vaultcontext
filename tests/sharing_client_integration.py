@@ -17,8 +17,10 @@ def main():
     parser.add_argument('--binary', required=True)
     args = parser.parse_args()
     with tempfile.TemporaryDirectory(prefix='vault-sharing-client-') as temporary, \
-         patch.dict(os.environ, {'XDG_CACHE_HOME': str(Path(temporary) / 'cache')}), \
+         patch.dict(os.environ, {'XDG_CACHE_HOME': str(Path(temporary) / 'cache'),
+                                 'XDG_STATE_HOME': str(Path(temporary) / 'state')}), \
          server(args.binary, workspace_domain='example.com') as request:
+        os.environ.pop('VAULTCONTEXT_SESSION_DIR', None)
         admin = request('POST', '/api/collections/_superusers/auth-with-password',
                         {'identity': 'admin@example.com', 'password': 'SyntheticAdminPassword123!'})['token']
         users = {}
