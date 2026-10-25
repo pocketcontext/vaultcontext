@@ -92,10 +92,9 @@ Keep the profile intact. Resume only when deployment is intended by setting it t
 already running deployment before treating the host as fenced. The existing
 `VAULTCONTEXT_PUBLISH=true` publication gate remains required.
 
-The app-local `deploy/install.py` and `deploy/deploy-vaultcontext.py` are retired
-fail-closed stubs. Do not use them to overwrite once-v2 SSH commands, sudo rules or
-shared dispatcher policy. Provision or change those through the maintained private
-`once-pocketcontext-v2` scaffold; keep its app key scoped to VaultContext.
+The old-host `deploy/install.py` and `deploy/deploy-vaultcontext.py` stubs were
+removed; production deploys only through `.github/workflows/image.yml` and the
+`pocketdeploy-v2` scaffold.
 
 For code rollback, first record the actual previous immutable image and verify its
 schema/startup compatibility; stop the new process and run the previous S3-capable
