@@ -570,3 +570,19 @@ client (15), packaged skill, CLI forwarding, deployment settings/workflow,
 maintenance, entrypoint and object-storage settings checks passed on macOS against
 server `976ddf71a4734530adefe4a56633658a0894b449`. The release ID and backend were
 unchanged. Onboarding page and container checks were not rerun locally.
+
+## PocketContext 416841c snapshot reuse — 30 October 2026
+
+The server pin moved from `976ddf71a4734530adefe4a56633658a0894b449` to
+`416841c4d1225ddc464ce0b1e787a797d5b8d7e8` (v0.9.4, PocketBase v0.41.1). Synchronous
+filtered snapshots are now reused per requester until any committed source change;
+background snapshots, change tracking and per-requester admission remain off. The
+release ID, schema and backend were unchanged. New `tests/snapshot_freshness.py`
+proves reuse and requires invitation, acceptance, new versions and revocation to
+change vault metadata visibility on the next read, without leakage to unrelated
+accounts, and rejects a disabled account before any retained copy is served. On
+Linux, the locked unit suite, every isolated server check listed in the README,
+maintenance, entrypoint and object-storage settings passed against the new pin. With
+1,000 synthetic documents and versions in one vault, a cold read took about 105 ms
+and a warm read about 5 ms. Onboarding browser and container checks were not rerun
+locally.

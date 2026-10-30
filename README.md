@@ -153,6 +153,8 @@ file exports retain their existing v2 format and do not recreate vault lifecycle
 
 Metadata reads use authenticated requester-filtered SQL. Writes use the standard REST `vault_actions` collection and transactional hooks; action payloads are not persisted. Encrypted file chunks use protected file storage and authenticated downloads so file bytes do not exhaust SQL snapshot budgets. Independent rules cover file downloads, REST and realtime. There is no implicit operator decryption access.
 
+The pinned server reuses each account's private SQL snapshot while the source database is unchanged. Any committed write, including invitations, acceptance, saves, revocation, rotation and account changes, invalidates every retained copy before the next read, so a read after a confirmed write observes it with current membership. At most `maxConcurrent` (two) copies are retained in private server temporary files. Background snapshots, `trackChanges` and `maxConcurrentPerRequester` are deliberately not configured: background reads are eventually consistent and per-account admission would reject concurrent sessions with HTTP 429. `tests/snapshot_freshness.py` checks reuse, next-read membership grant/revocation and privacy.
+
 Complete recovery requires the database replica and every referenced ciphertext object, verified against its stored checksum. A database-only backup is insufficient. Startup must refuse missing/corrupt originals. An ordinary data export instead decrypts accessible file versions in memory and encrypts an archive under a separately entered archive passphrase; it includes no identity private keys or live vault-key envelopes. Exports restore without the server, but cannot recover a forgotten live-vault passphrase. Export plaintext is capped at 64 MiB including base64 overhead and metadata. New exports use format v2 to retain document archive status and require an updated CLI to inspect or restore. The updated CLI also reads existing v1 exports.
 
 ## Validation
@@ -170,6 +172,7 @@ uv run --locked python -m unittest discover -s tests -p 'test_*.py'
 uv run --locked python tests/release_gate.py --binary /absolute/path/to/pinned/pocketcontext
 uv run --locked python tests/identity_rewrap.py --binary /absolute/path/to/pinned/pocketcontext
 uv run --locked python tests/integration.py --binary /absolute/path/to/pinned/pocketcontext
+uv run --locked python tests/snapshot_freshness.py --binary /absolute/path/to/pinned/pocketcontext
 uv run --locked python tests/archive_migration.py --binary /absolute/path/to/pinned/pocketcontext
 uv run --locked python tests/sharing_migration.py --binary /absolute/path/to/pinned/pocketcontext
 uv run --locked python tests/sharing_client_integration.py --binary /absolute/path/to/pinned/pocketcontext
