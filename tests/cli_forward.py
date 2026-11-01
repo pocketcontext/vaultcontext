@@ -62,13 +62,17 @@ def main():
         actors=[]
         for name in ['owner','colleague']:
             user=request('POST','/api/collections/users/records',{'email':name+'@example.com','workspace_google_email':name+'@example.com','workspace_google_domain':'example.com','name':name,'password':'SyntheticUserPassword123!','passwordConfirm':'SyntheticUserPassword123!'},admin)
-            env=dict(os.environ,VAULTCONTEXT_URL=request.base_url,VAULTCONTEXT_USER_EMAIL=name+'@example.com',VAULTCONTEXT_USER_PASSWORD='SyntheticUserPassword123!',XDG_CACHE_HOME=str(Path(tmp)/'cache'),XDG_STATE_HOME=str(Path(tmp)/'state'))
+            env=dict(os.environ,VAULTCONTEXT_URL=request.base_url,VAULTCONTEXT_USER_EMAIL=name+'@example.com',VAULTCONTEXT_USER_PASSWORD='SyntheticUserPassword123!',XDG_CACHE_HOME=str(Path(tmp)/'cache'),XDG_STATE_HOME=str(Path(tmp)/('state-'+name)))
             env.pop('VAULTCONTEXT_SESSION_DIR',None)
             def cli(*words,env=env):
                 result=subprocess.run(command+list(words),env=env,cwd=tmp,capture_output=True,text=True)
                 assert result.returncode==0,'CLI failed: '+result.stderr
                 return json.loads(result.stdout)
-            cli('login');cli('check')
+            env.pop('VAULTCONTEXT_URL')
+            env.pop('VAULTCONTEXT_USER_EMAIL')
+            cli('login', '--password', '--url', request.base_url, '--email', name+'@example.com')
+            env.pop('VAULTCONTEXT_USER_PASSWORD')
+            cli('check')
             initialized=terminal(command+['init'],env,tmp)
             terminal(command+['unlock','--timeout','180'],env,tmp)
             actors.append((user['id'],initialized['fingerprint'],cli,env))

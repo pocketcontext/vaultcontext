@@ -27,9 +27,7 @@ This console entry point does not require uv at runtime. In the examples below, 
 ## Sign in and initialize
 
 ```sh
-export VAULTCONTEXT_URL=https://vault.example.com
-export VAULTCONTEXT_USER_EMAIL=you@example.com
-vaultcontext login --google
+vaultcontext login --google --url https://vault.example.com --email you@example.com
 vaultcontext whoami
 vaultcontext check
 vaultcontext init
@@ -41,7 +39,7 @@ vaultcontext create 'Personal'
 
 `init` runs once per account and prompts for a passphrase twice. Its public fingerprint is available for optional independent verification. There is no recovery key. Signing in over SSH does not move vault decryption from the execution host to the browser machine. `VAULTCONTEXT_USER_PASSWORD` supports ordinary provisioned test/password accounts; it is not the vault passphrase.
 
-Application tokens and public fingerprint pins are local, privately permissioned, and scoped by server/user. The application token is saved with mode 0600 in an owned mode-0700 `$XDG_STATE_HOME/vaultcontext/` (default `~/.local/state/vaultcontext/`), or in `VAULTCONTEXT_SESSION_DIR` when set, so clearing `~/.cache` does not sign you out; a token left in `~/.cache/vaultcontext/` by an older client is moved there on first use, and `logout` removes both. Fingerprint pins and the unlock socket stay in `~/.cache/vaultcontext/`. Only encrypted private keys persist on the server. `change-passphrase` prompts for a new passphrase while unlocked and updates the server bundle. Reuse an existing unlocked session across commands and tasks; do not lock or log out as end-of-task cleanup. Lock on user request or before replacing the client or clearing its runtime cache. The default 900-second lifetime runs from unlock and is not extended by activity; the user may choose `unlock --timeout 3600` for up to one hour. `lock` terminates the memory session; expiration rejects new requests, while an operation already running may finish. `logout` locks and deletes the local application token, but does not revoke copied tokens.
+Application tokens and public fingerprint pins are local, privately permissioned, and scoped by server/user. The application token is saved with mode 0600 in an owned mode-0700 `$XDG_STATE_HOME/vaultcontext/` (default `~/.local/state/vaultcontext/`), or in `VAULTCONTEXT_SESSION_DIR` when set, so clearing `~/.cache` does not sign you out. Fingerprint pins and the unlock socket stay in `~/.cache/vaultcontext/`. Only encrypted private keys persist on the server. `change-passphrase` prompts for a new passphrase while unlocked and updates the server bundle. Reuse an existing unlocked session across commands and tasks; do not lock or log out as end-of-task cleanup. Lock on user request or before replacing the client or clearing its runtime cache. The default 900-second lifetime runs from unlock and is not extended by activity; the user may choose `unlock --timeout 3600` for up to one hour. `lock` terminates the memory session; expiration rejects new requests, while an operation already running may finish. `logout` locks and deletes the local application token, but does not revoke copied tokens.
 
 ## Optional macOS Keychain unlock
 
@@ -232,3 +230,7 @@ vaultcontext restore-export /absolute/path/to/project.vault-export --document DO
 These archive commands prompt for an archive passphrase; have the user run them in their own interactive terminal, without agent capture of the passphrase or file contents. Agents may prepare commands and use metadata to identify the requested document/version, but must not inspect restored files.
 
 Export includes all accessible retained file versions, including archived documents and their archive status, encrypted under a separately prompted archive passphrase. Use inspect-export or history to choose document/version IDs on restore. Restore-export works without a server or Google session. The decrypted archive exists only in memory; only the selected file is written. The archive contains no user private keys or live vault-key envelopes. The plaintext archive is limited to 64 MiB (including base64 encoding and metadata), so a large vault may exceed this first-release limit. Lost archive passphrases cannot be recovered. New exports use format v2 to retain document archive status and require an updated CLI to inspect or restore. The updated CLI also reads existing v1 exports.
+
+## Saved login settings
+
+Login accepts `--url` and `--email` before or after the command. Successful explicit login saves the default URL/email in `$XDG_STATE_HOME/vaultcontext/default.json` (default `~/.local/state/vaultcontext/default.json`, or `VAULTCONTEXT_SESSION_DIR/default.json`). Each server/account token stays in its separate hashed session file. CLI options override environment variables, which override saved defaults. Files use mode 0600 in a mode-0700 directory. Ordinary commands and token refresh do not change the default. `vaultcontext logout` removes the selected token but retains settings; `logout --forget` also removes matching defaults. Old cache sessions are not imported; sign in again. Password login uses `login --password` with `VAULTCONTEXT_USER_PASSWORD`; passwords are never saved.

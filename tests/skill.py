@@ -301,7 +301,6 @@ def main():
         # Check all regular application cache files, regardless of extension:
         # neither plaintext keys nor an encrypted bundle may persist here.
         assert vc.auth.session_file(a).parent==Path(tmp)/'state'/'vaultcontext'
-        assert not vc.auth.legacy_session_file(a).exists()
         for path in [*vc.auth.cache_file(a).parent.rglob('*'),*vc.auth.session_file(a).parent.rglob('*')]:
             if path.is_file():
                 value=path.read_bytes()

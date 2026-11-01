@@ -542,14 +542,15 @@ def unlock(cfg, timeout, use_keychain=False):
     return session.start(cfg, identity, account, timeout)
 
 def parser():
+    common = argparse.ArgumentParser(add_help=False)
+    common.add_argument('--url', default=argparse.SUPPRESS, help='server URL; overrides environment and saved defaults')
+    common.add_argument('--email', default=argparse.SUPPRESS, help='account email; overrides environment and saved defaults')
     p = argparse.ArgumentParser(
-        prog='vaultcontext',
+        prog='vaultcontext', parents=[common],
         description=__doc__, usage='%(prog)s [-h] COMMAND ...',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""First use (replace the example URL and email):
-  export VAULTCONTEXT_URL=https://vault.example.com
-  export VAULTCONTEXT_USER_EMAIL=you@example.com
-  vaultcontext login --google
+  vaultcontext login --google --url https://vault.example.com --email you@example.com
   vaultcontext init                         # once per account; prompts for a passphrase
   vaultcontext unlock                       # prompts; session lasts 15 minutes
   vaultcontext create 'Personal'            # returns the VAULT_ID for save
@@ -578,7 +579,7 @@ Manual: https://github.com/pocketcontext/vaultcontext/blob/main/skills/vaultcont
     def add(name, summary, description, example, *positionals):
         summaries[name] = summary
         q = commands.add_parser(
-            name, description='\n\n'.join(textwrap.fill(part, width=76) for part in description.split('\n\n')),
+            name, parents=[common], description='\n\n'.join(textwrap.fill(part, width=76) for part in description.split('\n\n')),
             epilog='Example:\n  vaultcontext ' + example,
             formatter_class=argparse.RawDescriptionHelpFormatter)
         for arg in positionals:
@@ -603,14 +604,16 @@ Manual: https://github.com/pocketcontext/vaultcontext/blob/main/skills/vaultcont
 
     unlocked = 'Requires login and an unlocked session (vaultcontext unlock). '
     q = add('login', 'Sign in to your account',
-            'Sign in and cache an application token. Set VAULTCONTEXT_URL and '
-            'VAULTCONTEXT_USER_EMAIL first. Use --google for browser sign-in, or '
+            'Sign in and save an application token plus default URL and email. '
+            'Provide --url and --email on first use. Use --google for browser sign-in, or '
             'VAULTCONTEXT_USER_PASSWORD for a provisioned password account. '
             'The account password is separate from the vault passphrase.\n\n'
             'Over SSH, forward the callback port: ssh -L 8765:127.0.0.1:8765 user@host. '
             'Open the printed URL on your browser machine; decryption stays on the CLI host.',
             'login --google')
-    q.add_argument('--google', action='store_true', help='sign in with Google in a browser')
+    modes = q.add_mutually_exclusive_group()
+    modes.add_argument('--google', action='store_true', help='sign in with Google in a browser')
+    modes.add_argument('--password', action='store_true', help='use VAULTCONTEXT_USER_PASSWORD')
     q.add_argument('--port', type=int, default=8765,
                    help='Google callback port, 1–65535; with --google (default: %(default)s)')
     q.add_argument('--timeout', type=int, default=180,
@@ -620,7 +623,7 @@ Manual: https://github.com/pocketcontext/vaultcontext/blob/main/skills/vaultcont
         'Refresh the application token and return your account ID. Requires login; no unlock needed.', 'whoami')
     add('logout', 'Lock and remove the local sign-in token',
         'Close the local unlock session and delete the saved application token for the configured '
-        'server and email, including any copy left in the old cache folder. Copied tokens are not revoked.', 'logout')
+        'server and email. Retain login defaults unless --forget is given. Copied tokens are not revoked.', 'logout').add_argument('--forget', action='store_true', help='also forget matching default URL and email')
     add('check', 'Check server schema compatibility',
         'Compare the authenticated server SQL schema with this client\'s bundled snapshot. '
         'Requires login; no unlock needed. Exits with code 3 for schema differences.', 'check')
@@ -826,14 +829,18 @@ def run(args):
             raise auth.Fail(1, 'Export does not contain that document/version.')
         crypto.restore_file(args.to, base64.b64decode(matches[0]['data'], validate=True), overwrite=args.overwrite)
         return {'restored': args.version}
-    cfg = auth.config()
+    cfg = auth.config(args)
     if args.command not in ('lock', 'logout', 'keychain-forget'):
         auth.require_release(cfg)
     if args.command == 'login':
-        (auth.google_login(cfg, args.port, args.timeout, not args.no_browser) if args.google else auth.login(cfg))
+        saved = auth.google_login(cfg, args.port, args.timeout, not args.no_browser) if args.google else auth.login(cfg)
+        auth.remember_login(cfg, saved)
         return {'signed_in': True}
     if args.command == 'logout':
-        return session.stop(cfg, logout=True)
+        result = session.stop(cfg, logout=True)
+        if args.forget:
+            auth.forget_login(cfg)
+        return result
     if args.command == 'lock':
         return session.stop(cfg)
     if args.command == 'whoami':

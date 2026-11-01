@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Command-line client for a VaultContext server. Authentication transport uses Python standard library.
 
-Configuration comes from three environment variables:
+Login accepts --url and --email and remembers them. Optional environment overrides:
   VAULTCONTEXT_URL             server address, for example https://raise.example.com
   VAULTCONTEXT_USER_EMAIL     email of an account in the `users` collection
   VAULTCONTEXT_USER_PASSWORD  password of that account (optional with Google login)
@@ -10,6 +10,7 @@ Exit codes: 0 success; 1 HTTP or transport error; 2 usage or configuration error
 3 `check` found schema differences; 4 HTTP 409 (read the record again, then retry).
 """
 import argparse
+from . import settings
 import base64
 import hashlib
 import http.client
@@ -79,17 +80,13 @@ def dump(data, pretty=False):
     return json.dumps(data, separators=(',', ':'), ensure_ascii=False)
 
 
-def config(names=ENV[:2]):
-    missing = [name for name in names if not os.environ.get(name)]
-    if missing:
-        raise Fail(2, 'missing environment variable: ' + ', '.join(missing) + '. Ask the user to set every missing variable; do not look for credentials elsewhere.')
-    url = os.environ[ENV[0]].rstrip('/')
-    parsed = urllib.parse.urlsplit(url)
-    if parsed.scheme not in ('http', 'https') or not parsed.hostname or parsed.username or parsed.password or parsed.query or parsed.fragment:
-        raise Fail(2, 'VAULTCONTEXT_URL must be an HTTP(S) URL without credentials, query, or fragment')
-    if parsed.scheme == 'http' and parsed.hostname not in ('localhost', '127.0.0.1', '::1'):
-        raise Fail(2, 'Use HTTPS for a remote VaultContext server')
-    return {'url': url, 'email': os.environ[ENV[1]], 'password': hide(os.environ.get(ENV[2]))}
+def config(args=None):
+    try:
+        result = settings.resolve('vaultcontext', ENV[1], args)
+    except (OSError, ValueError) as error:
+        raise Fail(2, str(error)) from None
+    result['password'] = hide(os.environ.get(ENV[2]))
+    return result
 
 
 # Session file: one per server URL and email, readable only by the current user. It lives in
@@ -113,11 +110,6 @@ def cache_file(cfg):
     return Path(base) / 'vaultcontext' / session_name(cfg)
 
 
-def legacy_session_file(cfg):
-    """Where clients before ENG-55 kept the session; read once and moved."""
-    return cache_file(cfg)
-
-
 def read_session(cfg, path):
     try:
         info = path.lstat()
@@ -135,14 +127,23 @@ def read_session(cfg, path):
 
 
 def load_session(cfg):
-    path = session_file(cfg)
-    if os.path.lexists(path):
-        return read_session(cfg, path)
-    legacy = legacy_session_file(cfg)
-    session = read_session(cfg, legacy)
-    if session is not None and save_session(cfg, session):
-        legacy.unlink(missing_ok=True)
-    return session
+    return read_session(cfg, session_file(cfg))
+
+
+def remember_login(cfg, session):
+    if load_session(cfg) != session:
+        raise Fail(1, 'Login succeeded but its session could not be saved; defaults were not changed.')
+    try:
+        settings.save('vaultcontext', cfg)
+    except (OSError, ValueError) as error:
+        raise Fail(1, 'Login session saved but defaults could not be saved: ' + str(error)) from None
+
+
+def forget_login(cfg):
+    try:
+        settings.forget('vaultcontext', cfg)
+    except (OSError, ValueError) as error:
+        raise Fail(2, str(error)) from None
 
 
 def save_session(cfg, session):
@@ -203,9 +204,7 @@ def login(cfg):
     status, data = send(cfg, 'POST', '/api/collections/users/auth-with-password', {'identity': cfg['email'], 'password': cfg['password']})
     if status != 200 or not isinstance(data, dict) or 'token' not in data:
         raise Fail(1, f'login as {cfg["email"]} failed: HTTP {status}\n{dump(data)}\nCheck the three VAULTCONTEXT_ variables with the user. User credentials only.')
-    session = {'url': cfg['url'], 'email': cfg['email'], 'token': hide(data['token'])}
-    save_session(cfg, session)
-    return session
+    return auth_session(cfg, data, 'password')
 
 
 def auth_session(cfg, data, method):

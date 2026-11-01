@@ -120,39 +120,6 @@ class OAuthTest(unittest.TestCase):
             self.assertEqual(tc.session_file(self.cfg).parent, Path(self.tmp.name) / 'override')
             self.assertIsNone(tc.load_session(self.cfg))
 
-    def write_legacy(self, token, mode=0o600):
-        legacy = tc.legacy_session_file(self.cfg)
-        legacy.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-        legacy.unlink(missing_ok=True)
-        legacy.write_text(json.dumps({'url': self.cfg['url'], 'email': self.cfg['email'], 'token': token}))
-        os.chmod(legacy, mode)
-        return legacy
-
-    def test_legacy_cache_session_moved_once(self):
-        # A legacy file with unsafe permissions is neither trusted nor moved.
-        legacy = self.write_legacy('unsafe-secret', 0o644)
-        self.assertIsNone(tc.load_session(self.cfg))
-        self.assertTrue(legacy.exists())
-        self.assertFalse(tc.session_file(self.cfg).exists())
-        legacy = self.write_legacy('legacy-secret')
-        self.assertEqual(tc.load_session(self.cfg)['token'], 'legacy-secret')
-        self.assertFalse(legacy.exists())
-        self.assertEqual(stat.S_IMODE(tc.session_file(self.cfg).stat().st_mode), 0o600)
-        self.assertEqual(stat.S_IMODE(tc.session_file(self.cfg).parent.stat().st_mode), 0o700)
-        self.assertEqual(tc.load_session(self.cfg)['token'], 'legacy-secret')
-        # A saved session wins over a stale legacy file, and logout removes both.
-        legacy = self.write_legacy('stale-secret')
-        self.assertEqual(tc.load_session(self.cfg)['token'], 'legacy-secret')
-        self.assertEqual(cli.session.stop(self.cfg, logout=True), {'signed_out': True})
-        self.assertFalse(legacy.exists() or tc.session_file(self.cfg).exists())
-
-    def test_legacy_session_kept_when_save_fails(self):
-        legacy = self.write_legacy('legacy-secret')
-        with patch.object(tc.crypto, 'restore_file', side_effect=OSError(13, 'Permission denied')):
-            self.assertEqual(tc.load_session(self.cfg)['token'], 'legacy-secret')
-        self.assertTrue(legacy.exists())
-        self.assertFalse(tc.session_file(self.cfg).exists())
-
     def printed_url(self):
         return next(m for m in self.messages if m.startswith('Open this URL')).split('\n')[1]
 
