@@ -586,3 +586,23 @@ maintenance, entrypoint and object-storage settings passed against the new pin. 
 1,000 synthetic documents and versions in one vault, a cold read took about 105 ms
 and a warm read about 5 ms. Onboarding browser and container checks were not rerun
 locally.
+
+## Hosted identity rollout — 1 November 2026
+
+Release `2026-11-01.2` adopts PocketContext
+`5f1b8f53e0af9d45cb0b396a2ecfb4e9932dca5a` and the shared identity package
+`ffce6425e24dae7b5576c4de3ae2935223b247cb`. Hosted login remains separate from
+cryptographic unlock and never grants vault membership. Trusted assertion context
+establishes Workspace sharing eligibility. Memory-worker requests pin renewed
+credentials to the original account and retain the original unlock deadline.
+
+Local Linux validation passed: 149 unit tests (seven macOS-only skips), hosted
+TLS/JWKS integration, release gate, signed identity rewrap, maintenance, integration,
+snapshot freshness, archive/sharing migrations, sharing-client integration, auth,
+Google OAuth integration, realtime, packaged skill, CLI forwarding, deployment,
+complete populated backup and maximum-file checks. OAuth client (16), deployment
+workflow (15), storage settings (5) and entrypoint (47) checks passed. Offline
+onboarding browser checks covered mobile, keyboard, consent and payload privacy;
+package build passed. Fixtures were synthetic and isolated; no live Google or OCI
+credentials were used. Native container recovery gates and live shared-session
+acceptance remain release/deployment checks.

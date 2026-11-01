@@ -2,7 +2,7 @@
 
 The application server stores encrypted identities, per-user public encryption/signing keys, vault metadata ciphertext, memberships, recipient key envelopes, invitations, documents, immutable file versions, ciphertext chunks and metadata-only audit events. Exact field/API definitions are in `docs/api-contract.md`.
 
-Google authenticates default PocketBase `users`; it does not unlock a vault. Direct signup remains blocked. Verified Workspace JIT admits only ordinary identities. Disable an application identity to revoke sessions; Google suspension alone does not revoke existing application tokens. Operators do not gain decryption keys through application authority.
+Hosted IdentityContext and explicit Google fallback authenticate default PocketBase `users`; it does not unlock a vault. Direct signup remains blocked. Verified Workspace JIT admits only ordinary identities. Disable an application identity to revoke sessions; Google suspension alone does not revoke existing application tokens. Operators do not gain decryption keys through application authority.
 
 The client's passphrase-derived key protects its private-key bundle. X25519 recipient encryption and Ed25519 signatures protect distribution of independent vault keys. A versioned AEAD format binds ciphertext to its context. Authenticated encryption does not by itself detect server rollback to a previously valid snapshot; server revision checks address ordinary concurrent changes, not malicious history replay.
 
@@ -55,3 +55,16 @@ Vault archive state is operational metadata. A separate monotonically increasing
 vault archive revision protects saves across archive/unarchive cycles; transitions
 also increment the existing vault revision used for ownership operations. State
 changes and their audit entries commit or roll back together.
+
+Hosted sessions use the pinned shared identity library. Single-use, sixty-second
+assertions are bound to the exact VaultContext audience. Server-verified assertion
+context supplies Workspace sharing eligibility; request bodies and login claims
+never grant vault membership or decryption. App tokens expire within fifteen minutes
+and cannot be extended by auth-refresh. Central disable blocks new assertions;
+independent fallback accounts must also be disabled for complete offboarding.
+
+Every memory-worker operation pins authentication to its unlocked account ID. A
+renewed or replaced token for another account, or deleted login state, fails before
+vault requests. Authentication renewal leaves the original monotonic unlock deadline
+unchanged. App logout stops the worker before removing its app token; shared identity
+logout revokes central renewal but cannot recall tokens or keys already held locally.

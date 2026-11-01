@@ -217,9 +217,27 @@ def auth_session(cfg, data, method):
             or not record.get('id') or not isinstance(record.get('email'), str)
             or record['email'].casefold() != cfg['email'].casefold()):
         raise Fail(1, 'Authentication returned an unexpected identity; no session saved. Check VAULTCONTEXT_USER_EMAIL.')
-    session = {'url': cfg['url'], 'email': cfg['email'], 'token': token, 'method': method, 'refreshed_at': time.time()}
+    if cfg.get('_expected_account') and record['id'] != cfg['_expected_account']:
+        raise Fail(1, 'Authentication changed the unlocked account; lock and sign in again. No vault operation was attempted.')
+    session = {'url': cfg['url'], 'email': cfg['email'], 'token': token, 'method': method, 'account': record['id'], 'refreshed_at': time.time()}
     save_session(cfg, session)
     return session
+
+
+def identity_login(cfg, *, interactive=False, no_browser=False, timeout=180):
+    """Exchange a central assertion; never downgrade to direct authentication."""
+    from pocketcontext_identity import IdentityError, assertion, login as central_login
+    try:
+        if interactive:
+            central_login(cfg['email'], no_browser=no_browser, timeout=timeout)
+        signed = assertion(cfg['email'], cfg['url'])
+    except IdentityError:
+        raise Fail(1, 'Identity sign-in or renewal failed; check account access and run vaultcontext login. No fallback was attempted.') from None
+    hide(signed)
+    status, data = oauth_send(cfg, 'POST', '/api/context/auth-with-assertion', {'assertion': signed})
+    if status != 200:
+        raise Fail(1, f'Identity assertion exchange failed (HTTP {status}); check application access. No fallback was attempted.')
+    return auth_session(cfg, data, 'identity')
 
 
 def oauth_send(cfg, method, path, body=None, token=None):
@@ -359,7 +377,19 @@ def call(cfg, method, path, body=None):
     session = load_session(cfg)
     cached = session is not None
     if not cached:
-        session = login(cfg)
+        if cfg.get('_expected_account'):
+            raise Fail(1, 'The unlocked session has no saved login; lock and sign in again.')
+        session = login(cfg) if cfg.get('password') else identity_login(cfg)
+    if session.get('method') == 'identity' and (oauth_refresh_needed(session) or path == '/api/collections/users/auth-refresh'):
+        session = identity_login(cfg)
+    if cfg.get('_expected_account'):
+        if not session.get('account'):
+            status, data = oauth_send(cfg, 'POST', '/api/collections/users/auth-refresh', token=session['token'])
+            if status != 200:
+                raise Fail(1, 'Cannot verify the unlocked account; lock and sign in again.')
+            session = auth_session(cfg, data, session.get('method', 'password'))
+        if session['account'] != cfg['_expected_account']:
+            raise Fail(1, 'Authentication changed the unlocked account; lock and sign in again. No vault operation was attempted.')
     if session.get('method') == 'google' and (oauth_refresh_needed(session) or path == '/api/collections/users/auth-refresh'):
         # Renew at most every five minutes, or near expiry, to respect auth rate limits.
         status, data = oauth_send(cfg, 'POST', '/api/collections/users/auth-refresh', token=session['token'])
@@ -370,6 +400,8 @@ def call(cfg, method, path, body=None):
             return status, data
     status, data = send(cfg, method, path, body, session['token'])
     if cached and 400 <= status < 500 and status not in (409, 429) and (status == 401 or token_rejected(cfg, session['token'])):
+        if session.get('method') == 'identity':
+            raise Fail(1, 'Identity session was rejected; run vaultcontext login. No fallback was attempted.')
         if session.get('method') == 'google':
             raise Fail(1, 'Google session was rejected; run vaultcontext login --google again.')
         session = login(cfg)

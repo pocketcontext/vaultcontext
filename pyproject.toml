@@ -3,7 +3,7 @@ name = "vaultcontext-client"
 version = "0.1.0"
 description = "VaultContext encrypted file client"
 requires-python = ">=3.11"
-dependencies = ["PyNaCl==1.6.2"]
+dependencies = ["PyNaCl==1.6.2", "pocketcontext-identity @ git+https://github.com/pocketcontext/identitycontext.git@ffce6425e24dae7b5576c4de3ae2935223b247cb"]
 
 [project.scripts]
 vaultcontext = "vaultcontext_client.cli:main"
@@ -14,3 +14,6 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/vaultcontext_client"]
+
+[tool.hatch.metadata]
+allow-direct-references = true

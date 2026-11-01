@@ -27,7 +27,7 @@ This console entry point does not require uv at runtime. In the examples below, 
 ## Sign in and initialize
 
 ```sh
-vaultcontext login --google --url https://vault.example.com --email you@example.com
+vaultcontext login --url https://vault.pocketcontext.com --email you@pocketcontext.com
 vaultcontext whoami
 vaultcontext check
 vaultcontext init
@@ -35,7 +35,9 @@ vaultcontext unlock --timeout 900
 vaultcontext create 'Personal'
 ```
 
-`login --google` prints a private sign-in URL, opens it in the default browser and waits up to `--timeout` seconds (default 180) for the callback on `127.0.0.1:--port` (default 8765). Start it in the background, or with a tool timeout longer than the CLI timeout. If the output says `Browser not opened`, open the printed URL in the user's default browser with the OS opener (`open` on macOS, `xdg-open` on Linux), passing it as one quoted argument; never drive or automate the browser. The user completes account selection and consent. Wait for the command to finish, then run `whoami`. Over SSH, forward the printed port from the browser computer (`ssh -L 8765:127.0.0.1:8765 user@ssh-host`), run `vaultcontext login --google --no-browser` and open the URL on that computer.
+Bare `login` uses hosted IdentityContext: reuse an existing shared session, or open the printed HTTPS URL, complete Google sign-in and enter its code in the waiting CLI. It needs no SSH tunnel and never unlocks encrypted data.
+
+Explicit fallback `login --google` prints a private sign-in URL, opens it in the default browser and waits up to `--timeout` seconds (default 180) for the callback on `127.0.0.1:--port` (default 8765). Start it in the background, or with a tool timeout longer than the CLI timeout. If the output says `Browser not opened`, open the printed URL in the user's default browser with the OS opener (`open` on macOS, `xdg-open` on Linux), passing it as one quoted argument; never drive or automate the browser. The user completes account selection and consent. Wait for the command to finish, then run `whoami`. Over SSH, forward the printed port from the browser computer (`ssh -L 8765:127.0.0.1:8765 user@ssh-host`), run `vaultcontext login --google --no-browser` and open the URL on that computer.
 
 `init` runs once per account and prompts for a passphrase twice. Its public fingerprint is available for optional independent verification. There is no recovery key. Signing in over SSH does not move vault decryption from the execution host to the browser machine. `VAULTCONTEXT_USER_PASSWORD` supports ordinary provisioned test/password accounts; it is not the vault passphrase.
 

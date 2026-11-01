@@ -300,6 +300,8 @@ def get_version(cfg, identity, account, document, version=None, content=True):
     return data, info, ver
 
 def execute(cfg, identity, account, args):
+    # Bind every renewal in this operation to the identity unlocked in memory.
+    cfg = dict(cfg, _expected_account=account)
     auth.require_release(cfg)
     command = args['command']
     if command == 'change-passphrase':
@@ -605,19 +607,21 @@ Manual: https://github.com/pocketcontext/vaultcontext/blob/main/skills/vaultcont
     unlocked = 'Requires login and an unlocked session (vaultcontext unlock). '
     q = add('login', 'Sign in to your account',
             'Sign in and save an application token plus default URL and email. '
-            'Provide --url and --email on first use. Use --google for browser sign-in, or '
+            'Provide --url and --email on first use. Default login reuses hosted identity. '
+            'Use --google for direct Google fallback, or --password with '
             'VAULTCONTEXT_USER_PASSWORD for a provisioned password account. '
             'The account password is separate from the vault passphrase.\n\n'
-            'Over SSH, forward the callback port: ssh -L 8765:127.0.0.1:8765 user@host. '
-            'Open the printed URL on your browser machine; decryption stays on the CLI host.',
-            'login --google')
+            'Hosted sign-in needs no SSH tunnel: open the printed URL and enter its code. '
+            'Only --google fallback needs ssh -L 8765:127.0.0.1:8765 user@host. '
+            'Login never unlocks encrypted data.',
+            'login')
     modes = q.add_mutually_exclusive_group()
     modes.add_argument('--google', action='store_true', help='sign in with Google in a browser')
     modes.add_argument('--password', action='store_true', help='use VAULTCONTEXT_USER_PASSWORD')
     q.add_argument('--port', type=int, default=8765,
                    help='Google callback port, 1–65535; with --google (default: %(default)s)')
     q.add_argument('--timeout', type=int, default=180,
-                   help='Google sign-in wait in seconds, 1–600; with --google (default: %(default)s)')
+                   help='browser sign-in wait in seconds, 1–600 (default: %(default)s)')
     q.add_argument('--no-browser', action='store_true', help='print the sign-in URL without opening a browser (use over SSH)')
     add('whoami', 'Show your authenticated account ID',
         'Refresh the application token and return your account ID. Requires login; no unlock needed.', 'whoami')
@@ -833,7 +837,9 @@ def run(args):
     if args.command not in ('lock', 'logout', 'keychain-forget'):
         auth.require_release(cfg)
     if args.command == 'login':
-        saved = auth.google_login(cfg, args.port, args.timeout, not args.no_browser) if args.google else auth.login(cfg)
+        saved = (auth.google_login(cfg, args.port, args.timeout, not args.no_browser) if args.google
+                 else auth.login(cfg) if args.password
+                 else auth.identity_login(cfg, interactive=True, no_browser=args.no_browser, timeout=args.timeout))
         auth.remember_login(cfg, saved)
         return {'signed_in': True}
     if args.command == 'logout':

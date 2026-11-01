@@ -6,7 +6,7 @@ Encrypted personal and shared file vaults for humans and coding agents, built on
 
 ## Access and keys
 
-Google Workspace login authenticates PocketBase's default `users` identity. It does not unlock encrypted data. Each account initializes an encryption/signing identity protected by a separate passphrase. The encrypted private-key bundle persists only on the server; unlocking downloads and decrypts it in process memory. Application tokens and automatically pinned or independently verified public fingerprints may be stored locally, never the private-key bundle. The token lives in `$XDG_STATE_HOME/vaultcontext/` (default `~/.local/state/vaultcontext/`, or `VAULTCONTEXT_SESSION_DIR`), so clearing `~/.cache` does not sign you out. There are no recovery keys. A lost passphrase without a usable unlocked session or enrolled macOS Keychain credential means lost access; Google account recovery cannot decrypt the vault. Optional macOS Keychain enrollment stores the passphrase locally, never the private-key bundle.
+Hosted IdentityContext login authenticates PocketBase's default `users` identity; explicit direct Google login remains available. It does not unlock encrypted data. Each account initializes an encryption/signing identity protected by a separate passphrase. The encrypted private-key bundle persists only on the server; unlocking downloads and decrypts it in process memory. Application tokens and automatically pinned or independently verified public fingerprints may be stored locally, never the private-key bundle. The token lives in `$XDG_STATE_HOME/vaultcontext/` (default `~/.local/state/vaultcontext/`, or `VAULTCONTEXT_SESSION_DIR`), so clearing `~/.cache` does not sign you out. There are no recovery keys. A lost passphrase without a usable unlocked session or enrolled macOS Keychain credential means lost access; Google account recovery cannot decrypt the vault. Optional macOS Keychain enrollment stores the passphrase locally, never the private-key bundle.
 
 Personal vaults are private. Shared project vaults have one owner and explicit editor/reader members, initially within the configured Workspace. Share by exact email with an active, Google-verified Workspace account that has initialized encryption. The client automatically pins public keys on first use and rejects changes to known keys, including when accepting invitations, reading another author’s files and rotating keys. This trusts the server’s initial email-to-key mapping; Google authenticates the account, not its encryption key. A compromised server can substitute a key on first contact, and a new machine has no previous pins. Independent fingerprint verification remains optional. New members receive retained history. Revoking a member blocks retrieval immediately and freezes writes until key rotation completes. Downloaded plaintext or keys cannot be recalled, and credentials contained in files may need separate provider rotation. Owners cannot remove themselves; owner transfer and identity-key replacement are not implemented.
 
@@ -83,6 +83,36 @@ The application directory supplies migrations, hooks and SQL configuration. No u
 
 Production Google settings use a separate Web OAuth client, paired `VAULTCONTEXT_GOOGLE_CLIENT_ID` / `VAULTCONTEXT_GOOGLE_CLIENT_SECRET`, and `VAULTCONTEXT_GOOGLE_WORKSPACE_DOMAIN`. Server-side verified claims enforce the exact Workspace domain. Direct public signup is blocked. Without a configured domain, Google login requires preprovisioned identities. Disable the application account to revoke its tokens; Google suspension alone does not invalidate existing app sessions.
 
+## Hosted identity login
+
+Bare `vaultcontext login --url https://vault.pocketcontext.com --email you@pocketcontext.com`
+reuses the shared IdentityContext session or opens a hosted Google sign-in request.
+Over SSH, open its URL on your browser computer and enter the single-use code in
+the initiating terminal; no callback tunnel is required. Explicit `login --google`
+retains direct-app fallback, including its SSH callback forwarding requirement.
+`login --password` remains explicit for provisioned accounts. Central rejection
+never silently selects a fallback or opens a browser during ordinary commands.
+
+Shared identity state is private under `$XDG_STATE_HOME/pocketcontext-id/` (default
+`~/.local/state/pocketcontext-id/`), with seven-day idle and thirty-day absolute
+limits. App tokens remain in VaultContext's own state directory and expire at most
+fifteen minutes after the assertion was issued. Renewal obtains a new audience-bound
+assertion instead of extending the old token. Central disable blocks new assertions;
+complete offboarding also disables independent fallback application accounts.
+
+Login never initializes, downloads or unlocks encryption keys. Verified hosted
+identity can establish Workspace sharing eligibility, but grants no vault membership.
+Unlocked operations remain bound to the original immutable account ID, even if
+saved authentication is replaced or renewed. Lost login state, changed accounts or
+rejected authentication fail closed. Renewal never extends the memory-session deadline.
+`vaultcontext logout` locks that account and removes its app token, retaining the
+shared identity session. Use the separately installed `identitycontext logout --email EMAIL`
+to revoke that shared session; already issued app tokens remain bounded to fifteen
+minutes. Install the matching IdentityContext launcher from its published skill.
+
+This release requires an explicit client upgrade: lock the old worker, install the
+new pinned client, then unlock privately. There is no automatic key transfer or unlock.
+
 ## Saved login settings
 
 Login accepts `--url` and `--email` before or after the command. Successful explicit login saves the default URL/email in `$XDG_STATE_HOME/vaultcontext/default.json` (default `~/.local/state/vaultcontext/default.json`, or `VAULTCONTEXT_SESSION_DIR/default.json`). Each server/account token stays in its separate hashed session file. CLI options override environment variables, which override saved defaults. Files use mode 0600 in a mode-0700 directory. Ordinary commands and token refresh do not change the default. `vaultcontext logout` removes the selected token but retains settings; `logout --forget` also removes matching defaults. Old cache sessions are not imported; sign in again. Password login uses `login --password` with `VAULTCONTEXT_USER_PASSWORD`; passwords are never saved.
@@ -99,7 +129,7 @@ Install [uv](https://docs.astral.sh/uv/getting-started/installation/) and copy t
 ```sh
 install -Dm755 skills/vaultcontext/vaultcontext ~/.local/bin/vaultcontext
 export PATH="$HOME/.local/bin:$PATH"
-vaultcontext login --google --url https://vault.example.com --email you@example.com
+vaultcontext login --url https://vault.pocketcontext.com --email you@pocketcontext.com
 ```
 
 The launcher declares its Python requirements and pins the client package to a full Git commit. It can run from any directory without neighboring source files. The first run needs network access to download the package, Python if needed, and dependencies; later runs reuse uv's cache. Updating the copied launcher adopts its new client revision. Before replacing an installed client, run its `lock` command for each configured server/account with an unlocked session. After updating, have the user run `vaultcontext unlock` explicitly in their private terminal so the session uses the new client; installation never unlocks automatically. The skill has no script lockfile: transitive dependencies may resolve differently on fresh installations. The repository's `uv.lock` governs development and tests, not launcher execution.
@@ -113,7 +143,7 @@ Alternatively, install the package from a trusted checkout into an external Pyth
 ```sh
 python3 -m venv ~/.local/share/vaultcontext-venv
 ~/.local/share/vaultcontext-venv/bin/pip install /absolute/path/to/vaultcontext
-~/.local/share/vaultcontext-venv/bin/vaultcontext login --google
+~/.local/share/vaultcontext-venv/bin/vaultcontext login
 ```
 
 Run `vaultcontext` or `vaultcontext --help` for grouped commands and a first-use example, or `vaultcontext COMMAND --help`
@@ -171,6 +201,7 @@ Apple's Swift command-line tools on macOS; its rejection tests never access Keyc
 ```sh
 uv sync --locked
 uv run --locked python -m unittest discover -s tests -p 'test_*.py'
+uv run --locked python tests/hosted_identity.py --binary /absolute/path/to/pinned/pocketcontext
 uv run --locked python tests/release_gate.py --binary /absolute/path/to/pinned/pocketcontext
 uv run --locked python tests/identity_rewrap.py --binary /absolute/path/to/pinned/pocketcontext
 uv run --locked python tests/integration.py --binary /absolute/path/to/pinned/pocketcontext

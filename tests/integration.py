@@ -17,7 +17,7 @@ import urllib.request
 ROOT = Path(__file__).resolve().parents[1]
 
 @contextlib.contextmanager
-def server(binary, *, migrations=None, data_dir=None, cwd=ROOT, workspace_domain=None):
+def server(binary, *, migrations=None, data_dir=None, cwd=ROOT, workspace_domain=None, context_config=None):
     with tempfile.TemporaryDirectory(prefix='vaultcontext-test-') as tmp:
         hooks=Path(tmp)/'pb_hooks'
         shutil.copytree(ROOT/'pb_hooks',hooks)
@@ -34,6 +34,9 @@ onRecordCreateExecute((e) => {
         environment=dict(os.environ)
         if workspace_domain is not None: environment['VAULTCONTEXT_GOOGLE_WORKSPACE_DOMAIN']=workspace_domain
         common = [str(Path(binary).resolve()), '--dir', str(data_dir or Path(tmp)/'pb_data'), '--migrationsDir', str(migrations or ROOT/'pb_migrations'), '--hooksDir', str(hooks)]
+        if context_config is not None:
+            config_path=Path(tmp)/'context.json'; config_path.write_text(json.dumps(context_config))
+            common += ['--contextConfig', str(config_path)]
         result = subprocess.run(common+['superuser','upsert','admin@example.com','SyntheticAdminPassword123!'],cwd=cwd,capture_output=True,text=True,env=environment)
         assert result.returncode == 0, result.stdout+result.stderr
         with socket.socket() as sock:

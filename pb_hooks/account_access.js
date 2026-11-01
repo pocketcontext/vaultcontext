@@ -22,6 +22,19 @@ function authenticate(e) {
   if (e.record.getBool("disabled")) {
     throw new ForbiddenError("This VaultContext account is disabled.");
   }
+  if (e.authMethod === 'context-identity') {
+    const domain = require(`${__hooks}/google_auth.js`).domain();
+    const trusted = e.get('contextIdentityEmail');
+    const email = e.record.getString('email').toLowerCase();
+    if (typeof trusted !== 'string' || trusted.toLowerCase() !== email ||
+        (domain && email.split('@')[1] !== domain)) {
+      throw new ForbiddenError('Hosted identity does not match the VaultContext account.');
+    }
+    // Only the server's verified assertion context supplies these hidden claims.
+    e.record.set('workspace_google_email', domain ? email : '');
+    e.record.set('workspace_google_domain', domain);
+    e.app.save(e.record);
+  }
   return e.next();
 }
 

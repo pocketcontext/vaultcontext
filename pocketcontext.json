@@ -1,5 +1,11 @@
 {
   "authCollection": "users",
+  "identity": {
+    "issuer": "https://id.pocketcontext.com",
+    "audience": "https://vault.pocketcontext.com",
+    "workspaceDomain": "pocketcontext.com",
+    "allowProvisioning": true
+  },
   "tables": {
     "user_directory": [
       "id",

@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 5
 requires-python = ">=3.11"
 
 [[package]]
@@ -101,6 +101,11 @@ wheels = [
 ]
 
 [[package]]
+name = "pocketcontext-identity"
+version = "0.1.0"
+source = { git = "https://github.com/pocketcontext/identitycontext.git?rev=ffce6425e24dae7b5576c4de3ae2935223b247cb#ffce6425e24dae7b5576c4de3ae2935223b247cb" }
+
+[[package]]
 name = "pycparser"
 version = "3.0"
 source = { registry = "https://pypi.org/simple" }
@@ -149,8 +154,12 @@ name = "vaultcontext-client"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "pocketcontext-identity" },
     { name = "pynacl" },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "pynacl", specifier = "==1.6.2" }]
+requires-dist = [
+    { name = "pocketcontext-identity", git = "https://github.com/pocketcontext/identitycontext.git?rev=ffce6425e24dae7b5576c4de3ae2935223b247cb" },
+    { name = "pynacl", specifier = "==1.6.2" },
+]
