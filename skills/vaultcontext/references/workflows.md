@@ -22,7 +22,7 @@ python3 -m venv ~/.local/share/vaultcontext-venv
 ~/.local/share/vaultcontext-venv/bin/vaultcontext --help
 ```
 
-This console entry point does not require uv at runtime. In the examples below, use your chosen `vaultcontext` executable. Configuration must be exported in the invoking environment; a workspace `.envrc` is not necessarily loaded when working elsewhere.
+This console entry point does not require uv at runtime. In the examples below, use your chosen `vaultcontext` executable. Pass `--url` and `--email` on first login. Saved defaults then work from any directory; environment variables remain optional overrides.
 
 ## Sign in and initialize
 
