@@ -76,6 +76,7 @@ Selected changes came from the separate VaultContext demo repository:
 - `b4a656d`: explicit malformed image-digest rejection.
 
 Demo enrollment, consent, resets, retained contacts, browser authentication,
-restricted sharing and deployment ownership were excluded. Google-only CLI login
-was deferred; password and Google authentication retain their existing semantics.
-Core and demo keep their own release IDs, package pins and validation.
+restricted sharing and deployment ownership were excluded. That backport did not
+adopt the demo's Google-only CLI restriction. Release `2026-11-01.2` now adds hosted
+IdentityContext as the default login while retaining explicit Google and password
+fallbacks. Core and demo keep their own release IDs, package pins and validation.

@@ -27,7 +27,7 @@ This build step does not notarize or publish the helper. Distributing it to othe
 Install the signed native helper before enrollment. Run enrollment in your own interactive terminal:
 
 ```sh
-vaultcontext login --google
+vaultcontext login
 vaultcontext keychain-enroll
 vaultcontext unlock --keychain --timeout 900
 ```

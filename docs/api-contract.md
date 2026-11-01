@@ -76,7 +76,7 @@ The authenticated `user_directory` includes names, emails and `sharing_eligible`
 Eligibility requires an active account whose current email and configured Workspace
 domain match a successful, server-validated Google OAuth login. This attestation is
 operator-protected; an email suffix or password login alone does not establish it.
-Existing users must sign in with Google once after upgrade. With no Workspace
+Existing users establish eligibility through hosted identity or direct verified Google sign-in. With no Workspace
 domain configured, new sharing recipients are ineligible. Identity initialization
 is also required before sharing. Existing memberships are not transferred or
 revoked by an email change; normal account disabling still blocks access.

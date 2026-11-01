@@ -99,7 +99,7 @@ Use only this command for agent equality checks; do not read files, invoke `cat`
 Install the launcher on the destination computer, configure the same server and account, then sign in and unlock there. Use the existing encryption identity: do not run `vaultcontext init` or create a replacement vault. Have the user complete Google sign-in and enter the passphrase in their private terminal.
 
 ```sh
-vaultcontext login --google
+vaultcontext login
 vaultcontext whoami
 vaultcontext check
 vaultcontext unlock --timeout 900
@@ -213,7 +213,7 @@ vaultcontext members VAULT_ID
 vaultcontext revoke VAULT_ID name.surname@pocketcontext.com
 ```
 
-`directory` returns registered user names/emails, sharing eligibility and public keys. `share` accepts an exact, case-insensitive email or account ID and defaults to reader access. The recipient must log in with verified Workspace Google authentication and initialize encryption first. Existing accounts must sign in with Google once after upgrade to establish sharing eligibility. An email suffix or password login alone is insufficient; the server must have a configured Workspace domain. Permissions bind to stable account IDs, not email addresses; changing or reassigning an email does not transfer existing grants. `revoke` also accepts email or account ID, including an ineligible or disabled existing recipient. Use the account ID to revoke an original member whose email has changed.
+`directory` returns registered user names/emails, sharing eligibility and public keys. `share` accepts an exact, case-insensitive email or account ID and defaults to reader access. The recipient must complete verified Workspace sign-in through hosted identity or explicit Google fallback and initialize encryption first. Existing accounts establish sharing eligibility through either verified flow. An email suffix or password login alone is insufficient; the server must have a configured Workspace domain. Permissions bind to stable account IDs, not email addresses; changing or reassigning an email does not transfer existing grants. `revoke` also accepts email or account ID, including an ineligible or disabled existing recipient. Use the account ID to revoke an original member whose email has changed.
 
 Public keys are automatically pinned on first use for sharing, accepting, reading and rotation. This trusts VaultContext’s initial account-to-key mapping; Google authenticates the account but does not certify its encryption key. A compromised server can substitute a key on first contact, including on a new machine without pins. Known changed keys are rejected; do not delete pins to bypass this error. To independently verify a key, obtain its fingerprint through a separate trusted channel and run `vaultcontext verify-user ACCOUNT_ID --fingerprint VERIFIED_FINGERPRINT`. `share` and `accept` also accept optional `--fingerprint` for independent verification. Existing manually verified pins remain enforced.
 
