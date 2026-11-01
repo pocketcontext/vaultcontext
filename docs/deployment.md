@@ -141,3 +141,13 @@ requires `VAULTCONTEXT_PUBLISH=true`. The guarded deployment job follows success
 publication. New
 release evidence belongs in `docs/validation.md`; historical results do not prove
 this changed runtime or a live deployment.
+
+## Litestream cleanup frequency
+
+The image checks for expired L0 files every five minutes
+(`l0-retention-check-interval: 5m`) to reduce object-store listing requests.
+This delays cleanup and can temporarily retain more local and remote files; it
+does not change the default ten-second replication interval, compaction schedule,
+minimum L0 retention or snapshot history. Successful L1 compaction can also run
+cleanup. Container smoke checks verify the effective interval, and populated
+restore checks remain release gates.

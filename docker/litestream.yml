@@ -8,6 +8,10 @@ socket:
 # this file. The credentials are not written here: Litestream reads LITESTREAM_ACCESS_KEY_ID
 # and LITESTREAM_SECRET_ACCESS_KEY from the environment itself.
 # A custom endpoint (R2, MinIO) selects path-style addressing automatically.
+# Backup replicas can retain expired L0 files longer to reduce remote listings.
+# Replication, compaction and the minimum retention period are unchanged.
+l0-retention-check-interval: 5m
+
 dbs:
   - path: /storage/pb_data/data.db
     replica:
