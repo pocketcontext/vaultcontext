@@ -606,3 +606,10 @@ onboarding browser checks covered mobile, keyboard, consent and payload privacy;
 package build passed. Fixtures were synthetic and isolated; no live Google or OCI
 credentials were used. Native container recovery gates and live shared-session
 acceptance remain release/deployment checks.
+
+The standalone launcher was then pinned to published package
+`4f965fed9a97fc212ad3271e96b776f8e4b4e4ca`. Both remote copied-launcher checks
+passed from unrelated temporary directories: portable skill and full CLI forwarding,
+including private terminal unlock, memory-session expiry, sharing, exact restores,
+comparison privacy and revocation. The published package carries the matching release
+ID and pinned shared identity dependency.
