@@ -52,6 +52,11 @@ class UpgradeRequired(Fail):
         super().__init__(1, 'VaultContext client release does not match the backend. Lock this session before updating the client using the installation instructions at your server URL, then unlock privately. No operation was retried.')
 
 
+def check_lease_access(cfg, status):
+    if cfg.get('_require_unlocked') and status in (400, 401, 403):
+        raise Fail(6, 'Vault access for this unlocked lease was rejected.')
+
+
 def require_release(cfg):
     status, data = send(cfg, 'GET', '/api/vaultcontext/compatibility')
     if status == 404:
@@ -203,6 +208,7 @@ def login(cfg):
         raise Fail(2, 'Set VAULTCONTEXT_USER_PASSWORD for password login, or run vaultcontext login --google for browser sign-in.')
     status, data = send(cfg, 'POST', '/api/collections/users/auth-with-password', {'identity': cfg['email'], 'password': cfg['password']})
     if status != 200 or not isinstance(data, dict) or 'token' not in data:
+        check_lease_access(cfg, status)
         raise Fail(1, f'login as {cfg["email"]} failed: HTTP {status}\n{dump(data)}\nCheck the three VAULTCONTEXT_ variables with the user. User credentials only.')
     return auth_session(cfg, data, 'password')
 
@@ -218,6 +224,7 @@ def auth_session(cfg, data, method):
             or record['email'].casefold() != cfg['email'].casefold()):
         raise Fail(1, 'Authentication returned an unexpected identity; no session saved. Check VAULTCONTEXT_USER_EMAIL.')
     if cfg.get('_expected_account') and record['id'] != cfg['_expected_account']:
+        check_lease_access(cfg, 403)
         raise Fail(1, 'Authentication changed the unlocked account; lock and sign in again. No vault operation was attempted.')
     session = {'url': cfg['url'], 'email': cfg['email'], 'token': token, 'method': method, 'account': record['id'], 'refreshed_at': time.time()}
     save_session(cfg, session)
@@ -236,6 +243,7 @@ def identity_login(cfg, *, interactive=False, no_browser=False, timeout=180):
     hide(signed)
     status, data = oauth_send(cfg, 'POST', '/api/context/auth-with-assertion', {'assertion': signed})
     if status != 200:
+        check_lease_access(cfg, status)
         raise Fail(1, f'Identity assertion exchange failed (HTTP {status}); check application access. No fallback was attempted.')
     return auth_session(cfg, data, 'identity')
 
@@ -378,6 +386,7 @@ def call(cfg, method, path, body=None):
     cached = session is not None
     if not cached:
         if cfg.get('_expected_account'):
+            check_lease_access(cfg, 401)
             raise Fail(1, 'The unlocked session has no saved login; lock and sign in again.')
         session = login(cfg) if cfg.get('password') else identity_login(cfg)
     if session.get('method') == 'identity' and (oauth_refresh_needed(session) or path == '/api/collections/users/auth-refresh'):
@@ -386,20 +395,24 @@ def call(cfg, method, path, body=None):
         if not session.get('account'):
             status, data = oauth_send(cfg, 'POST', '/api/collections/users/auth-refresh', token=session['token'])
             if status != 200:
+                check_lease_access(cfg, status)
                 raise Fail(1, 'Cannot verify the unlocked account; lock and sign in again.')
             session = auth_session(cfg, data, session.get('method', 'password'))
         if session['account'] != cfg['_expected_account']:
+            check_lease_access(cfg, 403)
             raise Fail(1, 'Authentication changed the unlocked account; lock and sign in again. No vault operation was attempted.')
     if session.get('method') == 'google' and (oauth_refresh_needed(session) or path == '/api/collections/users/auth-refresh'):
         # Renew at most every five minutes, or near expiry, to respect auth rate limits.
         status, data = oauth_send(cfg, 'POST', '/api/collections/users/auth-refresh', token=session['token'])
         if status != 200:
+            check_lease_access(cfg, status)
             raise Fail(1, f'Google session could not be refreshed (HTTP {status}); run vaultcontext login --google again.')
         session = auth_session(cfg, data, 'google')
         if path == '/api/collections/users/auth-refresh':
             return status, data
     status, data = send(cfg, method, path, body, session['token'])
     if cached and 400 <= status < 500 and status not in (409, 429) and (status == 401 or token_rejected(cfg, session['token'])):
+        check_lease_access(cfg, 401)
         if session.get('method') == 'identity':
             raise Fail(1, 'Identity session was rejected; run vaultcontext login. No fallback was attempted.')
         if session.get('method') == 'google':

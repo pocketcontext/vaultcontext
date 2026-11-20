@@ -229,6 +229,10 @@ VaultContext is deployed at `https://vault.pocketcontext.com`; see [release evid
 
 Identity, OAuth and deployment patterns are adapted from RaiseContext; filtered access and complete-original backup patterns follow AccountContext. Their domain schemas and readers are not copied.
 
+When upgrading or restoring a populated server, take and verify a complete backup
+first. Vault lock retirement during recovery is described in
+[the deployment guide](docs/deployment.md#recovered-vault-locks).
+
 ## Client launcher releases
 
 Follow the [release procedure](docs/client-releases.md#release-procedure). Publish the

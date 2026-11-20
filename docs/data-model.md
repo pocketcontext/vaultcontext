@@ -22,14 +22,14 @@ New file versions include `plaintext_sha256` inside their encrypted metadata, co
 
 An unlocked client can compare an explicit local path with a verified version's encrypted checksum without downloading its file chunks. The result identifies the document/version and exposes only equality and the comparison method. Older versions without this field fall back to verified in-memory content download; immutable versions are not migrated. Invalid present checksum fields fail closed. Normal content reads verify the plaintext checksum when present. A metadata-only equality check trusts the authenticated writer's checksum and does not validate availability or integrity of the stored file chunks; complete backup/restore checks remain necessary.
 
-Vault write locks are plaintext operational metadata: holder account, lease ID,
-generation, timestamps, progress and an `info` object whose `label` names who holds
-the lock. Members see them through filtered SQL, and the server operator can read
-them; they never contain file names, contents or keys. The server compares document
-IDs, revisions and versions only, because names and plaintext checksums stay
-encrypted. A fence binds Vault writes, not external systems: a zombie holder is
-stopped at its next save, not at a cloud API. A database restore can rewind lock
-generations; after any server restore, break and reacquire outstanding locks.
+Vault members can read the holder, generation, timestamps, label, progress and
+other operational info through filtered SQL. Keep file names, content and keys
+out of these fields. Only the acquiring client receives the lease ID. The replay
+ID, request digest and pinned grant remain private to the action handler.
+Retirement audit events retain the prior generation, actor and reason across
+later acquisitions. The server compares encrypted document versions using
+identifiers and revision numbers. Fencing covers Vault writes. After recovering
+a database, retire its restored leases before serving writers and acquire anew.
 
 Document archive state is reversible operational metadata, separate from the signed content revision. Owners and editors archive/unarchive with both content and archive revision checks. Archived documents retain all versions and permissions but reject saves until unarchived. Archive transitions are audited; exports and complete backups retain archived documents.
 

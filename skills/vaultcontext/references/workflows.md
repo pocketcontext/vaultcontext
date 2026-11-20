@@ -259,7 +259,10 @@ set by document ID: `match`, `stale`, `missing_remote`, `extra_remote`, `diverge
 `empty_remote`. Any other status than `match`/`empty_remote` refuses with
 `local_mismatch` and takes no lock, unless `--on-mismatch lock` is given; then
 `--restore-to DIR` writes every active pinned version to `DIR/DOCUMENT_ID` (mode 0600,
-no overwrite) using the unlocked session.
+no overwrite) using the unlocked session. Supply an existing empty directory. The
+client stages and verifies every document and renews the fence before publishing
+the directory. On failure the CLI returns a nonzero status and the acquired fence
+so the operator can inspect the lock or release it dirty.
 
 After the first acquire the vault's `lock_policy` is `required`: every `save` needs the
 current `--fence`, otherwise `lock_required`; a retired lease gets `stale_fence` or
@@ -277,3 +280,8 @@ to unfenced saves with `vaultcontext lock clear-policy VAULT_ID` while no lock i
 
 Lock holder, label, info and progress are plaintext metadata visible to every vault
 member and the server operator. Never put secrets in them.
+
+
+`lock status VAULT` includes document IDs, revisions, current version IDs and archive
+flags for a lock-free drift check. Use `--require-unlocked` on status or renew
+to probe the authenticated memory worker. A closed session or definitive access rejection exits with code 6.

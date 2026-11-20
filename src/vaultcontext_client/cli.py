@@ -19,6 +19,7 @@ import socket
 import stat
 import struct
 import sys
+import tempfile
 import textwrap
 import time
 import urllib.parse
@@ -43,7 +44,7 @@ def quote(value):
 # Lock refusals carry plaintext operational lock metadata only (holder, label,
 # progress, timestamps, document IDs/revisions). They exit with code 5.
 LOCK_CODES = ('lock_held', 'lock_lost', 'stale_fence', 'lock_required', 'generation_changed',
-              'local_mismatch', 'vault_frozen', 'vault_archived')
+              'local_mismatch', 'vault_frozen', 'vault_archived', 'request_changed')
 
 
 class LockRefused(auth.Fail):
@@ -74,6 +75,7 @@ def lock_message(details):
             'stale_fence': 'The lock fence is no longer current; stop writing',
             'lock_required': 'This vault requires the current lock fence (--fence) for writes',
             'generation_changed': 'Lock generation changed; inspect the lock again',
+            'request_changed': 'Acquire request ID was reused with different arguments',
             'local_mismatch': 'Local recovery set differs from the vault; restore first',
             'vault_frozen': 'Vault is frozen until key rotation completes',
             'vault_archived': 'Vault is archived'}.get(code, 'Vault lock refused')
@@ -82,7 +84,8 @@ def lock_message(details):
         parts.append('label ' + json.dumps(lock_label(details['info'])))
     for key in ('holder', 'generation', 'progress', 'expires_at', 'retry_after', 'local_status'):
         if details.get(key) not in (None, ''):
-            parts.append(f'{key} {details[key]}')
+            value = details[key]
+            parts.append(f'{key} {json.dumps(value, ensure_ascii=True)}')
     return f'{code}: {text}' + (' (' + ', '.join(parts) + ')' if parts else '') + '.'
 
 
@@ -91,9 +94,18 @@ def manifest_entry(doc):
 
 
 def request(cfg, method, path, body=None):
-    status, data = (auth.call_read_query(cfg, body)
-                    if method == 'POST' and path == '/api/context/query'
-                    else auth.call(cfg, method, path, body))
+    try:
+        status, data = (auth.call_read_query(cfg, body)
+                        if method == 'POST' and path == '/api/context/query'
+                        else auth.call(cfg, method, path, body))
+    except auth.UpgradeRequired:
+        raise
+    except auth.Fail as error:
+        if not cfg.get('_lock_command'):
+            raise
+        raise auth.Fail(error.code, 'Vault lock request failed. Check authentication and connectivity.') from None
+    if status in (401, 403):
+        auth.check_lease_access(cfg, status)
     if status >= 400:
         if (status == 409 and isinstance(data, dict) and isinstance(data.get('data'), dict)
                 and data['data'].get('code') in LOCK_CODES):
@@ -109,11 +121,11 @@ def query(cfg, sql):
         raise auth.Fail(1, 'SQL response truncated; no partial result used.')
     return [row if isinstance(row, dict) else dict(zip(data['columns'], row)) for row in data['rows']]
 
-def rows(cfg, table, where='1=1'):
+def rows(cfg, table, where='1=1', *, columns='*'):
     result = []
     offset = 0
     while True:
-        page = query(cfg, f'SELECT * FROM {table} WHERE {where} ORDER BY id LIMIT 50 OFFSET {offset}')
+        page = query(cfg, f'SELECT {columns} FROM {table} WHERE {where} ORDER BY id LIMIT 50 OFFSET {offset}')
         result.extend(page)
         if len(page) < 50:
             return result
@@ -356,8 +368,17 @@ def get_version(cfg, identity, account, document, version=None, content=True):
 def execute(cfg, identity, account, args):
     # Bind every renewal in this operation to the identity unlocked in memory.
     cfg = dict(cfg, _expected_account=account)
-    auth.require_release(cfg)
     command = args['command']
+    lock_operation = command == 'unlock-probe' or (command == 'save' and args.get('fence'))
+    if lock_operation:
+        cfg.update(_lock_command=True, _require_unlocked=command == 'unlock-probe')
+        require_lock_release(cfg)
+    else:
+        auth.require_release(cfg)
+    if command == 'unlock-probe':
+        if whoami(cfg) != account:
+            raise auth.Fail(6, 'The unlocked session no longer matches the signed-in account.')
+        return {'unlocked': True}
     if command == 'change-passphrase':
         secret = one(cfg, 'identity_secrets', 'account=' + quote(account))
         bundle = crypto.wrap_identity(identity, args['new_passphrase'], account)
@@ -612,10 +633,33 @@ def parse_fence(value):
     return {'generation': int(match.group(1)), 'lease_id': match.group(2)}
 
 
-def lock_status(cfg, vault):
+def require_unlocked(cfg):
+    try:
+        result = session_call(cfg, {'command': 'unlock-probe'})
+    except (FileNotFoundError, ConnectionRefusedError, ConnectionResetError, BrokenPipeError, ValueError):
+        raise auth.Fail(6, 'An active unlocked memory session is required.') from None
+    if result != {'unlocked': True}:
+        raise auth.Fail(6, 'An active unlocked memory session is required.')
+
+
+def require_lock_release(cfg):
+    try:
+        auth.require_release(cfg)
+    except auth.UpgradeRequired:
+        raise
+    except auth.Fail as error:
+        raise auth.Fail(error.code, 'Cannot verify the VaultContext release. Check connectivity.') from None
+
+
+def lock_status(cfg, vault, *, documents=False):
     vault_row = one(cfg, 'vaults', 'id=' + quote(vault))
     found = rows(cfg, 'locks', 'vault=' + quote(vault))
     result = {'vault': vault, 'lock_policy': vault_row.get('lock_policy') or 'none', 'state': 'free', 'generation': 0}
+    if documents:
+        result['documents'] = [{'id': d['id'], 'revision': d['revision'], 'version': d['current_version'],
+                                'archived': bool(d['archived'])}
+                               for d in rows(cfg, 'documents', 'vault=' + quote(vault),
+                                             columns='id,revision,current_version,archived')]
     if not found:
         return result
     row = found[0]
@@ -665,14 +709,25 @@ def read_local_manifest(path):
 
 def run_lock(cfg, args):
     command, vault = args.lock_command, args.vault
+    cfg = dict(cfg, _lock_command=True, _require_unlocked=getattr(args, 'require_unlocked', False))
+    force = getattr(args, 'force', False)
+    breaking = command == 'break' or force
+    if not breaking and (getattr(args, 'observed_generation', None) is not None
+                         or getattr(args, 'reason', None) is not None or getattr(args, 'yes', False)):
+        raise auth.Fail(2, 'Force arguments require lock break or explicit --force.')
+    if breaking and (args.observed_generation is None or args.observed_generation < 0
+                     or not (args.reason or '').strip()):
+        raise auth.Fail(2, 'Breaking a lock requires a nonnegative --observed-generation and a --reason.')
+    if command == 'release' and force and (args.fence or args.clean is not None or args.progress is not None):
+        raise auth.Fail(2, 'A forced release takes --observed-generation and --reason only.')
+    if getattr(args, 'require_unlocked', False):
+        require_unlocked(cfg)
     if command == 'status':
-        return lock_status(cfg, vault)
+        return lock_status(cfg, vault, documents=True)
     if command == 'clear-policy':
         row = one(cfg, 'vaults', 'id=' + quote(vault))
         return action(cfg, 'lock_policy_clear', {'vault': vault, 'expected_revision': row['revision']})
     if command == 'break' or (command == 'release' and args.force):
-        if args.observed_generation is None or not args.reason:
-            raise auth.Fail(2, 'Breaking a lock requires --observed-generation and --reason.')
         confirm_break(cfg, vault, args)
         return action(cfg, 'lock_break', {'vault': vault, 'observed_generation': args.observed_generation, 'reason': args.reason})
     if command == 'renew':
@@ -707,12 +762,10 @@ def run_lock(cfg, args):
         payload['local'] = read_local_manifest(args.local_manifest)
     if args.restore_to:
         restore_dir = Path(os.path.abspath(args.restore_to))
-        if not restore_dir.is_dir() or restore_dir.is_symlink():
-            raise auth.Fail(2, '--restore-to must be an existing directory.')
-        session.socket_info(socket_path(cfg))  # Require an unlocked session before locking.
+        if not restore_dir.is_dir() or restore_dir.is_symlink() or any(restore_dir.iterdir()):
+            raise auth.Fail(2, '--restore-to requires an existing empty directory.')
+        require_unlocked(cfg)
     if args.force:
-        if args.observed_generation is None or not args.reason:
-            raise auth.Fail(2, 'Force acquire requires --observed-generation and --reason.')
         confirm_break(cfg, vault, args)
         payload.update(force=True, observed_generation=args.observed_generation, reason=args.reason)
     deadline = time.monotonic() + max(0, args.wait)
@@ -730,20 +783,29 @@ def run_lock(cfg, args):
     output['fence'] = f"{result['generation']}:{result['lease_id']}"
     output['documents'] = [manifest_entry(d) for d in result['documents']]
     if args.restore_to:
-        restored = []
         try:
-            for doc in result['documents']:
-                if doc['archived']:
-                    continue
-                target = restore_dir / doc['id']
-                # Destinations are document IDs: encrypted names never select paths.
-                session_call(cfg, {'command': 'restore', 'document': doc['id'], 'version': doc['version'],
-                                   'to': str(target), 'overwrite': False})
-                restored.append({'id': doc['id'], 'version': doc['version'], 'path': str(target)})
-        except auth.Fail as error:
+            restored = []
+            with crypto._parent(restore_dir) as (parent, name), tempfile.TemporaryDirectory(
+                    prefix='.vaultcontext-stage-', dir=restore_dir.parent) as staging:
+                staged = Path(staging) / 'files'
+                staged.mkdir(mode=0o700)
+                for doc in result['documents']:
+                    if doc['archived']:
+                        continue
+                    if not re.fullmatch(r'[a-z0-9]{15}', doc['id']):
+                        raise ValueError('Invalid document ID')
+                    session_call(cfg, {'command': 'restore', 'document': doc['id'], 'version': doc['version'],
+                                       'to': str(staged / doc['id']), 'overwrite': False})
+                    restored.append({'id': doc['id'], 'version': doc['version'], 'path': str(restore_dir / doc['id'])})
+                # Verify a slow download still holds the fence before publishing the set.
+                renewed = action(cfg, 'lock_renew', dict(parse_fence(output['fence']), vault=vault))
+                output.update({k: renewed[k] for k in ('expires_at', 'server_time')})
+                os.replace(staged, name, dst_dir_fd=parent)
+                os.fsync(parent)
+            output['restored'] = restored
+        except (Exception, KeyboardInterrupt):
             output['restore_failed'] = True
-            output['restore_error'] = str(error)
-        output['restored'] = restored
+            output['restore_error'] = 'Restore did not complete. Inspect the destination and lease before retrying.'
     return output
 
 
@@ -884,7 +946,7 @@ Manual: https://github.com/pocketcontext/vaultcontext/blob/main/skills/vaultcont
     r.add_argument('--ttl', type=int, default=900, metavar='SECONDS', help='lease lifetime, 30–3600 (default: %(default)s); renew every ttl/3')
     r.add_argument('--local-manifest', metavar='PATH', help='JSON {documents:[{id,revision,version}]} describing the local set to compare')
     r.add_argument('--on-mismatch', choices=['fail', 'lock'], default='fail', help='fail: refuse and do not lock (default); lock: lock anyway, then restore')
-    r.add_argument('--restore-to', metavar='DIR', help='after locking, write every active pinned document to DIR/DOCUMENT_ID (requires unlock)')
+    r.add_argument('--restore-to', metavar='DIR', help='atomically restore active pinned documents into an existing empty directory (requires unlock)')
     r.add_argument('--wait', type=int, default=0, metavar='SECONDS', help='poll while the lock is held, up to this long (default: no wait)')
     r.add_argument('--label', metavar='TEXT', help='who holds the lock, stored as info.label (plaintext; no secrets)')
     r.add_argument('--info', metavar='JSON', help='extra plaintext JSON object, at most 2 KB; --label wins on label')
@@ -892,6 +954,7 @@ Manual: https://github.com/pocketcontext/vaultcontext/blob/main/skills/vaultcont
     r.add_argument('--force', action='store_true', help='owner only: break the current lock and acquire in one step')
     breaking(r)
     r = lock_parser('renew', 'Extend your lease and report progress', 'renew VAULT_ID --fence 3:abcdefghijklmno --progress applications')
+    r.add_argument('--require-unlocked', action='store_true', help='verify the account-bound memory session before renewal')
     r.add_argument('--fence', required=True, metavar='GEN:LEASE', help='fence printed by lock acquire')
     r.add_argument('--ttl', type=int, metavar='SECONDS', help='new lease lifetime, 30–3600 (default: unchanged)')
     r.add_argument('--progress', metavar='TEXT', help='plaintext progress, at most 200 characters')
@@ -905,7 +968,8 @@ Manual: https://github.com/pocketcontext/vaultcontext/blob/main/skills/vaultcont
     breaking(r)
     r = lock_parser('break', 'Owner only: retire a crashed holder\'s lock', 'break VAULT_ID --observed-generation 3 --reason "laptop crashed"')
     breaking(r)
-    lock_parser('status', 'Show the vault lock holder, label, progress and expiry', 'status VAULT_ID')
+    r = lock_parser('status', 'Show the vault lock holder, label, progress, expiry and document revisions', 'status VAULT_ID')
+    r.add_argument('--require-unlocked', action='store_true', help='also verify the account-bound memory session')
     lock_parser('clear-policy', 'Owner only: allow unfenced saves again while no lock is held', 'clear-policy VAULT_ID')
     add('change-passphrase', 'Change your identity passphrase',
         unlocked + 'Prompt twice for a new passphrase (at least 12 characters) in an interactive '
@@ -1087,10 +1151,14 @@ def run(args):
         return {'restored': args.version}
     cfg = auth.config(args)
     lock_command = getattr(args, 'lock_command', None)
-    if args.command not in ('lock', 'logout', 'keychain-forget') or lock_command:
-        auth.require_release(cfg)
     if lock_command:
+        require_lock_release(cfg)
         return run_lock(cfg, args)
+    if args.command not in ('lock', 'logout', 'keychain-forget'):
+        if args.command == 'save' and getattr(args, 'fence', None):
+            require_lock_release(cfg)
+        else:
+            auth.require_release(cfg)
     if args.command == 'login':
         saved = (auth.google_login(cfg, args.port, args.timeout, not args.no_browser) if args.google
                  else auth.login(cfg) if args.password

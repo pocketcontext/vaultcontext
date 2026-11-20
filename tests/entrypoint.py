@@ -304,6 +304,24 @@ class RuntimeTests(unittest.TestCase):
         with closing(sqlite3.connect(self.data / 'data.db')) as conn:
             self.assertEqual(conn.execute('SELECT value FROM synthetic').fetchone(), ('restored',))
 
+    def test_restored_lease_retires_once_and_audits_the_retired_generation(self):
+        fixture = """CREATE TABLE locks(vault TEXT,state TEXT,generation INTEGER,lease_id TEXT,
+                     request_id TEXT,request_hash TEXT,grant JSON,clean INTEGER,broken_by TEXT,
+                     break_reason TEXT,released_at TEXT);
+                     INSERT INTO locks(vault,state,generation,lease_id) VALUES('synthetic','held',7,'old');
+                     CREATE TABLE audit_log(id TEXT PRIMARY KEY,vault TEXT,actor TEXT,action TEXT,
+                     target TEXT,generation INTEGER,reason TEXT,created TEXT);"""
+        def restore(args, **kwargs):
+            with closing(sqlite3.connect(args[args.index('-o')+1])) as conn:
+                conn.executescript(fixture)
+        with patch.object(runtime,'run_command',side_effect=restore), patch.object(runtime,'verify'):
+            runtime.restore_database(self.data)
+        runtime.retire_restored_locks(self.data)
+        with closing(sqlite3.connect(self.data/'data.db')) as conn:
+            self.assertEqual(conn.execute('SELECT state,generation,lease_id FROM locks').fetchall(), [('broken',8,'')])
+            self.assertEqual(conn.execute('SELECT action,generation,reason FROM audit_log').fetchall(),
+                             [('lock_break',7,'database_restore')])
+
     def test_corrupt_restored_database_is_not_installed(self):
         def restored(args, **kwargs):
             Path(args[args.index('-o') + 1]).write_bytes(b'corrupt database')

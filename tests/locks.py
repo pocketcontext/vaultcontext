@@ -2,6 +2,7 @@
 """Vault-level pessimistic lock: races, fencing, membership and migration checks."""
 import argparse
 import concurrent.futures
+import importlib.util
 import shutil
 import sys
 import tempfile
@@ -76,7 +77,8 @@ def main():
         # Readers cannot lock; invalid arguments are rejected before any state change.
         act(ct, 'lock_acquire', {'vault': v}, 403)
         for bad in ({'ttl_seconds': 29}, {'ttl_seconds': 3601}, {'on_mismatch': 'merge'}, {'info': {'x': 'y' * 3000}},
-                    {'force': True}, {'force': True, 'observed_generation': 0}, {'local': {'documents': [{'id': 'short'}]}}):
+                    {'info': {'x':'界'*800}}, {'force': True}, {'force': True, 'observed_generation': 0},
+                    {'local': {'documents': [{'id': 'short'}]}}):
             act(at, 'lock_acquire', dict(bad, vault=v), 400)
         assert lock() is None
 
@@ -105,13 +107,17 @@ def main():
 
         # request_id replay returns the same lease; a different request is refused NOWAIT.
         mine = 'req-alice' if holder_token == at else 'req-bob'
-        replay = act(holder_token, 'lock_acquire', {'vault': v, 'request_id': mine})
+        original = {'vault': v, 'request_id': mine, 'info': held['info']}
+        replay = act(holder_token, 'lock_acquire', original)
         assert replay['lease_id'] == first['lease_id'] and replay['generation'] == 1
         assert act(holder_token, 'lock_acquire', {'vault': v}, 409)['data']['code'] == 'lock_held'
 
         # Protected vault: unfenced saves fail; the holder's fence succeeds; another user's copy is stale.
         assert save(holder_token, 'docstate0000001', 1, 409)['data']['code'] == 'lock_required'
         save(holder_token, 'docstate0000001', 1, fence=fence)
+        replay = act(holder_token, 'lock_acquire', original)
+        assert replay['documents'] == first['documents']
+        assert act(holder_token, 'lock_acquire', dict(original, local={'documents': []}), 409)['data']['code'] == 'request_changed'
         assert save(other_token, 'docstate0000001', 2, 409, fence=fence)['data']['code'] == 'stale_fence'
         assert save(holder_token, 'docstate0000001', 1, 409, fence=fence)['data']['code'] == 'revision_conflict'
         save(holder_token, 'docstate0000001', 2, 400, fence={'generation': 'x'})
@@ -119,7 +125,7 @@ def main():
         # Membership changes wait for the lock; revoke stays possible (tested below).
         assert act(at, 'share', {'vault': v, 'account': dave, 'role': 'editor', 'expected_revision': vault()['revision'],
                                  'envelopes': []}, 409)['data']['code'] == 'lock_held'
-        assert act(dt, 'accept', {'invitation': dave_invitation['id']}, 409)['data']['code'] == 'lock_held'
+        assert act(dt, 'accept', {'invitation': dave_invitation['id']}, 409)['data'] == {'code':'lock_held'}
         assert act(at, 'archive', {'vault': v, 'document': 'docenvrc0000001', 'expected_revision': 1,
                                    'expected_archive_revision': 0}, 409)['data']['code'] == 'lock_held'
         assert act(at, 'vault_archive', {'vault': v, 'expected_revision': vault()['revision'],
@@ -133,10 +139,18 @@ def main():
         assert lock()['progress'] == 'applications' and lock()['ttl_seconds'] == 600
         assert query(ct, 'SELECT holder FROM locks')[0]['holder'] in (alice, bob)
         assert query(dt, 'SELECT * FROM locks') == []
+        for token in (holder_token, ct):
+            assert not {'lease_id','request_id','grant','request_hash'}.intersection(query(token,'SELECT * FROM locks')[0])
 
         # Force: editors cannot; stale generation is refused; matching generation breaks+acquires atomically.
         assert act(bt, 'lock_acquire', {'vault': v, 'force': True, 'observed_generation': 1, 'reason': 'x'}, 403)
         assert act(at, 'lock_acquire', {'vault': v, 'force': True, 'observed_generation': 7, 'reason': 'crash'}, 409)['data']['code'] == 'generation_changed'
+        before = query(at, 'SELECT * FROM audit_log ORDER BY id')
+        assert act(at, 'lock_acquire', {'vault': v, 'force': True, 'observed_generation': 1, 'reason': 'stale local',
+                                        'local': {'documents': []}}, 409)['data']['code'] == 'local_mismatch'
+        assert lock()['generation'] == 1 and lock()['state'] == 'held'
+        assert query(at, 'SELECT * FROM audit_log ORDER BY id') == before
+        act(holder_token, 'lock_renew', dict(fence, vault=v))
         forced = act(at, 'lock_acquire', {'vault': v, 'force': True, 'observed_generation': 1, 'reason': 'holder crashed',
                                           'info': {'label': 'alice-recovery'}})
         assert forced['generation'] == 3 and forced['previous']['clean'] is False and forced['previous']['generation'] == 1
@@ -147,6 +161,7 @@ def main():
         actions = [r['action'] for r in query(at, 'SELECT action FROM audit_log ORDER BY created, id')]
         assert {'lock_acquire', 'lock_policy_required', 'lock_break', 'lock_force_acquire'} <= set(actions)
         assert 'lock_renew' not in actions
+        assert query(at, "SELECT reason,generation FROM audit_log WHERE action='lock_break'") == [{'reason':'holder crashed','generation':1}]
 
         # Break: stale generation refused; matching generation frees the lock and fences the old lease.
         assert act(at, 'lock_break', {'vault': v, 'observed_generation': 1, 'reason': 'x'}, 409)['data']['code'] == 'generation_changed'
@@ -214,6 +229,20 @@ def main():
         rotate()
         assert lock()['state'] == 'broken' and lock()['break_reason'] == 'key_rotation'
         assert act(bt, 'lock_renew', {'vault': v, 'generation': held['generation'], 'lease_id': held['lease_id']}, 409)['data']['code'] == 'lock_lost'
+        assert query(at, "SELECT generation FROM audit_log WHERE action='lock_break' AND reason='key_rotation'") == [{'generation':held['generation']}]
+        held = act(bt, 'lock_acquire', {'vault':v})
+        request('PATCH', path('locks') + '/' + lock()['id'], {'expires_at':'2000-01-01T00:00:00.000Z'}, admin)
+        act(at, 'archive', {'vault': v, 'document':'docenvrc0000001','expected_revision':2,'expected_archive_revision':0})
+        assert lock()['break_reason'] == 'expired_view_changed'
+        assert act(bt,'lock_renew',{'vault':v,'generation':held['generation'],'lease_id':held['lease_id']},409)['data']['code']=='lock_lost'
+        held = act(bt, 'lock_acquire', {'vault':v})
+        request('PATCH', path('users')+'/'+bob, {'disabled':True}, admin)
+        act(bt,'lock_renew',{'vault':v,'generation':held['generation'],'lease_id':held['lease_id']},(401,403))
+        request('PATCH', path('users')+'/'+bob, {'disabled':False}, admin)
+        bt=request('POST', '/api/collections/users/auth-with-password', {'identity':'bob@example.com','password':PASSWORD})['token']
+        act(at, 'revoke', {'vault':v,'account':bob,'expected_revision':vault()['revision']})
+        act(bt,'lock_renew',{'vault':v,'generation':held['generation'],'lease_id':held['lease_id']},403)
+        rotate()
 
         # The owner can clear the policy when no lock is held; unfenced saves then work again.
         act(at, 'lock_policy_clear', {'vault': v, 'expected_revision': vault()['revision'] - 1}, 409)
@@ -224,20 +253,56 @@ def main():
         # Archived vaults cannot be locked.
         act(at, 'vault_archive', {'vault': v, 'expected_revision': vault()['revision'], 'expected_archive_revision': 0})
         assert act(at, 'lock_acquire', {'vault': v}, 409)['data']['code'] == 'vault_archived'
+        act(at,'vault_unarchive',{'vault':v,'expected_revision':vault()['revision'],'expected_archive_revision':1})
+        old=act(at,'lock_acquire',{'vault':v})
+        request('PATCH', path('locks')+'/'+lock()['id'],{'expires_at':'2000-01-01T00:00:00.000Z'},admin)
+        with concurrent.futures.ThreadPoolExecutor(2) as pool:
+            take=pool.submit(act,at,'lock_acquire',{'vault':v})
+            release=pool.submit(act,at,'lock_break',{'vault':v,'observed_generation':old['generation'],'reason':'race'},(200,409))
+        current=take.result()
+        assert release.result().get('broken') or release.result()['data']['code']=='generation_changed'
+        assert lock()['state']=='held' and lock()['generation']==current['generation']
+        act(at,'lock_renew',{'vault':v,'generation':current['generation'],'lease_id':current['lease_id']})
 
     # Migration: existing vaults gain lock_policy 'none'.
     with tempfile.TemporaryDirectory(prefix='vaultcontext-lockmig-') as tmp:
         old = Path(tmp) / 'migrations'
         shutil.copytree(ROOT / 'pb_migrations', old)
         (old / '1790300600_vault_locks.js').unlink()
-        data = Path(tmp) / 'pb_data'
+        (old / '1790300700_lock_audit.js').unlink()
+        data = Path(tmp) / 'isolated-database'
         with server(args.binary, migrations=old, data_dir=data, workspace_domain='example.com', context_config=old_context()) as request:
             _, accounts, act, query, _ = setup(request)
             act(accounts['alice'][1], 'vault_create', {'id': 'oldvault0000001', 'metadata': 'm', 'envelope': 'e'})
+        # Exercise both the first policy backfill and a lease issued by the original lock schema.
+        migration_name = '1790300600_vault_locks.js'
+        shutil.copy2(ROOT / 'pb_migrations' / migration_name, old / migration_name)
+        config = old_context()
+        config['tables']['vaults'].append('lock_policy')
+        with server(args.binary, migrations=old, data_dir=data, workspace_domain='example.com', context_config=config) as request:
+            admin = request('POST','/api/collections/_superusers/auth-with-password',
+                            {'identity':'admin@example.com','password':'SyntheticAdminPassword123!'})['token']
+            request('POST','/api/collections/locks/records',
+                    {'vault':'oldvault0000001','holder':accounts['alice'][0],'state':'held','generation':3,
+                     'lease_id':'oldlease0000001','request_id':'old-request'},admin)
+        recovered = Path(tmp) / 'offline-recovery'
+        shutil.copytree(data, recovered)
+        module = importlib.util.spec_from_file_location('entrypoint', ROOT/'docker/entrypoint.py')
+        entrypoint = importlib.util.module_from_spec(module)
+        module.loader.exec_module(entrypoint)
+        entrypoint.SERVER, entrypoint.APP = str(Path(args.binary).resolve()), ROOT
+        entrypoint.retire_restored_locks(recovered)
+        with server(args.binary, data_dir=recovered, workspace_domain='example.com') as request:
+            token = request('POST','/api/collections/users/auth-with-password',{'identity':'alice@example.com','password':PASSWORD})['token']
+            query = lambda sql: request('POST','/api/context/query',{'sql':sql},token)['rows']
+            assert query('SELECT state,generation FROM locks') == [['broken',4]]
+            assert query("SELECT generation,reason FROM audit_log WHERE action='lock_break'") == [[3,'database_restore']]
         with server(args.binary, data_dir=data, workspace_domain='example.com') as request:
             token = request('POST', '/api/collections/users/auth-with-password', {'identity': 'alice@example.com', 'password': PASSWORD})['token']
             r = request('POST', '/api/context/query', {'sql': 'SELECT lock_policy FROM vaults'}, token)
             assert r['rows'] == [['none']], r
+            assert request('POST','/api/context/query',{'sql':'SELECT state,generation FROM locks'},token)['rows'] == [['broken',4]]
+            assert request('POST','/api/context/query',{'sql':"SELECT generation,reason FROM audit_log WHERE action='lock_break'"},token)['rows'] == [[3,'lock_schema_upgrade']]
     print('lock checks passed')
 
 
@@ -247,6 +312,8 @@ def old_context():
     config['tables'].pop('locks')
     config['snapshot']['filters'].pop('locks')
     config['tables']['vaults'].remove('lock_policy')
+    config['tables']['audit_log'].remove('reason')
+    config['tables']['audit_log'].remove('generation')
     return config
 
 

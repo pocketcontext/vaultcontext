@@ -93,7 +93,9 @@
     "action",
     "actor",
     "created",
+    "generation",
     "id",
+    "reason",
     "target",
     "vault"
   ],
@@ -108,11 +110,9 @@
     "holder",
     "id",
     "info",
-    "lease_id",
     "progress",
     "released_at",
     "renewed_at",
-    "request_id",
     "state",
     "ttl_seconds",
     "vault"

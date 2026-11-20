@@ -64,6 +64,19 @@ rejected by the pinned server. Litestream does not recover `maintenance.json` or
 `auxiliary.db`: carry consistent snapshots separately for a frozen host migration.
 A writable recovery can recreate auxiliary state, not its prior history.
 
+### Recovered vault locks
+
+Automatic fresh-volume recovery retires held leases inside the verified staging
+database before installing it. Each retirement records the old generation and
+`database_restore` in the audit log. A resumed process must acquire a fresh
+lease. Treat an old replica's policy and document versions as recovery-time
+state. Verify protected vaults before reopening them for ordinary writes.
+
+For a manually copied database or restored volume, fence the old writer, verify
+the offline copy, and run the image entrypoint in `retire-restored-locks` mode
+on that copy before serving it. Run the retirement after any source-to-copy
+equivalence check. Ordinary restarts of the original volume preserve its leases.
+
 ## Single-writer updates and rollback
 
 Production runs on the private `pocketdeploy-v2` scaffold, which moved it from

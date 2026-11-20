@@ -81,9 +81,15 @@ def main():
             return error
 
         # Bare `lock` still closes a memory session.
-        assert ok(cli(users['alice'], 'lock')) is not None
+        with patch.object(vc, 'prompt_passphrase', return_value='synthetic passphrase'):
+            vc.unlock(a, 300)
+        assert ok(cli(users['alice'], 'lock', 'status', vault, '--require-unlocked'))['state'] == 'free'
+        assert ok(cli(users['alice'], 'lock')) == {'locked': True}
+        assert cli(users['alice'], 'lock', 'status', vault, '--require-unlocked').returncode == 6
         status = ok(cli(users['alice'], 'lock', 'status', vault))
         assert status['state'] == 'free' and status['lock_policy'] == 'none'
+        assert {d['id'] for d in status['documents']} == {ref['id'] for ref in files.values()}
+        assert all(set(d) == {'id','revision','version','archived'} for d in status['documents'])
 
         acquired = ok(cli(users['alice'], 'lock', 'acquire', vault, '--label', 'alice@laptop',
                           '--info', '{"label":"ignored","command":"converge"}', '--ttl', '120'))
@@ -151,6 +157,7 @@ def main():
             assert (restore_dir / files['envrc']['id']).read_bytes() == b'export X=synthetic'
             assert (restore_dir / files['state']['id']).stat().st_mode & 0o777 == 0o600
             fence = restored['fence']
+            ok(cli(users['alice'],'lock','renew',vault,'--fence',fence,'--require-unlocked'))
             # Force-acquire by the owner retires the previous lease in one step.
             forced = ok(cli(users['alice'], 'lock', 'acquire', vault, '--force', '--observed-generation',
                             str(restored['generation']), '--reason', 'coordinated takeover', '--yes'))
@@ -163,6 +170,15 @@ def main():
             assert cli(users['bob'], 'lock', 'clear-policy', vault).returncode == 1  # owner only
             assert ok(cli(users['alice'], 'lock', 'clear-policy', vault))['lock_policy'] == 'none'
             ok(cli(users['alice'], 'save', vault, str(source), '--document', files['state']['id']))
+            with patch.object(vc, 'prompt_passphrase', return_value='synthetic passphrase'):
+                vc.unlock(b, 300)
+            try:
+                current = ok(cli(users['bob'], 'lock', 'acquire', vault))
+                execute(users['alice'], 'revoke', vault=vault, account=bid)
+                assert cli(users['bob'], 'lock', 'renew', vault, '--fence', current['fence'],
+                           '--require-unlocked').returncode == 6
+            finally:
+                vc.session.stop(b)
         finally:
             vc.session.stop(a)
     print('lock client checks passed')

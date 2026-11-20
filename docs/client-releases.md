@@ -81,3 +81,10 @@ adopt the demo's Google-only CLI restriction. Release `2026-11-01.2` now adds ho
 IdentityContext as the default login while retaining explicit Google and password
 fallbacks. Release `2026-11-20.1` adds vault write locks, fenced saves and the
 `lock` subcommands. Core and demo keep their own release IDs, package pins and validation.
+
+Before upgrading a populated server, preserve and verify a complete database
+and encrypted-original backup. The lock migrations backfill existing vaults to
+`none`. An offline copy from the initial lock implementation retires previously
+exposed leases, retaining vault policies, document history and an audit event.
+This unreleased package stage and its canonical release file use `2026-11-20.1`.
+Publish and pin the matching launcher through the normal release procedure.

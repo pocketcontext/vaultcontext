@@ -131,12 +131,16 @@ transaction like every other action.
 `lock_acquire` (owner or editor) never waits. A live lock held by anyone, including
 the caller under another `request_id`, returns 409 `lock_held`. A held but expired
 lock is taken over: the old row is retired (`previous.clean=false`). Repeating the
-same `request_id` while the same account still holds the lock returns that lease.
+same normalized request and `request_id` while the same account still holds the lock
+returns its original pinned grant and current lease times. Changed arguments get
+409 `request_changed`. SQL excludes the acquisition secret, replay ID, private
+request digest and stored grant.
 Frozen vaults return 409 `vault_frozen`; archived vaults 409 `vault_archived`; readers
 403. With `force:true` (owner only) the live generation must equal
 `observed_generation`, otherwise 409 `generation_changed`; the old lock is broken and
 the new one acquired atomically, auditing `lock_break` and `lock_force_acquire`. Force
-does not skip local comparison.
+does not skip local comparison. A refusal rolls back both the provisional retirement
+and its audit. A pending invitee receives only the `lock_held` code.
 
 When `local` is sent, documents are compared by ID with the current manifest:
 `match` (every listed document has the same revision and version and there is no
@@ -181,6 +185,9 @@ held lock (`break_reason = 'key_rotation'`, audited as `lock_break`).
 Lock refusals return HTTP 409 with `data.code` and plaintext lock details: `holder`,
 `info`, `progress`, `expires_at`, `generation`, `state` and, for `lock_held`,
 `retry_after` seconds. Revision conflicts return `data.code = "revision_conflict"`.
+An allowed membership or archive change after expiry retires the old lease and its pinned
+view. Break events retain the retired generation and reason; force-acquire records
+the granted generation and takeover reason.
 Acquire, force-acquire, release, break and policy changes write `audit_log` rows with
 the vault as target. Holder, `info`, `progress` and timestamps are plaintext
 operational metadata visible to members through filtered SQL; never store secrets in

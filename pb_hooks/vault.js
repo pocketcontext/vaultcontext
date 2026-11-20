@@ -12,6 +12,12 @@ function action(e) {
  return e.json(200,{result});
 }
 const LOCK_ALPHABET='abcdefghijklmnopqrstuvwxyz0123456789';
+function canonical(value) {
+ if(Array.isArray(value))return '['+value.map(canonical).join(',')+']';
+ if(value!==null&&typeof value==='object')
+  return '{'+Object.keys(value).sort().map(k=>JSON.stringify(k)+':'+canonical(value[k])).join(',')+'}';
+ return JSON.stringify(value);
+}
 function execute(app,actor,op,p,refusal) {
  if(app.findRecordById('users',actor).getBool('disabled')) throw new ForbiddenError('Account disabled.');
  const bad=message=>{throw new BadRequestError(message);};
@@ -25,7 +31,7 @@ function execute(app,actor,op,p,refusal) {
  const get=(table,key)=>{try{return app.findRecordById(table,key);}catch(_){throw new NotFoundError('Record unavailable.');}};
  const put=(table,data)=>{const r=new Record(app.findCollectionByNameOrId(table));Object.keys(data).forEach(k=>r.set(k,data[k]));app.save(r);return r;};
  const membership=(vault,account)=>rows('memberships','vault = {:v} && account = {:a}',{v:vault,a:account})[0];
- const audit=(vault,target,action)=>put('audit_log',{vault,actor,action:action||op,target:target||vault});
+ const audit=(vault,target,action,reason='',generation=0)=>put('audit_log',{vault,actor,action:action||op,target:target||vault,reason,generation});
  const identity=()=>get('identities',actor);
  const vault=()=>{
   const v=get('vaults',id('vault')),m=membership(v.id,actor);
@@ -41,12 +47,22 @@ function execute(app,actor,op,p,refusal) {
  const lockInfo=l=>{let info={};try{info=JSON.parse(l.getString('info')||'{}');}catch(_){}return info;};
  const lockView=l=>({holder:l.getString('holder'),info:lockInfo(l),progress:l.getString('progress'),expires_at:l.getString('expires_at'),generation:l.getInt('generation'),state:l.getString('state')});
  const refuseHeld=l=>refuse(409,'lock_held','Vault is locked by another operation.',Object.assign(lockView(l),{retry_after:Math.max(1,Math.ceil((expiresMs(l)-Date.now())/1000))}));
- const unlocked=key=>{const l=lockRow(key);if(live(l))refuseHeld(l);};
+ const unlocked=(key,member=true)=>{
+  const lock=lockRow(key);
+  if(live(lock)) {
+   if(!member)refuse(409,'lock_held','Vault is locked by another operation.');
+   refuseHeld(lock);
+  }
+  return lock;
+ };
  const intArg=(name,min,max,fallback)=>{const value=p[name]===undefined?fallback:p[name];if(!Number.isInteger(value)||value<min||value>max)bad('Invalid '+name);return value;};
  const iso=ms=>new Date(ms).toISOString();
  const retire=(l,reason)=>{
-  l.set('state','broken');l.set('generation',l.getInt('generation')+1);l.set('broken_by',actor);l.set('break_reason',reason);l.set('released_at',iso(Date.now()));app.save(l);
+  const generation=l.getInt('generation');
+  l.set('state','broken');l.set('generation',generation+1);l.set('broken_by',actor);l.set('break_reason',reason);l.set('released_at',iso(Date.now()));l.set('grant',null);app.save(l);
+  audit(l.getString('vault'),l.getString('vault'),'lock_break',reason,generation);
  };
+ const retireExpired=lock=>{if(lock&&lock.getString('state')==='held')retire(lock,'expired_view_changed');};
  const fenceMatches=(l,generation,lease)=>!!l&&l.getString('state')==='held'&&l.getString('holder')===actor&&l.getInt('generation')===generation&&l.getString('lease_id')===lease;
  const manifest=key=>rows('documents','vault = {:v}',{v:key}).map(doc=>{
   const version=doc.getString('current_version');
@@ -97,11 +113,11 @@ function execute(app,actor,op,p,refusal) {
   const inv=get('invitations',id('invitation'));
   if(inv.getString('account')!==actor || inv.getString('status')!=='pending')denied();
   const v=get('vaults',inv.getString('vault'));
-  writable(v);if(v.getBool('frozen'))conflict();unlocked(v.id);
+  writable(v);if(v.getBool('frozen'))conflict();const lock=unlocked(v.id,false);
   const m=membership(v.id,actor);if(!m)bad('Missing membership');
   const keys=rows('key_envelopes','vault = {:v} && account = {:a}',{v:v.id,a:actor});
   if(keys.length!==v.getInt('epoch'))bad('Incomplete key history');
-  m.set('active',true);m.set('role',inv.getString('role'));app.save(m);
+  retireExpired(lock);m.set('active',true);m.set('role',inv.getString('role'));app.save(m);
   inv.set('status','accepted');app.save(inv);bump(v);audit(v.id,actor);
   return {id:v.id,revision:v.getInt('revision')};
  }
@@ -109,21 +125,23 @@ function execute(app,actor,op,p,refusal) {
  if(op==='vault_archive'||op==='vault_unarchive') {
   owner(v);
   if(p.expected_archive_revision!==v.getInt('archive_revision'))conflict();
-  unlocked(v.id);
+  const lock=unlocked(v.id);
   const archived=op==='vault_archive';
   if(v.getBool('archived')!==archived) {
+   retireExpired(lock);
    v.set('archived',archived);v.set('archive_revision',v.getInt('archive_revision')+1);bump(v);audit(v.id);
   }
   return {id:v.id,revision:v.getInt('revision'),archived:v.getBool('archived'),archive_revision:v.getInt('archive_revision')};
  }
  if(op==='archive'||op==='unarchive') {
   if(!['owner','editor'].includes(m.getString('role')))denied();
-  writable(v);if(v.getBool('frozen'))conflict();unlocked(v.id);
+  writable(v);if(v.getBool('frozen'))conflict();const lock=unlocked(v.id);
   const doc=get('documents',id('document'));
   if(doc.getString('vault')!==v.id)denied();
   if(p.expected_revision!==doc.getInt('revision')||p.expected_archive_revision!==doc.getInt('archive_revision'))conflict();
   const archived=op==='archive';
   if(doc.getBool('archived')!==archived) {
+   retireExpired(lock);
    doc.set('archived',archived);doc.set('archive_revision',doc.getInt('archive_revision')+1);app.save(doc);audit(v.id,doc.id);
   }
   return {id:doc.id,revision:doc.getInt('revision'),archived:doc.getBool('archived'),archive_revision:doc.getInt('archive_revision')};
@@ -160,7 +178,7 @@ function execute(app,actor,op,p,refusal) {
   return {id:d,version,revision:revision+1};
  }
  if(op==='share') {
-  owner(v);writable(v);if(v.getBool('frozen'))conflict();unlocked(v.id);
+  owner(v);writable(v);if(v.getBool('frozen'))conflict();const lock=unlocked(v.id);
   const account=id('account');if(account===actor)bad('Owner already has access');
   const user=get('users',account);if(!require(`${__hooks}/user_directory.js`).eligible(user))throw new ForbiddenError('Recipient must sign in with their verified Workspace Google account.');get('identities',account);
   if(!['reader','editor'].includes(p.role))bad('Invalid role');
@@ -175,6 +193,7 @@ function execute(app,actor,op,p,refusal) {
    return {id:pending.id,vault:v.id,account,role:p.role,status:'pending',revision:v.getInt('revision')};
   }
   if(!Array.isArray(p.envelopes)||p.envelopes.length!==v.getInt('epoch'))bad('Full key history required');
+  retireExpired(lock);
   // Remove obsolete envelopes only for this inactive recipient before a fresh invitation.
   rows('key_envelopes','vault = {:v} && account = {:a}',{v:v.id,a:account}).forEach(r=>app.delete(r));
   const seen={};p.envelopes.forEach(k=>{if(!Number.isInteger(k.epoch)||k.epoch<1||k.epoch>v.getInt('epoch')||seen[k.epoch])bad('Invalid key history');seen[k.epoch]=true;envelope(v.id,account,k.epoch,k.envelope);});
@@ -200,7 +219,7 @@ function execute(app,actor,op,p,refusal) {
   p.envelopes.forEach(k=>{if(!expected[k.account])bad('Invalid rotation recipient');delete expected[k.account];envelope(v.id,k.account,p.epoch,k.envelope);});
   v.set('epoch',p.epoch);v.set('frozen',false);bump(v);audit(v.id);
   // Rotation retires any outstanding lock: its holder must acquire again.
-  const held=lockRow(v.id);if(held&&held.getString('state')==='held'){retire(held,'key_rotation');audit(v.id,v.id,'lock_break');}
+  const held=lockRow(v.id);if(held&&held.getString('state')==='held')retire(held,'key_rotation');
   return {id:v.id,revision:v.getInt('revision'),epoch:p.epoch};
  }
  if(op==='lock_acquire') {
@@ -210,7 +229,8 @@ function execute(app,actor,op,p,refusal) {
   if(!['fail','lock'].includes(onMismatch))bad('Invalid on_mismatch');
   const info=p.info===undefined?{}:p.info;
   if(!info||typeof info!=='object'||Array.isArray(info))bad('Invalid info');
-  const infoText=JSON.stringify(info);if(infoText.length>2048)bad('Invalid info');
+  const infoText=JSON.stringify(info);
+  if(encodeURIComponent(infoText).replace(/%[0-9A-F]{2}/g,'x').length>2048)bad('Invalid info');
   const requestId=p.request_id===undefined?'':p.request_id;
   if(typeof requestId!=='string'||requestId.length>64||(requestId&&!/^[A-Za-z0-9_.:-]+$/.test(requestId)))bad('Invalid request_id');
   let local=null;
@@ -227,29 +247,31 @@ function execute(app,actor,op,p,refusal) {
   let observed,reason;
   if(force) {
    if(!Number.isInteger(p.observed_generation)||p.observed_generation<0)bad('Force requires observed_generation');
-   observed=p.observed_generation;reason=str('reason',500);
+   observed=p.observed_generation;reason=str('reason',500);if(!reason.trim())bad('Invalid reason');
    if(v.getString('owner')!==actor)denied();
   }
   writable(v);
   if(v.getBool('frozen'))refuse(409,'vault_frozen','Vault is frozen until key rotation completes.');
   const now=Date.now();let row=lockRow(v.id),previous=null;
+  const requestHash=requestId?$security.sha256(canonical({vault:v.id,ttl,onMismatch,info,local,force,observed:observed||0,reason:reason||''})):'';
   const respond=(l,documents,status,details)=>({lease_id:l.getString('lease_id'),generation:l.getInt('generation'),expires_at:l.getString('expires_at'),server_time:iso(Date.now()),ttl_seconds:l.getInt('ttl_seconds'),local_status:status,local_details:details,vault:vaultView(v),documents,previous});
   // Replaying the same request for the same live or late holder returns its lease.
   if(requestId&&row&&row.getString('state')==='held'&&row.getString('holder')===actor&&row.getString('request_id')===requestId) {
-   const documents=manifest(v.id);const c=local?classify(local,documents):{status:'unchecked',details:null};
-   return respond(row,documents,c.status,c.details);
+   if(row.getString('request_hash')!==requestHash)refuse(409,'request_changed','Acquire request ID was reused with different arguments.');
+   const grant=JSON.parse(row.getString('grant'));
+   return Object.assign(grant,{expires_at:row.getString('expires_at'),server_time:iso(Date.now()),ttl_seconds:row.getInt('ttl_seconds')});
   }
   if(force) {
    if((row?row.getInt('generation'):0)!==observed)refuse(409,'generation_changed','Lock generation changed; inspect the lock again.',row?lockView(row):{generation:0});
    if(row&&row.getString('state')==='held') {
     previous=Object.assign(lockView(row),{clean:false,expired_at:row.getString('expires_at')});
-    retire(row,reason);audit(v.id,v.id,'lock_break');
+    retire(row,reason);
    }
   } else if(row&&row.getString('state')==='held') {
    if(live(row))refuseHeld(row);
    // Expiry takeover: the previous holder did not release cleanly.
    previous=Object.assign(lockView(row),{clean:false,expired_at:row.getString('expires_at')});
-   row.set('state','broken');row.set('generation',row.getInt('generation')+1);row.set('break_reason','expired');row.set('broken_by','');app.save(row);
+   retire(row,'expired');
   } else if(row) {
    previous={state:row.getString('state'),clean:row.getBool('clean'),generation:row.getInt('generation'),holder:row.getString('holder'),expired_at:row.getString('released_at'),progress:row.getString('progress'),info:lockInfo(row)};
   }
@@ -259,10 +281,12 @@ function execute(app,actor,op,p,refusal) {
    refuse(409,'local_mismatch','Local recovery set differs from the vault; restore first.',{local_status:c.status,local_details:c.details,remote:{vault:vaultView(v),documents}});
   if(!row)row=new Record(app.findCollectionByNameOrId('locks'));
   const fields={vault:v.id,holder:actor,lease_id:$security.randomStringWithAlphabet(15,LOCK_ALPHABET),generation:(row.getInt('generation')||0)+1,state:'held',acquired_at:iso(now),renewed_at:iso(now),expires_at:iso(now+ttl*1000),released_at:'',ttl_seconds:ttl,clean:false,progress:'',info:infoText,request_id:requestId,broken_by:'',break_reason:''};
-  Object.keys(fields).forEach(k=>row.set(k,fields[k]));app.save(row);
-  audit(v.id,v.id,force?'lock_force_acquire':'lock_acquire');
+  Object.keys(fields).forEach(k=>row.set(k,fields[k]));
+  audit(v.id,v.id,force?'lock_force_acquire':'lock_acquire',reason||'',fields.generation);
   if(v.getString('lock_policy')!=='required'){v.set('lock_policy','required');bump(v);audit(v.id,v.id,'lock_policy_required');}
-  return respond(row,documents,c.status,c.details);
+  const grant=respond(row,documents,c.status,c.details);
+  row.set('request_hash',requestHash);row.set('grant',requestId?JSON.stringify(grant):null);app.save(row);
+  return grant;
  }
  if(op==='lock_renew'||op==='lock_release') {
   const generation=intArg('generation',1,Number.MAX_SAFE_INTEGER),lease=id('lease_id');
@@ -274,7 +298,7 @@ function execute(app,actor,op,p,refusal) {
    const result=()=>({released:true,vault_revision:v.getInt('revision'),documents:rows('documents','vault = {:v}',{v:v.id}).map(d=>({id:d.id,revision:d.getInt('revision'),version:d.getString('current_version')}))});
    if(row&&row.getString('state')==='released'&&row.getString('holder')===actor&&row.getInt('generation')===generation&&row.getString('lease_id')===lease)return result();
    if(!fenceMatches(row,generation,lease))refuse(409,'lock_lost','Lock is no longer held by this lease.');
-   row.set('state','released');row.set('clean',p.clean);row.set('released_at',iso(Date.now()));if(progress!==undefined)row.set('progress',progress);app.save(row);
+   row.set('state','released');row.set('grant',null);row.set('clean',p.clean);row.set('released_at',iso(Date.now()));if(progress!==undefined)row.set('progress',progress);app.save(row);
    audit(v.id,v.id,'lock_release');return result();
   }
   if(!fenceMatches(row,generation,lease))refuse(409,'lock_lost','Lock is no longer held by this lease.');
@@ -286,9 +310,10 @@ function execute(app,actor,op,p,refusal) {
   if(v.getString('owner')!==actor)denied();
   if(!Number.isInteger(p.observed_generation)||p.observed_generation<0)bad('Invalid observed_generation');
   const reason=str('reason',500),row=lockRow(v.id);
+  if(!reason.trim())bad('Invalid reason');
   if(!row||row.getInt('generation')!==p.observed_generation)refuse(409,'generation_changed','Lock generation changed; inspect the lock again.',row?lockView(row):{generation:0});
   if(row.getString('state')!=='held')return {generation:row.getInt('generation'),state:row.getString('state'),broken:false};
-  retire(row,reason);audit(v.id,v.id,'lock_break');
+  retire(row,reason);
   return {generation:row.getInt('generation'),state:'broken',broken:true};
  }
  if(op==='lock_policy_clear') {

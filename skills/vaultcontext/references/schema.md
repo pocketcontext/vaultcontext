@@ -9,8 +9,8 @@ Metadata reads use authenticated `/api/context/schema` and `/api/context/query`;
 - `key_envelopes`: only the requester's encrypted vault keys; pending invitees can obtain their invitation envelopes.
 - `documents`, `versions`, `version_chunks`: current document pointers, reversible `archived` state and its `archive_revision` concurrency marker, immutable signed manifests and protected encrypted file chunks. Chunk SQL records expose filenames and hashes, not ciphertext bytes. Names and sizes are inside encrypted metadata.
 - `invitations`: explicit owner invitations, recipient acceptance and status.
-- `audit_log`: accessible metadata-only action history; never plaintext file contents.
-- `locks`: one exclusive write lock per vault: `holder`, `lease_id`, monotonic `generation`, `state` (`held`, `released`, `broken`), timestamps, `ttl_seconds`, `clean`, plaintext `progress` and `info` (JSON text, including `label`), and break fields. `vaults.lock_policy` is `none` or `required`.
+- `audit_log`: accessible metadata-only action history, including reason and generation for lock retirements.
+- `locks`: one exclusive write lock per vault: `holder`, monotonic `generation`, `state` (`held`, `released`, `broken`), timestamps, `ttl_seconds`, `clean`, plaintext `progress` and `info` (JSON text, including `label`), and break fields. `vaults.lock_policy` is `none` or `required`.
 
 Ciphertext/signatures are versioned crypto-helper formats. Envelope signatures bind sender, recipient, vault and epoch. Version signatures bind author, vault/document/version IDs, epoch, revision, encrypted metadata and ciphertext hash. The client reconstructs identity context and automatically pins fingerprints on first use before decrypting. Known changed keys are rejected; independent verification is optional. This trusts the server’s initial account-to-key mapping and cannot detect first-contact substitution or all malicious server rollback; a compromised server can deny access or replay previously valid state.
 

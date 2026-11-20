@@ -275,6 +275,36 @@ def run_command(args, env=None, timeout=None):
                 signal.signal(sig, handler)
 
 
+def retire_restored_locks(data):
+    """Run only against a verified offline recovery copy, before publishing it."""
+    db = data / 'data.db'
+    with closing(database_connection(data)) as conn:
+        # Snapshots taken before vault locking have no leases to retire.
+        if not conn.execute("SELECT 1 FROM sqlite_schema WHERE type='table' AND name='locks'").fetchone():
+            return
+        if not conn.execute("SELECT 1 FROM locks WHERE state='held' LIMIT 1").fetchone():
+            return
+        needs_upgrade = 'grant' not in {r[1] for r in conn.execute('PRAGMA table_info(locks)')}
+    if needs_upgrade:
+        # The original lock schema lacks audit reasons. Let the maintained
+        # PocketBase migration upgrade and retire these grants together.
+        run_command([SERVER, 'migrate', 'up', *app_flags(data)],
+                    env=dict(os.environ, VAULTCONTEXT_RECOVERING_DATABASE='1'))
+    with closing(sqlite3.connect(db.resolve().as_uri() + '?mode=rw', uri=True)) as conn:
+        conn.execute('PRAGMA trusted_schema=OFF')
+        # restore_database installs one file; commit changes into that database.
+        if conn.execute('PRAGMA journal_mode=DELETE').fetchone()[0] != 'delete':
+            raise StartupError('could not prepare recovered vault leases')
+        with conn:
+            conn.execute("""INSERT INTO audit_log(id,vault,actor,action,target,generation,reason,created)
+                SELECT substr(lower(hex(randomblob(8))),1,15),vault,'','lock_break',vault,generation,
+                       'database_restore',strftime('%Y-%m-%d %H:%M:%fZ','now')
+                FROM locks WHERE state='held'""")
+            conn.execute("""UPDATE locks SET state='broken',generation=generation+1,lease_id='',
+                request_id='',request_hash='',grant=NULL,clean=0,broken_by='',break_reason='database_restore',
+                released_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE state='held'""")
+
+
 def restore_database(data, initialize=False):
     db = data / 'data.db'
     if db.exists() or db.is_symlink():
@@ -303,6 +333,7 @@ def restore_database(data, initialize=False):
                 raise StartupError('init refused: replica already exists; use normal startup to restore it')
             return
         verify(staged)
+        retire_restored_locks(staged)
         with (staged / 'data.db').open('rb') as restored:
             os.fsync(restored.fileno())
         os.replace(staged / 'data.db', db)
@@ -380,15 +411,17 @@ def serve():
 def main(argv=None):
     os.umask(0o077)
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('mode', choices=('start', 'init', 'serve', 'verify'), nargs='?', default='start')
+    parser.add_argument('mode', choices=('start', 'init', 'serve', 'verify', 'retire-restored-locks'), nargs='?', default='start')
     args = parser.parse_args(argv)
     try:
         os.chdir(APP)
         if args.mode == 'serve':
             serve()
-        elif args.mode == 'verify':
+        elif args.mode in ('verify', 'retire-restored-locks'):
             validate_config()
             verify(DATA)
+            if args.mode == 'retire-restored-locks':
+                retire_restored_locks(DATA)
             log('database and remote originals verified')
         else:
             prepare(DATA, initialize=args.mode == 'init')
