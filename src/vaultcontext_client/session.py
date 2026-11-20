@@ -235,6 +235,9 @@ def serve(server, cfg, identity, account, deadline, peer_uid=None):
                              else 'Vault operation failed; sensitive error details suppressed.',
                     'code': getattr(error, 'code', 1),
                 }
+                if isinstance(error, cli.LockRefused):
+                    # Plaintext lock metadata only; lets the foreground print it as JSON.
+                    response['lock'] = error.details
             try:
                 conn.sendall((cli.encode(response) + '\n').encode())
             except OSError:

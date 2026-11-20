@@ -79,4 +79,5 @@ Demo enrollment, consent, resets, retained contacts, browser authentication,
 restricted sharing and deployment ownership were excluded. That backport did not
 adopt the demo's Google-only CLI restriction. Release `2026-11-01.2` now adds hosted
 IdentityContext as the default login while retaining explicit Google and password
-fallbacks. Core and demo keep their own release IDs, package pins and validation.
+fallbacks. Release `2026-11-20.1` adds vault write locks, fenced saves and the
+`lock` subcommands. Core and demo keep their own release IDs, package pins and validation.

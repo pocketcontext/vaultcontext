@@ -28,6 +28,7 @@
     "epoch",
     "frozen",
     "id",
+    "lock_policy",
     "metadata",
     "owner",
     "revision"
@@ -94,6 +95,26 @@
     "created",
     "id",
     "target",
+    "vault"
+  ],
+  "locks": [
+    "acquired_at",
+    "break_reason",
+    "broken_by",
+    "clean",
+    "created",
+    "expires_at",
+    "generation",
+    "holder",
+    "id",
+    "info",
+    "lease_id",
+    "progress",
+    "released_at",
+    "renewed_at",
+    "request_id",
+    "state",
+    "ttl_seconds",
     "vault"
   ]
 }

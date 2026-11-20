@@ -30,6 +30,13 @@ letters/digits. Encrypted structures are JSON serialized into opaque strings.
 | `accept` | `invitation` |
 | `revoke` | `vault`, `account`, `expected_revision` |
 | `rotate` | `vault`, `expected_revision`, new `epoch`, `envelopes:[{account,envelope}]` |
+| `lock_acquire` | `vault`, optional `ttl_seconds` (30–3600, default 900), `local:{documents:[{id,revision,version}]}`, `on_mismatch` (`fail` or `lock`), `info` (object, ≤2048 JSON characters), `request_id`; force: `force:true`, `observed_generation`, `reason` |
+| `lock_renew` | `vault`, `generation`, `lease_id`, optional `ttl_seconds`, `progress` (≤200) |
+| `lock_release` | `vault`, `generation`, `lease_id`, `clean` (boolean), optional `progress` |
+| `lock_break` | `vault`, `observed_generation`, `reason` (≤500) |
+| `lock_policy_clear` | `vault`, `expected_revision` |
+
+`save` also accepts optional `fence:{generation,lease_id}`.
 
 Identity initialization is one-time. Public keys are immutable; rewrap replaces
 only the user's encrypted bundle and increments its revision. There is no recovery
@@ -112,6 +119,72 @@ The server treats ciphertext as opaque; clients automatically pin first-use publ
 keys and reject changes to known fingerprints, then verify envelope signatures and
 file manifests. Independent fingerprint verification is optional. First-use trust
 relies on the server’s account-to-key mapping; Google does not certify those keys. Server metadata audits contain IDs and action names.
+
+## Vault write locks
+
+Each vault has at most one `locks` row (unique `vault`). Its `generation` increases
+on every acquisition, break, expiry takeover and rotation and is never reused; the
+pair `generation` + 15-character random `lease_id` is the fence. A lock is live while
+`state = 'held'` and the server clock is before `expires_at`. Lock actions run in one
+transaction like every other action.
+
+`lock_acquire` (owner or editor) never waits. A live lock held by anyone, including
+the caller under another `request_id`, returns 409 `lock_held`. A held but expired
+lock is taken over: the old row is retired (`previous.clean=false`). Repeating the
+same `request_id` while the same account still holds the lock returns that lease.
+Frozen vaults return 409 `vault_frozen`; archived vaults 409 `vault_archived`; readers
+403. With `force:true` (owner only) the live generation must equal
+`observed_generation`, otherwise 409 `generation_changed`; the old lock is broken and
+the new one acquired atomically, auditing `lock_break` and `lock_force_acquire`. Force
+does not skip local comparison.
+
+When `local` is sent, documents are compared by ID with the current manifest:
+`match` (every listed document has the same revision and version and there is no
+unlisted active document), `stale` (some listed revision is lower), `missing_remote`
+(listed document absent or archived), `extra_remote` (unlisted active document),
+`diverged` (same revision with another version, or a higher local revision) and
+`empty_remote` (nothing listed and no active documents). With `on_mismatch:"fail"`
+any status other than `match`/`empty_remote` returns 409 `local_mismatch` with
+`local_status`, `local_details` (document IDs per category) and the remote manifest,
+and takes no lock. Without `local`, `local_status` is `unchecked`.
+
+Success returns `lease_id`, `generation`, `expires_at`, `server_time`, `ttl_seconds`,
+`local_status`, `local_details`, `vault` (`id`, `revision`, `epoch`, `frozen`,
+`archived`, `archive_revision`, `lock_policy`), `previous` (the prior row's state,
+`clean`, generation, holder, expiry and info, or null) and `documents`: every document
+in the vault, archived included, with `id`, `revision`, `version`, `archived`,
+`archive_revision`, `chunk_count`, `chunks:[{id,sha256}]` and encrypted `metadata`.
+Ciphertext is never inlined; download pinned versions as usual.
+
+The first successful acquire sets `vaults.lock_policy` to `required` (incrementing the
+vault revision and auditing `lock_policy_required`). While required, every `save`
+needs `fence`: missing returns 409 `lock_required`; a fence that is not the caller's
+current held lease returns 409 `stale_fence`. A late (expired but not taken over)
+lease still saves, renews and releases. `expected_revision` remains checked
+(409 `revision_conflict`).
+
+`lock_renew` extends a held lease (`late:true` when it had expired) and stores
+progress; it is not audited. `lock_release` marks the row `released` with `clean`
+and returns `released`, `vault_revision` and current document IDs/revisions/versions;
+repeating it is harmless. A retired or foreign lease gets 409 `lock_lost`.
+`lock_break` (owner only) retires a held lock whose generation matches
+`observed_generation` (else 409 `generation_changed`), increments the generation and
+returns `{generation, state, broken}`; breaking a lock that is not held is a no-op.
+`lock_policy_clear` (owner, vault `expected_revision`) sets `lock_policy` to `none`
+unless a lock is held (409 `lock_held`).
+
+While a lock is live, `share`, `accept`, `archive`/`unarchive` and
+`vault_archive`/`vault_unarchive` return 409 `lock_held`. `revoke` remains permitted
+and freezes the vault; the holder may still renew and release. `rotate` retires any
+held lock (`break_reason = 'key_rotation'`, audited as `lock_break`).
+
+Lock refusals return HTTP 409 with `data.code` and plaintext lock details: `holder`,
+`info`, `progress`, `expires_at`, `generation`, `state` and, for `lock_held`,
+`retry_after` seconds. Revision conflicts return `data.code = "revision_conflict"`.
+Acquire, force-acquire, release, break and policy changes write `audit_log` rows with
+the vault as target. Holder, `info`, `progress` and timestamps are plaintext
+operational metadata visible to members through filtered SQL; never store secrets in
+them.
 
 ## Client release and identity replacement
 

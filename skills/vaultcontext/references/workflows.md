@@ -236,3 +236,44 @@ Export includes all accessible retained file versions, including archived docume
 ## Saved login settings
 
 Login accepts `--url` and `--email` before or after the command. Successful explicit login saves the default URL/email in `$XDG_STATE_HOME/vaultcontext/default.json` (default `~/.local/state/vaultcontext/default.json`, or `VAULTCONTEXT_SESSION_DIR/default.json`). Each server/account token stays in its separate hashed session file. CLI options override environment variables, which override saved defaults. Files use mode 0600 in a mode-0700 directory. Ordinary commands and token refresh do not change the default. `vaultcontext logout` removes the selected token but retains settings; `logout --forget` also removes matching defaults. Old cache sessions are not imported; sign in again. Password login uses `login --password` with `VAULTCONTEXT_USER_PASSWORD`; passwords are never saved.
+
+## Vault write locks
+
+A deployment controller or several operators sharing one vault can take an exclusive,
+pessimistic write lock on the whole vault (like `SELECT ... FOR UPDATE NOWAIT`):
+
+```sh
+vaultcontext lock acquire VAULT_ID --label alice@laptop --local-manifest receipt.json
+vaultcontext save VAULT_ID ./state.sqlite --document DOCUMENT_ID --fence GEN:LEASE_ID --expect-revision 4
+vaultcontext lock renew VAULT_ID --fence GEN:LEASE_ID --progress applications
+vaultcontext lock release VAULT_ID --fence GEN:LEASE_ID --clean
+vaultcontext lock status VAULT_ID
+```
+
+Acquire refuses at once with exit code 5 and a JSON `error` (`lock_held`, with the
+holder's `label`, `progress`, `expires_at` and `generation`) when another lease is live;
+`--wait SECONDS` polls. It returns the lease, the fence `GENERATION:LEASE_ID`, and a
+manifest of every document (ID, revision, version, archive state, ciphertext chunk
+hashes; no names). `--local-manifest` compares a JSON `{documents:[{id,revision,version}]}`
+set by document ID: `match`, `stale`, `missing_remote`, `extra_remote`, `diverged` or
+`empty_remote`. Any other status than `match`/`empty_remote` refuses with
+`local_mismatch` and takes no lock, unless `--on-mismatch lock` is given; then
+`--restore-to DIR` writes every active pinned version to `DIR/DOCUMENT_ID` (mode 0600,
+no overwrite) using the unlocked session.
+
+After the first acquire the vault's `lock_policy` is `required`: every `save` needs the
+current `--fence`, otherwise `lock_required`; a retired lease gets `stale_fence` or
+`lock_lost`. The lease lasts `--ttl` seconds (default 900; renew every ttl/3). After
+expiry, the next acquirer takes over and the old fence stops working. Sharing,
+accepting and archiving wait for the lock; revoke still freezes the vault, and the
+next rotation retires the lock.
+
+If a holder crashed and its fence is lost, the vault owner, after checking with the
+other operator, runs `lock break VAULT_ID --observed-generation N --reason TEXT`
+(`lock release --force` is the same operation) or `lock acquire --force` with the same
+arguments to break and acquire in one step. The CLI prints the current holder and asks
+for confirmation; scripts must pass `--yes` explicitly. The owner can return a vault
+to unfenced saves with `vaultcontext lock clear-policy VAULT_ID` while no lock is held.
+
+Lock holder, label, info and progress are plaintext metadata visible to every vault
+member and the server operator. Never put secrets in them.

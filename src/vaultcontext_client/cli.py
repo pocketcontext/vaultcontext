@@ -20,6 +20,7 @@ import stat
 import struct
 import sys
 import textwrap
+import time
 import urllib.parse
 import urllib.request
 
@@ -39,11 +40,64 @@ def uid():
 def quote(value):
     return "'" + str(value).replace("'", "''") + "'"
 
+# Lock refusals carry plaintext operational lock metadata only (holder, label,
+# progress, timestamps, document IDs/revisions). They exit with code 5.
+LOCK_CODES = ('lock_held', 'lock_lost', 'stale_fence', 'lock_required', 'generation_changed',
+              'local_mismatch', 'vault_frozen', 'vault_archived')
+
+
+class LockRefused(auth.Fail):
+    def __init__(self, details):
+        self.details = details
+        super().__init__(5, lock_message(details))
+
+
+def lock_details(data):
+    keep = ('code', 'holder', 'info', 'progress', 'expires_at', 'generation', 'state', 'retry_after',
+            'local_status', 'local_details')
+    details = {k: data[k] for k in keep if k in data}
+    remote = data.get('remote')
+    if isinstance(remote, dict) and isinstance(remote.get('documents'), list):
+        details['remote_documents'] = [manifest_entry(d) for d in remote['documents'] if isinstance(d, dict)]
+    return details
+
+
+def lock_label(info):
+    label = info.get('label') if isinstance(info, dict) else None
+    return label if isinstance(label, str) and label else None
+
+
+def lock_message(details):
+    code = details.get('code')
+    text = {'lock_held': 'Vault is locked by another operation',
+            'lock_lost': 'This lease no longer holds the vault lock',
+            'stale_fence': 'The lock fence is no longer current; stop writing',
+            'lock_required': 'This vault requires the current lock fence (--fence) for writes',
+            'generation_changed': 'Lock generation changed; inspect the lock again',
+            'local_mismatch': 'Local recovery set differs from the vault; restore first',
+            'vault_frozen': 'Vault is frozen until key rotation completes',
+            'vault_archived': 'Vault is archived'}.get(code, 'Vault lock refused')
+    parts = []
+    if lock_label(details.get('info')):
+        parts.append('label ' + json.dumps(lock_label(details['info'])))
+    for key in ('holder', 'generation', 'progress', 'expires_at', 'retry_after', 'local_status'):
+        if details.get(key) not in (None, ''):
+            parts.append(f'{key} {details[key]}')
+    return f'{code}: {text}' + (' (' + ', '.join(parts) + ')' if parts else '') + '.'
+
+
+def manifest_entry(doc):
+    return {k: doc[k] for k in ('id', 'revision', 'version', 'archived', 'archive_revision', 'chunk_count', 'chunks') if k in doc}
+
+
 def request(cfg, method, path, body=None):
     status, data = (auth.call_read_query(cfg, body)
                     if method == 'POST' and path == '/api/context/query'
                     else auth.call(cfg, method, path, body))
     if status >= 400:
+        if (status == 409 and isinstance(data, dict) and isinstance(data.get('data'), dict)
+                and data['data'].get('code') in LOCK_CODES):
+            raise LockRefused(lock_details(data['data']))
         if status == 409 and method == 'POST' and path == '/api/collections/vault_actions/records' and isinstance(body, dict) and body.get('op') == 'identity_init':
             raise auth.Fail(4, 'Identity already initialized. Run vaultcontext unlock with your existing passphrase. init does not replace an identity or reset its passphrase.')
         raise auth.Fail(4 if status == 409 else 1, f'HTTP {status}; operation failed. Reread state before retrying; response content suppressed.')
@@ -336,6 +390,9 @@ def execute(cfg, identity, account, args):
         if current and current['archived']:
             raise auth.Fail(1, 'Document is archived; unarchive it before saving a new version.')
         revision = int(current['revision']) if current else 0
+        if args.get('expect_revision') is not None:
+            # Explicit compare-and-set: the server rejects a stale expectation.
+            revision = args['expect_revision']
         archive_revision = int(current['archive_revision']) if current else 0
         epoch = int(vault['epoch'])
         key = vault_key(cfg, identity, account, vault['id'], epoch)
@@ -346,7 +403,10 @@ def execute(cfg, identity, account, args):
         ciphertext = encode(crypto.encrypt_bytes(key, data, context))
         manifest = {'context': context, 'author': account, 'revision': revision + 1, 'metadata': encrypted_info, 'sha256': hashlib.sha256(ciphertext.encode()).hexdigest()}
         chunks = [ciphertext[i:i + 192 * 1024] for i in range(0, len(ciphertext), 192 * 1024)]
-        return action(cfg, 'save', {'vault': vault['id'], 'document': document, 'version': version, 'expected_revision': revision, 'expected_archive_revision': archive_revision, 'expected_vault_archive_revision': vault['archive_revision'], 'epoch': epoch, 'metadata': encrypted_info, 'manifest': encode(manifest), 'signature': crypto.sign_manifest(identity, manifest), 'chunks': chunks})
+        payload = {'vault': vault['id'], 'document': document, 'version': version, 'expected_revision': revision, 'expected_archive_revision': archive_revision, 'expected_vault_archive_revision': vault['archive_revision'], 'epoch': epoch, 'metadata': encrypted_info, 'manifest': encode(manifest), 'signature': crypto.sign_manifest(identity, manifest), 'chunks': chunks}
+        if args.get('fence'):
+            payload['fence'] = parse_fence(args['fence'])
+        return action(cfg, 'save', payload)
     if command in ('archive', 'unarchive'):
         doc = one(cfg, 'documents', 'id=' + quote(args['document']))
         return action(cfg, command, {'vault': doc['vault'], 'document': doc['id'],
@@ -494,6 +554,8 @@ def session_call(cfg, payload, timeout=180):
         conn.sendall((encode(payload) + '\n').encode())
         result = recv_frame(conn)
     if 'error' in result:
+        if isinstance(result.get('lock'), dict):
+            raise LockRefused(result['lock'])
         raise auth.Fail(result.get('code', 1), result['error'])
     return result['result']
 
@@ -542,6 +604,148 @@ def unlock(cfg, timeout, use_keychain=False):
         del passphrase
     verify_user(cfg, account, crypto.fingerprint(crypto.public_identity(identity)))
     return session.start(cfg, identity, account, timeout)
+
+def parse_fence(value):
+    match = re.fullmatch(r'([1-9][0-9]{0,15}):([a-z0-9]{15})', value or '')
+    if not match:
+        raise auth.Fail(2, 'Fence must be GENERATION:LEASE_ID from vaultcontext lock acquire.')
+    return {'generation': int(match.group(1)), 'lease_id': match.group(2)}
+
+
+def lock_status(cfg, vault):
+    vault_row = one(cfg, 'vaults', 'id=' + quote(vault))
+    found = rows(cfg, 'locks', 'vault=' + quote(vault))
+    result = {'vault': vault, 'lock_policy': vault_row.get('lock_policy') or 'none', 'state': 'free', 'generation': 0}
+    if not found:
+        return result
+    row = found[0]
+    try:
+        info = json.loads(row.get('info') or '{}')
+    except ValueError:
+        info = {}
+    result.update({k: row.get(k) for k in ('state', 'generation', 'holder', 'progress', 'acquired_at', 'renewed_at',
+                                           'expires_at', 'released_at', 'ttl_seconds', 'break_reason', 'broken_by')})
+    result['clean'] = bool(row.get('clean'))
+    result['info'] = info if isinstance(info, dict) else {}
+    result['label'] = lock_label(result['info'])
+    holder = rows(cfg, 'user_directory', 'id=' + quote(row['holder'])) if row.get('holder') else []
+    result['holder_email'] = holder[0]['email'] if holder else None
+    if row.get('state') == 'held':
+        # Client clock only; the server decides liveness with its own clock.
+        expires = row.get('expires_at') or ''
+        now = time.strftime('%Y-%m-%dT%H:%M:%S', time.gmtime())
+        result['expired_by_client_clock'] = expires[:19] < now
+    return result
+
+
+def confirm_break(cfg, vault, args):
+    status = lock_status(cfg, vault)
+    auth.say('Current vault lock: ' + encode({k: status.get(k) for k in (
+        'state', 'label', 'holder', 'holder_email', 'info', 'progress', 'expires_at', 'generation')}))
+    if args.yes:
+        return
+    if not sys.stdin.isatty():
+        raise auth.Fail(2, 'Breaking a lock needs confirmation in an interactive terminal or an explicit --yes.')
+    if input('Type "break" to retire this lock: ').strip() != 'break':
+        raise auth.Fail(1, 'Lock break cancelled.')
+
+
+def read_local_manifest(path):
+    try:
+        value = json.loads(crypto.read_file(os.path.abspath(path)))
+        docs = value['documents']
+        if not isinstance(docs, list):
+            raise ValueError()
+        return {'documents': [{'id': d['id'], 'revision': int(d['revision']), 'version': d['version']} for d in docs]}
+    except auth.Fail:
+        raise
+    except Exception:
+        raise auth.Fail(2, 'Local manifest must be JSON with documents:[{id,revision,version}].') from None
+
+
+def run_lock(cfg, args):
+    command, vault = args.lock_command, args.vault
+    if command == 'status':
+        return lock_status(cfg, vault)
+    if command == 'clear-policy':
+        row = one(cfg, 'vaults', 'id=' + quote(vault))
+        return action(cfg, 'lock_policy_clear', {'vault': vault, 'expected_revision': row['revision']})
+    if command == 'break' or (command == 'release' and args.force):
+        if args.observed_generation is None or not args.reason:
+            raise auth.Fail(2, 'Breaking a lock requires --observed-generation and --reason.')
+        confirm_break(cfg, vault, args)
+        return action(cfg, 'lock_break', {'vault': vault, 'observed_generation': args.observed_generation, 'reason': args.reason})
+    if command == 'renew':
+        payload = dict(parse_fence(args.fence), vault=vault)
+        if args.ttl is not None:
+            payload['ttl_seconds'] = args.ttl
+        if args.progress is not None:
+            payload['progress'] = args.progress
+        return action(cfg, 'lock_renew', payload)
+    if command == 'release':
+        if not args.fence or args.clean is None:
+            raise auth.Fail(2, 'Release requires --fence and --clean or --dirty.')
+        payload = dict(parse_fence(args.fence), vault=vault, clean=args.clean)
+        if args.progress is not None:
+            payload['progress'] = args.progress
+        return action(cfg, 'lock_release', payload)
+    # acquire
+    info = {}
+    if args.info is not None:
+        try:
+            info = json.loads(args.info)
+        except ValueError:
+            info = None
+        if not isinstance(info, dict):
+            raise auth.Fail(2, '--info must be a JSON object.')
+    if args.label is not None:
+        info['label'] = args.label  # --label wins over an info label.
+    payload = {'vault': vault, 'ttl_seconds': args.ttl, 'on_mismatch': args.on_mismatch, 'info': info}
+    if args.request_id:
+        payload['request_id'] = args.request_id
+    if args.local_manifest:
+        payload['local'] = read_local_manifest(args.local_manifest)
+    if args.restore_to:
+        restore_dir = Path(os.path.abspath(args.restore_to))
+        if not restore_dir.is_dir() or restore_dir.is_symlink():
+            raise auth.Fail(2, '--restore-to must be an existing directory.')
+        session.socket_info(socket_path(cfg))  # Require an unlocked session before locking.
+    if args.force:
+        if args.observed_generation is None or not args.reason:
+            raise auth.Fail(2, 'Force acquire requires --observed-generation and --reason.')
+        confirm_break(cfg, vault, args)
+        payload.update(force=True, observed_generation=args.observed_generation, reason=args.reason)
+    deadline = time.monotonic() + max(0, args.wait)
+    while True:
+        try:
+            result = action(cfg, 'lock_acquire', payload)
+            break
+        except LockRefused as refused:
+            remaining = deadline - time.monotonic()
+            if refused.details.get('code') != 'lock_held' or remaining <= 0:
+                raise
+            time.sleep(min(remaining, 5, max(1, refused.details.get('retry_after') or 1)))
+    output = {k: result[k] for k in ('lease_id', 'generation', 'expires_at', 'server_time', 'ttl_seconds',
+                                     'local_status', 'local_details', 'vault', 'previous') if k in result}
+    output['fence'] = f"{result['generation']}:{result['lease_id']}"
+    output['documents'] = [manifest_entry(d) for d in result['documents']]
+    if args.restore_to:
+        restored = []
+        try:
+            for doc in result['documents']:
+                if doc['archived']:
+                    continue
+                target = restore_dir / doc['id']
+                # Destinations are document IDs: encrypted names never select paths.
+                session_call(cfg, {'command': 'restore', 'document': doc['id'], 'version': doc['version'],
+                                   'to': str(target), 'overwrite': False})
+                restored.append({'id': doc['id'], 'version': doc['version'], 'path': str(target)})
+        except auth.Fail as error:
+            output['restore_failed'] = True
+            output['restore_error'] = str(error)
+        output['restored'] = restored
+    return output
+
 
 def parser():
     common = argparse.ArgumentParser(add_help=False)
@@ -656,9 +860,53 @@ Manual: https://github.com/pocketcontext/vaultcontext/blob/main/skills/vaultcont
         'Requires login and the signed macOS helper. Delete the Keychain credential scoped to '
         'this server and account. Does not end an existing session; use vaultcontext lock separately. '
         'Lock and logout retain enrollment.', 'keychain-forget')
-    add('lock', 'Close the local memory session',
-        'End the unlocked session for the configured server and email. Keeps the application '
-        'token; use vaultcontext logout to remove it too. Safely clears stale sessions.', 'lock')
+    q = add('lock', 'Close the memory session, or manage a vault write lock',
+        'Without a subcommand, end the unlocked session for the configured server and email. Keeps the application '
+        'token; use vaultcontext logout to remove it too. Safely clears stale sessions.\n\n'
+        'With a subcommand, manage the exclusive vault write lock (requires login; restore needs an unlocked session). '
+        'After the first acquire, every save in that vault needs --fence GENERATION:LEASE_ID. '
+        'Lock holder, label, info and progress are plaintext operational metadata visible to vault members: never put secrets in them. '
+        'Lock refusals print a JSON error object and exit with code 5.',
+        'lock acquire VAULT_ID --label alice@laptop')
+    locks = q.add_subparsers(dest='lock_command', metavar='LOCK_COMMAND')
+    def lock_parser(name, help_text, example):
+        r = locks.add_parser(name, parents=[common], help=help_text, description=help_text,
+                             epilog='Example:\n  vaultcontext lock ' + example,
+                             formatter_class=argparse.RawDescriptionHelpFormatter)
+        r.add_argument('vault', metavar='VAULT_ID', help=positional_help['vault'][1])
+        return r
+    def breaking(r):
+        r.add_argument('--observed-generation', type=int, metavar='N', help='generation shown by lock status; must still be current')
+        r.add_argument('--reason', metavar='TEXT', help='audited reason; required to break or force')
+        r.add_argument('--yes', action='store_true', help='skip the interactive confirmation (scripts must pass it explicitly)')
+    r = lock_parser('acquire', 'Take the exclusive vault write lock (fails at once if held)',
+                    'acquire VAULT_ID --label alice@laptop --local-manifest receipt.json')
+    r.add_argument('--ttl', type=int, default=900, metavar='SECONDS', help='lease lifetime, 30–3600 (default: %(default)s); renew every ttl/3')
+    r.add_argument('--local-manifest', metavar='PATH', help='JSON {documents:[{id,revision,version}]} describing the local set to compare')
+    r.add_argument('--on-mismatch', choices=['fail', 'lock'], default='fail', help='fail: refuse and do not lock (default); lock: lock anyway, then restore')
+    r.add_argument('--restore-to', metavar='DIR', help='after locking, write every active pinned document to DIR/DOCUMENT_ID (requires unlock)')
+    r.add_argument('--wait', type=int, default=0, metavar='SECONDS', help='poll while the lock is held, up to this long (default: no wait)')
+    r.add_argument('--label', metavar='TEXT', help='who holds the lock, stored as info.label (plaintext; no secrets)')
+    r.add_argument('--info', metavar='JSON', help='extra plaintext JSON object, at most 2 KB; --label wins on label')
+    r.add_argument('--request-id', metavar='ID', help='idempotency key: repeating it returns the same lease to the same holder')
+    r.add_argument('--force', action='store_true', help='owner only: break the current lock and acquire in one step')
+    breaking(r)
+    r = lock_parser('renew', 'Extend your lease and report progress', 'renew VAULT_ID --fence 3:abcdefghijklmno --progress applications')
+    r.add_argument('--fence', required=True, metavar='GEN:LEASE', help='fence printed by lock acquire')
+    r.add_argument('--ttl', type=int, metavar='SECONDS', help='new lease lifetime, 30–3600 (default: unchanged)')
+    r.add_argument('--progress', metavar='TEXT', help='plaintext progress, at most 200 characters')
+    r = lock_parser('release', 'Release your lock, or break it with --force', 'release VAULT_ID --fence 3:abcdefghijklmno --clean')
+    r.add_argument('--fence', metavar='GEN:LEASE', help='fence printed by lock acquire')
+    outcome = r.add_mutually_exclusive_group()
+    outcome.add_argument('--clean', dest='clean', action='store_const', const=True, help='the run finished and saved its state')
+    outcome.add_argument('--dirty', dest='clean', action='store_const', const=False, help='the run failed or stopped early')
+    r.add_argument('--progress', metavar='TEXT', help='final plaintext progress')
+    r.add_argument('--force', action='store_true', help='alias for lock break (owner only): retire a lock whose fence was lost')
+    breaking(r)
+    r = lock_parser('break', 'Owner only: retire a crashed holder\'s lock', 'break VAULT_ID --observed-generation 3 --reason "laptop crashed"')
+    breaking(r)
+    lock_parser('status', 'Show the vault lock holder, label, progress and expiry', 'status VAULT_ID')
+    lock_parser('clear-policy', 'Owner only: allow unfenced saves again while no lock is held', 'clear-policy VAULT_ID')
     add('change-passphrase', 'Change your identity passphrase',
         unlocked + 'Prompt twice for a new passphrase (at least 12 characters) in an interactive '
         'terminal and re-encrypt the server identity bundle. This does not replace identity keys. '
@@ -691,6 +939,10 @@ Manual: https://github.com/pocketcontext/vaultcontext/blob/main/skills/vaultcont
                    help='existing document ID from vaultcontext list; omit to create a new document')
     q.add_argument('--name', metavar='NAME',
                    help='encrypted display name for this version (default: exact source path argument)')
+    q.add_argument('--fence', metavar='GEN:LEASE',
+                   help='current vault lock fence from lock acquire; required once the vault has been locked')
+    q.add_argument('--expect-revision', type=int, metavar='N',
+                   help='fail unless the document is still at revision N (0 for a new document)')
     q = add('list', 'List files and document IDs in a vault',
         unlocked + 'Authenticate current versions and show decrypted names, sizes, revisions and '
         'archive status. Lists active documents by default. Does not print file contents. '
@@ -834,8 +1086,11 @@ def run(args):
         crypto.restore_file(args.to, base64.b64decode(matches[0]['data'], validate=True), overwrite=args.overwrite)
         return {'restored': args.version}
     cfg = auth.config(args)
-    if args.command not in ('lock', 'logout', 'keychain-forget'):
+    lock_command = getattr(args, 'lock_command', None)
+    if args.command not in ('lock', 'logout', 'keychain-forget') or lock_command:
         auth.require_release(cfg)
+    if lock_command:
+        return run_lock(cfg, args)
     if args.command == 'login':
         saved = (auth.google_login(cfg, args.port, args.timeout, not args.no_browser) if args.google
                  else auth.login(cfg) if args.password
@@ -909,6 +1164,10 @@ def main():
             return 0
         args = command_parser.parse_args()
         result = run(args)
+        if isinstance(result, dict) and result.get('restore_failed'):
+            print(encode(result))
+            auth.say('Lock acquired but restore failed; release or retry under the printed fence.')
+            return 1
         if args.command == 'cat':
             sys.stdout.buffer.write(result)
             sys.stdout.buffer.flush()
@@ -919,6 +1178,9 @@ def main():
         with open(os.devnull, 'wb') as sink:
             os.dup2(sink.fileno(), sys.stdout.fileno())
         return 1
+    except LockRefused as error:
+        print(encode({'error': error.details}))
+        auth.say(str(error)); return error.code
     except auth.Fail as error:
         auth.say(str(error)); return error.code
     except FileNotFoundError:

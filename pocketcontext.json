@@ -38,7 +38,8 @@
       "frozen",
       "created",
       "archived",
-      "archive_revision"
+      "archive_revision",
+      "lock_policy"
     ],
     "memberships": [
       "id",
@@ -103,6 +104,26 @@
       "action",
       "target",
       "created"
+    ],
+    "locks": [
+      "id",
+      "vault",
+      "holder",
+      "lease_id",
+      "generation",
+      "state",
+      "acquired_at",
+      "renewed_at",
+      "expires_at",
+      "released_at",
+      "ttl_seconds",
+      "clean",
+      "progress",
+      "info",
+      "request_id",
+      "broken_by",
+      "break_reason",
+      "created"
     ]
   },
   "timeoutMs": 5000,
@@ -120,7 +141,8 @@
       "versions": "EXISTS (SELECT 1 FROM memberships m WHERE m.vault = versions.vault AND m.account = :requester AND m.active = 1)",
       "version_chunks": "EXISTS (SELECT 1 FROM memberships m WHERE m.vault = version_chunks.vault AND m.account = :requester AND m.active = 1)",
       "invitations": "account = :requester OR EXISTS (SELECT 1 FROM vaults v WHERE v.id = invitations.vault AND v.owner = :requester)",
-      "audit_log": "(audit_log.vault = '' AND audit_log.actor = :requester AND audit_log.action = 'identity_rewrap') OR EXISTS (SELECT 1 FROM memberships m WHERE m.vault = audit_log.vault AND m.account = :requester AND m.active = 1)"
+      "audit_log": "(audit_log.vault = '' AND audit_log.actor = :requester AND audit_log.action = 'identity_rewrap') OR EXISTS (SELECT 1 FROM memberships m WHERE m.vault = audit_log.vault AND m.account = :requester AND m.active = 1)",
+      "locks": "EXISTS (SELECT 1 FROM memberships m WHERE m.vault = locks.vault AND m.account = :requester AND m.active = 1)"
     },
     "timeoutMs": 5000,
     "maxRows": 100000,

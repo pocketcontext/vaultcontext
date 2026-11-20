@@ -218,6 +218,8 @@ uv run --locked python tests/oauth.py
 uv run --locked python tests/skill.py --binary /absolute/path/to/pinned/pocketcontext
 uv run --locked python tests/cli_forward.py --binary /absolute/path/to/pinned/pocketcontext
 uv run --locked python tests/deploy.py --binary /absolute/path/to/pinned/pocketcontext
+uv run --locked python tests/locks.py --binary /absolute/path/to/pinned/pocketcontext
+uv run --locked python tests/lock_client.py --binary /absolute/path/to/pinned/pocketcontext
 uv run --locked python tests/deploy_workflow.py
 ```
 
