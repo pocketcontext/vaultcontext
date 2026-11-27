@@ -25,20 +25,15 @@ class ReleaseTests(unittest.TestCase):
                 self.assertNotIsInstance(failure.exception, auth.UpgradeRequired)
 
     def test_transport_sends_release_and_handles_upgrade_without_retry(self):
-        response = Mock()
-        response.__enter__ = Mock(return_value=response)
-        response.__exit__ = Mock(return_value=False)
-        response.status = 200
-        response.read.return_value = b'{}'
-        with patch.object(auth.opener, 'open', return_value=response) as request:
+        with patch.object(auth, 'http_request', return_value=(200, {}, b'{}')) as request:
             auth.send({'url': 'https://synthetic.example'}, 'GET', '/api/context/schema')
-            self.assertEqual(request.call_args.args[0].get_header('X-vaultcontext-release'), auth.RELEASE_ID)
+            self.assertEqual(request.call_args.args[3]['X-VaultContext-Release'], auth.RELEASE_ID)
         body = json.dumps({'data': {'code': 'client_upgrade_required'}, 'message': 'PRIVATE SERVER CONTENT'}).encode()
-        error = urllib.error.HTTPError('https://synthetic.example', 403, '', {}, io.BytesIO(body))
-        with patch.object(auth.opener, 'open', side_effect=error) as request, patch.object(auth, 'login') as login:
+        with patch.object(auth, 'http_request', return_value=(403, {}, body)) as request, patch.object(auth, 'login') as login:
             with self.assertRaises(auth.UpgradeRequired) as failure:
                 auth.send({'url': 'https://synthetic.example'}, 'POST', '/api/collections/vault_actions/records', {})
             request.assert_called_once()
+            self.assertFalse(request.call_args.kwargs['retry'])
             login.assert_not_called()
             self.assertNotIn('PRIVATE SERVER CONTENT', str(failure.exception))
 

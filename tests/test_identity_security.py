@@ -78,10 +78,9 @@ class IdentitySecurityTests(unittest.TestCase):
                 with self.assertRaises(OSError): cli.pins({})
 
     def test_download_upgrade_race_does_not_suppress_upgrade_guidance(self):
-        error = urllib.error.HTTPError('https://synthetic.invalid', 403, 'Forbidden', {},
-            io.BytesIO(json.dumps({'data': {'code': 'client_upgrade_required'}, 'message': 'PRIVATE'}).encode()))
+        body = json.dumps({'data': {'code': 'client_upgrade_required'}, 'message': 'PRIVATE'}).encode()
         with patch.object(cli, 'request', return_value={'token': 'synthetic'}), \
-             patch.object(auth.opener, 'open', side_effect=error):
+             patch.object(auth, 'http_request', return_value=(403, {}, body)):
             with self.assertRaises(auth.UpgradeRequired) as caught:
                 cli.download_chunk({'url': 'https://synthetic.invalid'}, {'id': 'synthetic', 'ciphertext': 'synthetic'})
         self.assertNotIn('PRIVATE', str(caught.exception))

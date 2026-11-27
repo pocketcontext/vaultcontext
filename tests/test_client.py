@@ -129,7 +129,7 @@ class ClientTests(unittest.TestCase):
     def test_vault_archive_filters_retain_pagination(self):
         for flag, archived in ((None, False), ('archived', True), ('all', False)):
             with self.subTest(flag=flag):
-                vaults = [dict(id=str(index), archived=archived, metadata='synthetic') for index in range(51)]
+                vaults = [dict(id=str(index), owner='owner', archived=archived, metadata='synthetic') for index in range(51)]
                 queries = []
                 def query(cfg, sql):
                     queries.append(sql)
@@ -141,9 +141,13 @@ class ClientTests(unittest.TestCase):
                 values = dict(command='vaults')
                 if flag:
                     values[flag] = True
+                def keyed(cfg, table, column, values, where, label):
+                    return {value: {'role': 'owner'} for value in values}
                 with patch.object(vc, 'query', side_effect=query), \
-                     patch.object(vc, 'one', return_value={'role': 'owner'}), \
-                     patch.object(vc, 'vault_key', return_value=b'synthetic'), \
+                     patch.object(vc, 'keyed_rows', side_effect=keyed), \
+                     patch.object(vc, 'owner_envelope', return_value={'signer': 'owner'}), \
+                     patch.object(vc, 'verify_user', return_value={}), \
+                     patch.object(vc, 'open_envelope', return_value=b'synthetic'), \
                      patch.object(vc, 'decrypt_metadata', return_value={'name': 'Synthetic vault'}):
                     result = vc.execute({}, {}, 'owner', values)
                 self.assertEqual([row['id'] for row in result], [str(index) for index in range(51)])

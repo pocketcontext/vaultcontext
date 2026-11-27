@@ -16,15 +16,19 @@ import hashlib
 import http.client
 import http.server
 import json
+import math
 import os
 from pathlib import Path
 from importlib.resources import files
 import re
 import secrets
+import selectors
+import ssl
 import stat
 from . import crypto
 import sys
 import tempfile
+import threading
 import time
 import urllib.error
 import urllib.parse
@@ -175,6 +179,132 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
 
 opener = urllib.request.build_opener(NoRedirect)
 
+# One keep-alive connection per (scheme, host, port) and process. A connection is
+# checked out while in use, returned only after a complete response and dropped on
+# any error. Idle connections are reused only briefly and only if still quiet.
+IDLE_REUSE = 30
+RETRYABLE_ERRORS = (ConnectionError, http.client.RemoteDisconnected, ssl.SSLEOFError, ssl.SSLZeroReturnError)
+_pool = {}
+_pool_lock = threading.Lock()
+_proxied_hosts = {}
+_tls = None
+
+
+def replayable(method, path):
+    """Only reads may be resent after a reused connection fails before any response."""
+    return method == 'GET' or (method == 'POST' and path == '/api/context/query')
+
+
+def _proxied(scheme, netloc):
+    """Proxied requests keep the standard-library proxy handling, without reuse."""
+    key = (scheme, netloc)
+    if key not in _proxied_hosts:
+        proxies = urllib.request.getproxies()
+        _proxied_hosts[key] = bool(proxies.get(scheme)) and not urllib.request.proxy_bypass(netloc)
+    return _proxied_hosts[key]
+
+
+def _new_connection(key, timeout):
+    global _tls
+    scheme, host, port = key
+    if scheme == 'https':
+        if _tls is None:
+            _tls = ssl.create_default_context()  # Certificate and hostname verification.
+        return http.client.HTTPSConnection(host, port, timeout=timeout, context=_tls)
+    return http.client.HTTPConnection(host, port, timeout=timeout)
+
+
+def _quiet(sock):
+    """An idle connection must have nothing to read; data or EOF means the server closed or desynchronized it."""
+    if isinstance(sock, ssl.SSLSocket) and sock.pending():
+        return False
+    with selectors.DefaultSelector() as selector:
+        selector.register(sock, selectors.EVENT_READ)
+        return not selector.select(0)
+
+
+def _checkout(key, timeout):
+    with _pool_lock:
+        entry = _pool.pop(key, None)
+    if entry is not None:
+        conn, since = entry
+        try:
+            if conn.sock is not None and time.monotonic() - since <= IDLE_REUSE and _quiet(conn.sock):
+                conn.timeout = timeout
+                conn.sock.settimeout(timeout)
+                return conn, True
+        except (OSError, ValueError):
+            pass
+        conn.close()
+    return _new_connection(key, timeout), False
+
+
+def _checkin(key, conn):
+    with _pool_lock:
+        previous = _pool.pop(key, None)
+        _pool[key] = (conn, time.monotonic())
+    if previous is not None:
+        previous[0].close()
+
+
+def close_connections():
+    with _pool_lock:
+        entries = list(_pool.values())
+        _pool.clear()
+    for conn, _ in entries:
+        conn.close()
+
+
+def _legacy_request(url, method, body, headers, timeout, limit):
+    request = urllib.request.Request(url, data=body, headers=headers, method=method)
+    try:
+        with opener.open(request, timeout=timeout) as response:
+            return response.status, response.headers, response.read() if limit is None else response.read(limit)
+    except urllib.error.HTTPError as error:
+        try:
+            return error.code, error.headers, error.read() if limit is None else error.read(limit)
+        finally:
+            error.close()
+
+
+def http_request(url, method='GET', body=None, headers=None, timeout=TIMEOUT, *, retry=None, limit=None):
+    """Send one request without following redirects. Returns (status, headers, body bytes).
+
+    A failure on a reused connection before any response arrives is retried once on a
+    new connection only when `retry` is true (default: GET only). Writes are never resent.
+    Transport errors propagate as OSError, ValueError or http.client.HTTPException.
+    """
+    parts = urllib.parse.urlsplit(url)
+    if parts.scheme not in ('http', 'https') or not parts.hostname:
+        raise ValueError('unsupported URL')
+    headers = dict(headers or {})
+    if _proxied(parts.scheme, parts.netloc.rpartition('@')[2]):
+        return _legacy_request(url, method, body, headers, timeout, limit)
+    key = (parts.scheme, parts.hostname.lower(), parts.port or (443 if parts.scheme == 'https' else 80))
+    target = (parts.path or '/') + ('?' + parts.query if parts.query else '')
+    retry = method == 'GET' if retry is None else retry
+    for attempt in range(2):
+        conn, reused = _checkout(key, timeout)
+        try:
+            conn.request(method, target, body=body, headers=headers)
+            response = conn.getresponse()
+        except Exception as error:
+            conn.close()
+            if attempt == 0 and reused and retry and isinstance(error, RETRYABLE_ERRORS):
+                continue
+            raise
+        try:
+            raw = response.read() if limit is None else response.read(limit)
+            complete = response.isclosed() and not response.will_close
+        except BaseException:
+            conn.close()
+            raise
+        if complete:
+            _checkin(key, conn)
+        else:
+            conn.close()
+        return response.status, response.msg, raw
+
 
 def send(cfg, method, path, body=None, token=None, timeout=TIMEOUT):
     """Send one request. Returns (status, parsed JSON body, or the text when it is not JSON)."""
@@ -182,17 +312,14 @@ def send(cfg, method, path, body=None, token=None, timeout=TIMEOUT):
     if token:
         headers['Authorization'] = token
     data = None if body is None else json.dumps(body).encode()
-    request = urllib.request.Request(cfg['url'] + path, data=data, headers=headers, method=method)
     try:
-        with opener.open(request, timeout=timeout) as response:
-            status, raw = response.status, response.read()
-    except urllib.error.HTTPError as error:
-        status, raw = error.code, error.read()
-        if 300 <= status < 400:
-            raise Fail(1, f'HTTP {status}: the server redirects to {error.headers.get("Location")}. Set VAULTCONTEXT_URL to the final address.')
+        status, response_headers, raw = http_request(cfg['url'] + path, method, data, headers, timeout,
+                                                     retry=replayable(method, path))
     except (OSError, ValueError, http.client.HTTPException) as error:
         reason = getattr(error, 'reason', error)
         raise Fail(1, f'cannot reach {cfg["url"]}: {reason}')
+    if 300 <= status < 400:
+        raise Fail(1, f'HTTP {status}: the server redirects to {response_headers.get("Location")}. Set VAULTCONTEXT_URL to the final address.')
     text = raw.decode('utf-8', 'replace')
     try:
         value = json.loads(text) if text else None
@@ -258,15 +385,28 @@ def oauth_send(cfg, method, path, body=None, token=None):
         raise Fail(1, 'OAuth authentication request failed; check the server URL and connection, then retry.') from None
 
 
+IDENTITY_RENEWAL_MARGIN = 120
+
+
 def oauth_refresh_needed(session):
-    """Unverified JWT claims only schedule renewal; the server always authenticates the token."""
+    """Unverified JWT claims only schedule renewal; the server always authenticates the token.
+
+    Identity app tokens cannot be refreshed, so renew them through a new assertion
+    only within two minutes of expiry. Google tokens renew every five minutes or
+    near expiry, to respect auth rate limits.
+    """
     try:
         payload = session['token'].split('.')[1]
         claims = json.loads(base64.urlsafe_b64decode(payload + '=' * (-len(payload) % 4)))
         now = time.time()
+        if session.get('method') == 'identity':
+            expires = claims['exp']
+            if isinstance(expires, bool) or not isinstance(expires, (int, float)) or not math.isfinite(expires):
+                return True
+            return expires - now <= IDENTITY_RENEWAL_MARGIN
         refreshed_at = session['refreshed_at']
         return (not 0 <= now - refreshed_at < 300 or claims['exp'] <= now + 60)
-    except (ValueError, TypeError, KeyError, IndexError):
+    except (ValueError, TypeError, KeyError, IndexError, AttributeError):
         return True
 
 
@@ -389,7 +529,9 @@ def call(cfg, method, path, body=None):
             check_lease_access(cfg, 401)
             raise Fail(1, 'The unlocked session has no saved login; lock and sign in again.')
         session = login(cfg) if cfg.get('password') else identity_login(cfg)
-    if session.get('method') == 'identity' and (oauth_refresh_needed(session) or path == '/api/collections/users/auth-refresh'):
+    if cached and session.get('method') == 'identity' and oauth_refresh_needed(session):
+        # A fresh identity token is used as is, including for auth-refresh (whoami):
+        # the server returns the same bounded token, which is not saved.
         session = identity_login(cfg)
     if cfg.get('_expected_account'):
         if not session.get('account'):
@@ -402,7 +544,6 @@ def call(cfg, method, path, body=None):
             check_lease_access(cfg, 403)
             raise Fail(1, 'Authentication changed the unlocked account; lock and sign in again. No vault operation was attempted.')
     if session.get('method') == 'google' and (oauth_refresh_needed(session) or path == '/api/collections/users/auth-refresh'):
-        # Renew at most every five minutes, or near expiry, to respect auth rate limits.
         status, data = oauth_send(cfg, 'POST', '/api/collections/users/auth-refresh', token=session['token'])
         if status != 200:
             check_lease_access(cfg, status)

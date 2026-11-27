@@ -97,7 +97,10 @@ Shared identity state is private under `$XDG_STATE_HOME/pocketcontext-id/` (defa
 `~/.local/state/pocketcontext-id/`), with seven-day idle and thirty-day absolute
 limits. App tokens remain in VaultContext's own state directory and expire at most
 fifteen minutes after the assertion was issued. Renewal obtains a new audience-bound
-assertion instead of extending the old token. Central disable blocks new assertions;
+assertion instead of extending the old token. The client renews only when the saved app
+token is within two minutes of expiry, or its expiry cannot be read; `whoami` and
+unlocked memory-session operations otherwise reuse the saved token. Auth-refresh
+returns the same bounded identity token, which the client does not save. Central disable blocks new assertions;
 complete offboarding also disables independent fallback application accounts.
 
 Login never initializes, downloads or unlocks encryption keys. Verified hosted
@@ -123,6 +126,12 @@ The backend accepts exactly one matching client release. See [client releases an
 upgrades](docs/client-releases.md). Users upgrade explicitly when the server changes;
 old clients cannot use protected APIs. Public installation instructions and local
 lock/logout remain available. The release ID is a compatibility check, not authorization.
+
+Within one process, including the unlocked memory session, the client reuses one
+verified keep-alive connection per server for up to 30 idle seconds. Only GET and
+read-only SQL requests are resent, once, when a reused connection fails before any
+response arrives; writes are never resent. `vaults` reads envelopes, memberships and
+signer keys in batches of 25 and verifies each distinct signer once per command.
 
 Install [uv](https://docs.astral.sh/uv/getting-started/installation/) and copy the executable launcher onto your PATH:
 

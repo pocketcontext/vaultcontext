@@ -613,3 +613,22 @@ passed from unrelated temporary directories: portable skill and full CLI forward
 including private terminal unlock, memory-session expiry, sharing, exact restores,
 comparison privacy and revocation. The published package carries the matching release
 ID and pinned shared identity dependency.
+
+## Client performance — 27 November 2026
+
+Client-only change within release `2026-11-20.1`; the backend and API contract are
+unchanged. `vaults` batches envelope, membership and signer-key reads (four SQL
+queries for fourteen vaults instead of about fifty-seven) and verifies each distinct
+signer once. Hosted identity sessions renew only within two minutes of app-token
+expiry, and `whoami` reuses a fresh token. Each process reuses one keep-alive
+connection per server; only GET and read-only SQL requests are resent after a reused
+connection fails before any response.
+
+Local macOS validation on PocketContext `5f1b8f53` passed: 174 unit tests, including
+bounded/fail-closed vault listing, renewal, connection reuse and no-write-replay
+regressions; hosted identity, release gate, identity rewrap, integration, snapshot
+freshness, archive/sharing migrations, sharing-client integration, realtime, limits,
+complete backup, auth, OAuth integration and client, portable skill, CLI forwarding,
+deployment, locks, lock client, maintenance, deployment workflow, entrypoint and
+storage settings checks. Object-storage integration (needs boto3 and a local S3
+service) and container gates were left to CI.

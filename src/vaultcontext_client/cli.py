@@ -172,8 +172,30 @@ def pins(cfg):
     except FileNotFoundError:
         return {}
 
-def verify_user(cfg, account, fingerprint=None):
-    row = one(cfg, 'identities', 'account=' + quote(account))
+def keyed_rows(cfg, table, column, values, where, label):
+    """Fetch exactly one row per value with chunked IN queries; fail closed otherwise."""
+    found = {}
+    values = sorted(set(values))
+    for offset in range(0, len(values), 25):
+        batch = values[offset:offset + 25]
+        page = query(cfg, f'SELECT * FROM {table} WHERE {where} AND {column} IN (' +
+                     ','.join(quote(value) for value in batch) + f') ORDER BY {column} LIMIT {len(batch) + 1}')
+        keyed = {}
+        for row in page:
+            if row[column] in keyed:
+                raise auth.Fail(1, f'Incomplete or duplicate {label}.')
+            keyed[row[column]] = row
+        if set(keyed) != set(batch):
+            raise auth.Fail(1, f'Incomplete or duplicate {label}.')
+        found.update(keyed)
+    return found
+
+def verify_user(cfg, account, fingerprint=None, row=None):
+    """Check a directory key against pins. `row` may be prefetched for exactly this account."""
+    if row is None:
+        row = one(cfg, 'identities', 'account=' + quote(account))
+    elif row.get('account') != account:
+        raise auth.Fail(1, 'Directory identity mismatch.')
     actual = crypto.fingerprint(public(row))
     if actual != row['fingerprint']:
         raise auth.Fail(1, 'Directory fingerprint mismatch.')
@@ -239,14 +261,39 @@ def seal(cfg, identity, key, vault, account, epoch, signer):
     recipient = verify_user(cfg, account)
     return encode({'signer': signer, 'sealed': crypto.seal_key(key, recipient, identity, key_context(vault, account, epoch, signer))})
 
+def owner_envelope(row, owner):
+    envelope = json.loads(row['envelope'])
+    if envelope['signer'] != owner:
+        raise auth.Fail(1, 'Vault-key envelope was not signed by its owner.')
+    return envelope
+
+def open_envelope(identity, envelope, signer_public, vault, account, epoch):
+    signer = envelope['signer']
+    return crypto.open_key(envelope['sealed'], identity, signer_public, key_context(vault, account, epoch, signer))
+
 def vault_key(cfg, identity, account, vault, epoch, expected_signer=None):
     row = one(cfg, 'key_envelopes', f'vault={quote(vault)} AND account={quote(account)} AND epoch={int(epoch)}')
-    envelope = json.loads(row['envelope'])
-    signer = envelope['signer']
     owner = expected_signer or one(cfg, 'vaults', 'id=' + quote(vault))['owner']
-    if signer != owner:
-        raise auth.Fail(1, 'Vault-key envelope was not signed by its owner.')
-    return crypto.open_key(envelope['sealed'], identity, verify_user(cfg, signer), key_context(vault, account, epoch, signer))
+    envelope = owner_envelope(row, owner)
+    return open_envelope(identity, envelope, verify_user(cfg, envelope['signer']), vault, account, epoch)
+
+def list_vaults(cfg, identity, account, where):
+    # Batched reads: one query per 25 vaults for envelopes, memberships and signer keys.
+    vaults = rows(cfg, 'vaults', where)
+    ids = [vault['id'] for vault in vaults]
+    mine = 'account=' + quote(account)
+    envelopes = keyed_rows(cfg, 'key_envelopes', 'vault', ids, mine + ' AND epoch=1', 'vault-key envelopes')
+    memberships = keyed_rows(cfg, 'memberships', 'vault', ids, mine + ' AND active=1', 'vault memberships')
+    checked = {vault['id']: owner_envelope(envelopes[vault['id']], vault['owner']) for vault in vaults}
+    directory = keyed_rows(cfg, 'identities', 'account', [e['signer'] for e in checked.values()], '1=1', 'signer identities')
+    # Each distinct signer is verified and pinned once per command.
+    signers = {signer: verify_user(cfg, signer, row=directory[signer]) for signer in sorted(directory)}
+    result = []
+    for vault in vaults:
+        envelope = checked[vault['id']]
+        key = open_envelope(identity, envelope, signers[envelope['signer']], vault['id'], account, 1)
+        result.append(dict(id=vault['id'], **decrypt_metadata(key, vault['metadata'], {'kind': 'vault-metadata', 'vault': vault['id']}), archived=bool(vault['archived']), role=memberships[vault['id']]['role']))
+    return result
 
 def metadata(key, value, context):
     return encode(crypto.encrypt_bytes(key, encode(value).encode(), context))
@@ -273,23 +320,23 @@ def download_chunk(cfg, chunk):
     path = '/api/files/version_chunks/' + urllib.parse.quote(chunk['id'], safe='') + '/' + urllib.parse.quote(chunk['ciphertext'], safe='')
     url = cfg['url'] + path + '?' + urllib.parse.urlencode({'token': token})
     try:
-        with auth.opener.open(urllib.request.Request(url, headers={'User-Agent': auth.USER_AGENT, 'X-VaultContext-Release': auth.RELEASE_ID}), timeout=30) as response:
-            value = response.read(262145)
-        if len(value) > 262144 or hashlib.sha256(value).hexdigest() != chunk['sha256']:
-            raise ValueError('invalid chunk')
-        return value.decode('utf-8')
-    except urllib.error.HTTPError as error:
+        status, _, value = auth.http_request(url, 'GET', None, {'User-Agent': auth.USER_AGENT, 'X-VaultContext-Release': auth.RELEASE_ID}, 30, limit=262145)
+    except Exception:
+        raise auth.Fail(1, 'Protected chunk download failed; sensitive details suppressed.') from None
+    if not 200 <= status < 300:
         try:
-            data = json.loads(error.read(65537))
+            data = json.loads(value[:65537])
         except Exception:
             data = None
-        finally:
-            error.close()
-        if (error.code == 403 and isinstance(data, dict) and
+        if (status == 403 and isinstance(data, dict) and
                 isinstance(data.get('data'), dict) and
                 data['data'].get('code') == 'client_upgrade_required'):
             raise auth.UpgradeRequired() from None
         raise auth.Fail(1, 'Protected chunk download failed; sensitive details suppressed.') from None
+    try:
+        if len(value) > 262144 or hashlib.sha256(value).hexdigest() != chunk['sha256']:
+            raise ValueError('invalid chunk')
+        return value.decode('utf-8')
     except Exception:
         raise auth.Fail(1, 'Protected chunk download failed; sensitive details suppressed.') from None
 
@@ -389,12 +436,8 @@ def execute(cfg, identity, account, args):
         vault, key = uid(), crypto.new_vault_key()
         return action(cfg, 'vault_create', {'id': vault, 'metadata': metadata(key, {'name': args['name']}, {'kind': 'vault-metadata', 'vault': vault}), 'envelope': seal(cfg, identity, key, vault, account, 1, account)})
     if command == 'vaults':
-        result = []
         where = '1=1' if args.get('all') else 'archived=' + ('1' if args.get('archived') else '0')
-        for vault in rows(cfg, 'vaults', where):
-            key = vault_key(cfg, identity, account, vault['id'], 1)
-            result.append(dict(id=vault['id'], **decrypt_metadata(key, vault['metadata'], {'kind': 'vault-metadata', 'vault': vault['id']}), archived=bool(vault['archived']), role=one(cfg, 'memberships', f'vault={quote(vault["id"])} AND account={quote(account)} AND active=1')['role']))
-        return result
+        return list_vaults(cfg, identity, account, where)
     if command in ('archive-vault', 'unarchive-vault'):
         vault = one(cfg, 'vaults', 'id=' + quote(args['vault']))
         return action(cfg, 'vault_archive' if command == 'archive-vault' else 'vault_unarchive',

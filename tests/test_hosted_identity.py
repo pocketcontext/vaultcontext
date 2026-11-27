@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 """Hosted identity renewals fail closed and keep direct fallback explicit."""
+import base64
+import json
 import os
 import sys
 import tempfile
@@ -13,6 +15,11 @@ from vaultcontext_client import cli as commands, session as sessions
 
 class IdentityError(Exception):
     pass
+
+
+def jwt(**claims):
+    payload = base64.urlsafe_b64encode(json.dumps(claims).encode()).rstrip(b'=').decode()
+    return 'header.' + payload + '.signature'
 
 
 class IdentityClientTests(unittest.TestCase):
@@ -140,6 +147,70 @@ class IdentityClientTests(unittest.TestCase):
             commands.run(commands.parser().parse_args(['logout']))
         stop.assert_called_once_with(self.cfg, logout=True)
         self.identity.login.assert_not_called(); self.identity.assertion.assert_not_called()
+
+    def save_identity(self, token, **extra):
+        session = dict({'url': self.cfg['url'], 'email': self.cfg['email'], 'method': 'identity',
+                        'account': 'user00000000001', 'token': token, 'refreshed_at': 0}, **extra)
+        cli.save_session(self.cfg, session)
+        return session
+
+    def test_identity_renews_only_within_two_minutes_of_expiry(self):
+        now = time.time()
+        cases = ((now + 900, False), (now + 400, False), (now + 125, False), (now + 115, True),
+                 (now - 5, True), ('soon', True), (None, True), (float('nan'), True), (True, True))
+        for expires, renew in cases:
+            with self.subTest(expires=expires):
+                # Token age is irrelevant for identity sessions; refreshed_at is ancient.
+                session = {'method': 'identity', 'token': jwt(exp=expires), 'refreshed_at': 0}
+                self.assertIs(cli.oauth_refresh_needed(session), renew)
+        self.assertTrue(cli.oauth_refresh_needed({'method': 'identity', 'token': 'not-a-jwt', 'refreshed_at': time.time()}))
+        self.assertTrue(cli.oauth_refresh_needed({'method': 'identity', 'token': jwt(iat=1), 'refreshed_at': time.time()}))
+
+    def test_google_renewal_rule_unchanged(self):
+        now = time.time()
+        self.assertTrue(cli.oauth_refresh_needed({'method': 'google', 'token': jwt(exp=now + 900), 'refreshed_at': now - 301}))
+        self.assertFalse(cli.oauth_refresh_needed({'method': 'google', 'token': jwt(exp=now + 900), 'refreshed_at': now - 10}))
+        self.assertTrue(cli.oauth_refresh_needed({'method': 'google', 'token': jwt(exp=now + 30), 'refreshed_at': now - 10}))
+
+    def test_fresh_identity_token_older_than_five_minutes_is_reused(self):
+        token = jwt(exp=time.time() + 400)
+        self.save_identity(token)
+        with patch.object(cli, 'send', return_value=(200, {'rows': []})) as send:
+            self.assertEqual(cli.call(self.cfg, 'POST', '/api/context/query', {'sql': 'SELECT 1'}), (200, {'rows': []}))
+        self.identity.assertion.assert_not_called()
+        self.assertEqual(send.call_count, 1)
+        self.assertEqual(send.call_args.args[4], token)
+
+    def test_identity_token_near_expiry_renews_once(self):
+        self.save_identity(jwt(exp=time.time() + 60))
+        with patch.object(cli, 'oauth_send', return_value=(200, self.response)) as exchange, \
+             patch.object(cli, 'send', return_value=(200, {'rows': []})) as send:
+            cli.call(self.cfg, 'POST', '/api/context/query', {'sql': 'SELECT 1'})
+        self.identity.assertion.assert_called_once()
+        self.assertEqual(exchange.call_args.args[2], '/api/context/auth-with-assertion')
+        self.assertEqual(send.call_args.args[4], 'synthetic-token')
+
+    def test_whoami_with_fresh_identity_token_makes_no_assertion_or_save(self):
+        token = jwt(exp=time.time() + 600)
+        saved = self.save_identity(token)
+        refreshed = dict(self.response, token='same-bounded-token')
+        with patch.object(cli, 'send', return_value=(200, refreshed)) as send, \
+             patch.object(cli, 'oauth_send') as exchange, patch.object(cli, 'config', return_value=self.cfg):
+            self.assertEqual(commands.whoami(self.cfg), 'user00000000001')
+        self.identity.assertion.assert_not_called()
+        exchange.assert_not_called()
+        self.assertEqual(send.call_args.args[1:3], ('POST', '/api/collections/users/auth-refresh'))
+        self.assertEqual(send.call_args.args[4], token)
+        self.assertEqual(cli.load_session(self.cfg), saved)
+
+    def test_worker_operation_with_fresh_identity_token_makes_no_assertion(self):
+        token = jwt(exp=time.time() + 600)
+        self.save_identity(token)
+        with patch.object(commands, 'require_lock_release'), \
+             patch.object(cli, 'send', return_value=(200, self.response)) as send:
+            self.assertEqual(commands.execute(self.cfg, {}, 'user00000000001', {'command': 'unlock-probe'}), {'unlocked': True})
+        self.identity.assertion.assert_not_called()
+        self.assertEqual(send.call_args.args[4], token)
 
 
 if __name__ == '__main__':
